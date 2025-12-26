@@ -177,7 +177,6 @@ export const api = {
         let found = users.find((u: any) => u.id === id);
         return found ? checkAndExpireUser(found) : null;
     }
-    // Use query param for safety
     const res = await fetch(`${API_URL}/user?id=${encodeURIComponent(id)}`);
     if (!res.ok) return null;
     return await res.json();
@@ -248,7 +247,6 @@ export const api = {
 
   getPayments: async (userId: string): Promise<Payment[]> => {
     if (USE_MOCK_BACKEND) return getStoredPayments().filter((p: Payment) => p.userId === userId);
-    // Use query param for safety
     const res = await fetch(`${API_URL}/payments?userId=${encodeURIComponent(userId)}`);
     return await handleResponse(res);
   },
@@ -349,9 +347,9 @@ export const api = {
         if (changed) localStorage.setItem(MESSAGES_KEY, JSON.stringify(updated));
         return;
     }
-    // Uses PUT body
+    // Uses PUT Body to match backend
     await fetch(`${API_URL}/messages/read`, {
-        method: 'PUT', 
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, otherUserId })
     });

@@ -41,7 +41,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
       return users;
     } catch (e: any) {
       console.error("Failed to fetch conversations", e);
-      setError("Failed to load conversation list.");
+      // Don't set active error, just log it, so user isn't blocked from trying again
       return [];
     } finally {
       setIsLoadingList(false);
@@ -193,13 +193,13 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
               <div 
                 key={user.id}
                 onClick={() => handleUserClick(user)}
-                className={`p-4 border-b cursor-pointer flex items-center transition-colors ${activeChatUser?.id === user.id ? 'bg-green-100 border-l-4 border-green-600' : 'hover:bg-gray-50 border-l-4 border-transparent'}`}
+                className={`p-4 border-b cursor-pointer flex items-center transition-colors ${activeChatUser?.id === user.id ? 'bg-green-50 border-l-4 border-green-600' : 'hover:bg-gray-50 border-l-4 border-transparent'}`}
               >
-                 <div className="h-10 w-10 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden mr-3 shrink-0 border border-gray-300">
+                 <div className="h-12 w-12 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden mr-3 shrink-0 border border-gray-300">
                     {user.profileImage ? (
                         <img src={user.profileImage} alt="" className="h-full w-full object-cover" />
                     ) : (
-                        <UserIcon className="h-5 w-5 text-gray-400" />
+                        <UserIcon className="h-6 w-6 text-gray-400" />
                     )}
                  </div>
                  <div className="overflow-hidden">
@@ -221,11 +221,11 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
                     <button onClick={() => setActiveChatUser(null)} className="md:hidden mr-3 text-gray-600">
                         <ArrowLeft className="h-5 w-5" />
                     </button>
-                    <div className="h-8 w-8 bg-gray-200 rounded-full overflow-hidden mr-3 border border-gray-300">
+                    <div className="h-10 w-10 bg-gray-200 rounded-full overflow-hidden mr-3 border border-gray-300">
                         {activeChatUser.profileImage ? (
                              <img src={activeChatUser.profileImage} alt="" className="h-full w-full object-cover" />
                         ) : (
-                             <UserIcon className="h-4 w-4 text-gray-400 m-2" />
+                             <UserIcon className="h-5 w-5 text-gray-400 m-2" />
                         )}
                     </div>
                     <div>
