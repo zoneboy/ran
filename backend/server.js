@@ -157,7 +157,7 @@ const mapUser = (row) => {
         businessState: row.business_state,
         businessCity: row.business_city,
         businessCommencement: row.business_commencement,
-        businessCategory: row.business_category,
+        business_category: row.business_category,
         statesOfOperation: row.states_of_operation,
         materialTypes: row.material_types || [],
         machineryDeployed: row.machinery_deployed || [],
@@ -704,6 +704,7 @@ router.get('/messages/:userId/:otherUserId', async (req, res) => {
 // Get Conversations List
 router.get('/messages/conversations/:userId', async (req, res) => {
     const { userId } = req.params;
+    console.log(`Fetching conversations for user: ${userId}`);
     try {
         // Find distinct users interacted with
         const query = `
@@ -715,6 +716,8 @@ router.get('/messages/conversations/:userId', async (req, res) => {
         const result = await pool.query(query, [userId]);
         const otherIds = result.rows.map(r => r.other_id);
 
+        console.log(`Found ${otherIds.length} conversations`);
+
         if (otherIds.length === 0) return res.json([]);
 
         // Fetch user details for these IDs
@@ -724,8 +727,8 @@ router.get('/messages/conversations/:userId', async (req, res) => {
 
         res.json(users);
     } catch (e) {
-        console.error(e);
-        res.status(500).json({ message: 'Server error' });
+        console.error("Conversation Fetch Error:", e);
+        res.status(500).json({ message: 'Server error fetching conversations' });
     }
 });
 
@@ -735,6 +738,8 @@ router.post('/messages', async (req, res) => {
     const id = `msg-${Date.now()}`;
     const timestamp = new Date().toISOString();
 
+    console.log(`Sending message from ${senderId} to ${receiverId}`);
+
     try {
         await pool.query(
             'INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, is_read) VALUES ($1, $2, $3, $4, $5, $6)',
@@ -742,8 +747,8 @@ router.post('/messages', async (req, res) => {
         );
         res.status(201).json({ id, senderId, receiverId, content, timestamp, isRead: false });
     } catch (e) {
-        console.error(e);
-        res.status(500).json({ message: 'Server error' });
+        console.error("Send Message Error:", e);
+        res.status(500).json({ message: 'Server error sending message' });
     }
 });
 

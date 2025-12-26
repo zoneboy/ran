@@ -26,18 +26,19 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
     setConvoError(null);
     try {
         const users = await api.getConversations(currentUser.id);
+        console.log("Fetched conversations:", users);
         setConversations(users);
         return users;
     } catch (e: any) {
         console.error("Failed to load conversations", e);
-        setConvoError("Could not connect to the messaging server. Please check your internet or try again later.");
+        setConvoError(e.message || "Could not connect to messaging server.");
         return [];
     } finally {
         setIsLoading(false);
     }
   };
 
-  // Initial Load
+  // Initial Load & Polling for Sidebar
   useEffect(() => {
     const init = async () => {
       const users = await fetchConversations();
@@ -66,6 +67,13 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
       }
     };
     init();
+    
+    // Poll conversation list occasionally to catch new incoming chats
+    const interval = setInterval(() => {
+        // Only fetch if we are not actively typing or sending to avoid jitter
+        if (!isSending) fetchConversations();
+    }, 15000);
+    return () => clearInterval(interval);
   }, [currentUser.id, targetUserId]);
 
   // Load Messages when Active Chat Changes
@@ -88,8 +96,8 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
 
     fetchMessages();
     
-    // Simple polling for new messages every 10 seconds
-    const interval = setInterval(fetchMessages, 10000);
+    // Poll for new messages in active chat
+    const interval = setInterval(fetchMessages, 5000);
     return () => clearInterval(interval);
 
   }, [activeChatUser, currentUser.id]);
@@ -119,22 +127,24 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
 
     } catch (e) {
         console.error("Failed to send");
-        alert("Failed to send message. Please check your connection.");
+        alert("Failed to send message. Please check connection.");
         setNewMessage(tempContent);
     } finally {
         setIsSending(false);
     }
   };
 
-  const manualRefreshMessages = async () => {
-    if (!activeChatUser) return;
-    setIsRefreshing(true);
-    const msgs = await api.getMessages(currentUser.id, activeChatUser.id);
-    setMessages(msgs);
-    setIsRefreshing(false);
+  const manualRefresh = async () => {
+      setIsLoading(true);
+      await fetchConversations();
+      if (activeChatUser) {
+          const msgs = await api.getMessages(currentUser.id, activeChatUser.id);
+          setMessages(msgs);
+      }
+      setIsLoading(false);
   };
 
-  if (isLoading) {
+  if (isLoading && conversations.length === 0) {
       return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-10 w-10 text-green-600 animate-spin" /></div>;
   }
 
@@ -157,33 +167,36 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
           <div className={`${activeChatUser ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 bg-white border-r md:rounded-l-lg shadow-sm overflow-hidden`}>
              <div className="p-4 border-b bg-gray-50 flex justify-between items-center hidden md:flex">
                  <h2 className="font-bold text-gray-700">Inbox</h2>
-                 <button onClick={fetchConversations} title="Refresh List" className="text-gray-400 hover:text-green-600">
+                 <button onClick={manualRefresh} title="Refresh List" className="text-gray-400 hover:text-green-600">
                     <RefreshCw className="h-4 w-4" />
                  </button>
              </div>
              
              <div className="flex-1 overflow-y-auto relative">
                  {convoError && (
-                    <div className="p-4 text-center">
-                        <p className="text-red-500 text-sm flex flex-col items-center">
-                            <AlertCircle className="h-6 w-6 mb-2" />
+                    <div className="p-4 text-center bg-red-50 m-2 rounded">
+                        <p className="text-red-500 text-xs flex flex-col items-center">
+                            <AlertCircle className="h-5 w-5 mb-1" />
                             {convoError}
                         </p>
-                        <button onClick={fetchConversations} className="mt-2 text-green-600 text-sm underline">Try Again</button>
+                        <button onClick={manualRefresh} className="mt-2 text-green-600 text-xs underline font-bold">Retry</button>
                     </div>
                  )}
                  
                  {!convoError && conversations.length === 0 ? (
                      <div className="p-8 text-center text-gray-500">
                          <MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                         <p>No conversations yet.</p>
-                         <p className="text-xs mt-1">Visit the directory to message a member.</p>
+                         <p className="font-medium">No conversations yet.</p>
+                         <p className="text-xs mt-1 mb-4">Messages from member directory will appear here.</p>
                          <button 
                             onClick={() => navigate('member-directory')} 
-                            className="mt-4 px-4 py-2 bg-green-100 text-green-700 rounded-md text-sm hover:bg-green-200"
+                            className="w-full px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 shadow-sm transition-colors"
                          >
                             Go to Directory
                          </button>
+                         <div className="mt-6 pt-4 border-t border-gray-100">
+                            <p className="text-[10px] text-gray-400">Your ID: {currentUser.id}</p>
+                         </div>
                      </div>
                  ) : (
                      conversations.map(u => (
@@ -228,7 +241,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
                                 <p className="text-xs text-gray-500">{activeChatUser.firstName} {activeChatUser.lastName}</p>
                             </div>
                         </div>
-                        <button onClick={manualRefreshMessages} title="Refresh Messages" className="text-gray-400 hover:text-green-600">
+                        <button onClick={manualRefresh} title="Refresh Messages" className="text-gray-400 hover:text-green-600">
                             <RefreshCw className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} />
                         </button>
                     </div>
