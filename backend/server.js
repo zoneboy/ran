@@ -178,13 +178,15 @@ const checkExpiry = async (user) => {
     return user;
 };
 
-// Routes via Router
+// Router Definition
 const router = express.Router();
 
 // Health Check Route
 router.get('/', (req, res) => {
     res.json({ message: "RAN Portal API is running." });
 });
+
+// --- AUTH ROUTER ---
 
 // Login
 router.post('/auth/login', async (req, res) => {
@@ -260,7 +262,6 @@ router.post('/auth/request-reset', async (req, res) => {
       res.status(200).json({ message: 'Reset code sent.' });
   } catch (err) {
       console.error("Reset Request Error:", err);
-      // Fallback: If email fails, return error or mock token if needed, but here we error
       res.status(500).json({ message: 'Error processing reset request. ' + err.message });
   }
 });
@@ -339,3 +340,264 @@ router.post('/auth/register', async (req, res) => {
     res.status(201).json(safeUser);
 
   } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Registration failed. ' + error.message });
+  }
+});
+
+// --- USER MANAGEMENT ---
+
+router.get('/users', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM users');
+    const users = result.rows.map(mapUser).map(u => {
+        const { password, ...safe } = u; 
+        return safe;
+    });
+    res.json(users);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.get('/users/:id', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE id = $1', [req.params.id]);
+    if (result.rows.length === 0) return res.status(404).json({ message: 'User not found' });
+    
+    let user = mapUser(result.rows[0]);
+    user = await checkExpiry(user);
+
+    const { password, ...safeUser } = user;
+    res.json(safeUser);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.put('/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const data = req.body;
+  
+  try {
+    // Construct dynamic update query
+    const fields = [
+        'first_name', 'last_name', 'phone', 'category', 'status', 'business_name',
+        'business_address', 'business_state', 'business_city', 'business_commencement',
+        'business_category', 'states_of_operation', 'material_types', 'machinery_deployed',
+        'monthly_volume', 'employees', 'areas_of_interest', 'related_association', 
+        'related_association_name', 'dob', 'profile_image', 'documents', 'expiry_date'
+    ];
+    
+    // Map camelCase body to snake_case db columns
+    const mappedData = {
+        first_name: data.firstName,
+        last_name: data.lastName,
+        phone: data.phone,
+        category: data.category,
+        status: data.status,
+        business_name: data.businessName,
+        business_address: data.businessAddress,
+        business_state: data.businessState,
+        business_city: data.businessCity,
+        business_commencement: data.businessCommencement,
+        business_category: data.businessCategory,
+        states_of_operation: data.statesOfOperation,
+        material_types: data.materialTypes,
+        machinery_deployed: data.machineryDeployed,
+        monthly_volume: data.monthlyVolume,
+        employees: data.employees,
+        areas_of_interest: data.areasOfInterest,
+        related_association: data.relatedAssociation,
+        related_association_name: data.relatedAssociationName,
+        dob: data.dob,
+        profile_image: data.profileImage,
+        documents: JSON.stringify(data.documents),
+        expiry_date: data.expiryDate
+    };
+
+    let setClause = [];
+    let values = [];
+    let idx = 1;
+
+    for (const field of fields) {
+        if (mappedData[field] !== undefined) {
+            setClause.push(`${field} = $${idx}`);
+            values.push(mappedData[field]);
+            idx++;
+        }
+    }
+
+    if (setClause.length === 0) return res.json(data); // Nothing to update
+
+    values.push(id);
+    const query = `UPDATE users SET ${setClause.join(', ')} WHERE id = $${idx} RETURNING *`;
+    
+    const result = await pool.query(query, values);
+    const updatedUser = mapUser(result.rows[0]);
+    const { password, ...safeUser } = updatedUser;
+    
+    res.json(safeUser);
+  } catch (error) {
+    console.error("Update error", error);
+    res.status(500).json({ message: 'Update failed' });
+  }
+});
+
+// Update User ID (Admin Feature)
+router.post('/users/update-id', async (req, res) => {
+    const { currentId, newId } = req.body;
+    try {
+        // Check if new ID exists
+        const check = await pool.query('SELECT id FROM users WHERE id = $1', [newId]);
+        if (check.rows.length > 0) {
+            return res.status(400).json({ message: 'ID already taken' });
+        }
+        
+        // This requires cascading updates usually, but we will do manual transaction if needed.
+        // Assuming simple foreign keys for now.
+        await pool.query('UPDATE users SET id = $1 WHERE id = $2', [newId, currentId]);
+        // Also update payments
+        await pool.query('UPDATE payments SET user_id = $1 WHERE user_id = $2', [newId, currentId]);
+        
+        res.json({ message: 'ID Updated' });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: 'Failed to update ID' });
+    }
+});
+
+
+// --- ANNOUNCEMENTS ---
+
+router.get('/announcements', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM announcements ORDER BY date DESC');
+    const announcements = result.rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        content: row.content,
+        date: row.date,
+        isImportant: row.is_important
+    }));
+    res.json(announcements);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.post('/announcements', async (req, res) => {
+  const { title, content, date, isImportant } = req.body;
+  const id = `ann-${Date.now()}`;
+  try {
+    await pool.query(
+        'INSERT INTO announcements (id, title, content, date, is_important) VALUES ($1, $2, $3, $4, $5)',
+        [id, title, content, date, isImportant]
+    );
+    res.status(201).json({ id, title, content, date, isImportant });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.delete('/announcements/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM announcements WHERE id = $1', [req.params.id]);
+        res.json({ message: 'Deleted' });
+    } catch (e) {
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// --- PAYMENTS ---
+
+router.get('/payments', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM payments ORDER BY date DESC');
+        const payments = result.rows.map(row => ({
+            id: row.id,
+            userId: row.user_id,
+            amount: Number(row.amount),
+            currency: row.currency,
+            date: row.date,
+            description: row.description,
+            status: row.status,
+            reference: row.reference,
+            receipt: row.receipt
+        }));
+        res.json(payments);
+    } catch (e) {
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.get('/payments/:userId', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM payments WHERE user_id = $1 ORDER BY date DESC', [req.params.userId]);
+        const payments = result.rows.map(row => ({
+            id: row.id,
+            userId: row.user_id,
+            amount: Number(row.amount),
+            currency: row.currency,
+            date: row.date,
+            description: row.description,
+            status: row.status,
+            reference: row.reference,
+            receipt: row.receipt
+        }));
+        res.json(payments);
+    } catch (e) {
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.post('/payments', async (req, res) => {
+    const data = req.body;
+    const id = `pay-${Date.now()}`;
+    const reference = `REF-${Math.floor(Math.random() * 1000000)}`;
+    
+    try {
+        await pool.query(
+            'INSERT INTO payments (id, user_id, amount, currency, date, description, status, reference, receipt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+            [id, data.userId, data.amount, 'NGN', data.date || new Date().toISOString().split('T')[0], data.description, data.status || 'Pending', reference, data.receipt]
+        );
+        res.status(201).json({ ...data, id, reference, currency: 'NGN' });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.put('/payments/:id', async (req, res) => {
+    const { status } = req.body;
+    try {
+        await pool.query('UPDATE payments SET status = $1 WHERE id = $2', [status, req.params.id]);
+        res.json({ message: 'Updated' });
+    } catch (e) {
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.delete('/payments/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM payments WHERE id = $1', [req.params.id]);
+        res.json({ message: 'Deleted' });
+    } catch (e) {
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// MOUNT ROUTER for Serverless and Local
+// Netlify Functions often use the /.netlify/functions/api path
+app.use('/.netlify/functions/api', router);
+app.use('/api', router); // Local development fallback
+
+// Export app for Netlify Functions (serverless-http)
+module.exports = app;
+
+// Local Server Start
+if (require.main === module) {
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
