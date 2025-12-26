@@ -701,54 +701,68 @@ router.get('/messages/:userId/:otherUserId', async (req, res) => {
     }
 });
 
-// Get Conversations List - SORTED BY RECENCY
+// Get Conversations List - ROBUST JAVASCRIPT AGGREGATION
 router.get('/messages/conversations/:userId', async (req, res) => {
     const { userId } = req.params;
     console.log(`Getting conversations for user: ${userId}`);
     
     try {
-        // Step 1: Get contacts sorted by most recent message
-        const contactsQuery = `
-            SELECT 
-                CASE 
-                    WHEN sender_id = $1 THEN receiver_id 
-                    ELSE sender_id 
-                END as contact_id,
-                MAX(timestamp) as last_activity
+        // 1. Get ALL messages involving this user, ordered by most recent first
+        // We do not use GROUP BY in SQL to avoid DB-specific strictness issues.
+        const messagesQuery = `
+            SELECT sender_id, receiver_id, timestamp 
             FROM messages 
             WHERE sender_id = $1 OR receiver_id = $1
-            GROUP BY contact_id
-            ORDER BY last_activity DESC
+            ORDER BY timestamp DESC
         `;
         
-        const contactsResult = await pool.query(contactsQuery, [userId]);
-        
-        // Filter out self and nulls
-        const contacts = contactsResult.rows.filter(r => r.contact_id && r.contact_id !== userId);
-        
-        if (contacts.length === 0) {
+        const messagesResult = await pool.query(messagesQuery, [userId]);
+        const rows = messagesResult.rows;
+
+        if (rows.length === 0) {
             return res.json([]);
         }
 
-        const contactIds = contacts.map(c => c.contact_id);
-        
-        // Step 2: Fetch details
-        const placeholders = contactIds.map((_, i) => `$${i + 1}`).join(',');
-        const usersQuery = `SELECT * FROM users WHERE id IN (${placeholders})`;
-        const usersResult = await pool.query(usersQuery, contactIds);
-        
-        const usersMap = new Map(usersResult.rows.map(r => [r.id, mapUser(r)]));
-        
-        // Step 3: Return users in the order of activity
-        const sortedUsers = contactIds.map(id => usersMap.get(id)).filter(u => u);
-        
-        // Clean passwords
-        const safeUsers = sortedUsers.map(u => {
-            const { password, ...safe } = u;
-            return safe;
+        // 2. Extract unique interaction partners using a Set
+        // Since rows are ordered by timestamp DESC, the first time we see a partner ID, it is the most recent interaction.
+        const contactIds = new Set();
+        rows.forEach(msg => {
+            const otherId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id;
+            // Ensure we don't add ourselves or nulls
+            if (otherId && otherId !== userId) {
+                contactIds.add(otherId);
+            }
         });
+        
+        const uniqueIds = Array.from(contactIds);
+        
+        if (uniqueIds.length === 0) {
+            return res.json([]);
+        }
 
-        res.json(safeUsers);
+        console.log(`Found contacts for ${userId}:`, uniqueIds);
+
+        // 3. Fetch user details for these contacts
+        const placeholders = uniqueIds.map((_, i) => `$${i + 1}`).join(',');
+        const usersQuery = `SELECT * FROM users WHERE id IN (${placeholders})`;
+        const usersResult = await pool.query(usersQuery, uniqueIds);
+        
+        // 4. Map results to a dictionary for O(1) lookup
+        const usersMap = new Map();
+        usersResult.rows.forEach(row => {
+            const mapped = mapUser(row);
+            if (mapped) {
+                const { password, ...safe } = mapped;
+                usersMap.set(safe.id, safe);
+            }
+        });
+        
+        // 5. Reconstruct the list in the correct recency order (based on uniqueIds array order)
+        const sortedUsers = uniqueIds
+            .map(id => usersMap.get(id))
+            .filter(u => u !== undefined); // Filter out users that might have been deleted from DB
+            
+        res.json(sortedUsers);
 
     } catch (e) {
         console.error("Conversation Fetch Error:", e);

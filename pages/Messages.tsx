@@ -22,11 +22,13 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
 
   // 1. Fetch Conversations List
   const fetchConversations = async () => {
-    setIsLoadingList(true); // Show loading indicator specifically on refresh
+    console.log("Fetching conversations for user:", currentUser.id);
+    setIsLoadingList(true); 
     try {
       const users = await api.getConversations(currentUser.id);
+      console.log("Conversations fetched:", users);
       
-      // Safety check: ensure users is an array
+      // Basic validation
       if (!Array.isArray(users)) {
           console.error("API returned non-array for conversations:", users);
           setConversations([]);
@@ -34,16 +36,16 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
       }
 
       setConversations(prev => {
-         // Merge logic: ensure activeChatUser stays in list even if API delays or they fall off recent list
+         // If we have an active chat, make sure they appear in the list even if API didn't return them yet (e.g., brand new chat)
          if (activeChatUser && !users.find(u => u.id === activeChatUser.id)) {
-            // Keep active user at top temporarily if they aren't in the returned list
             return [activeChatUser, ...users];
          }
          return users;
       });
       return users;
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to fetch conversations", e);
+      setError("Failed to load conversation list.");
       return [];
     } finally {
       setIsLoadingList(false);
@@ -163,8 +165,8 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
   };
 
   const handleUserClick = (user: User) => {
+      console.log("Selected user for chat:", user.id);
       setActiveChatUser(user);
-      // On mobile, UI will automatically switch views due to conditional rendering
   };
 
   return (
@@ -178,6 +180,12 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
                 <RefreshCw className={`h-4 w-4 ${isLoadingList ? 'animate-spin' : ''}`} />
             </button>
         </div>
+        
+        {error && (
+            <div className="bg-red-50 p-2 text-xs text-red-600 text-center border-b border-red-100">
+                {error}
+            </div>
+        )}
         
         <div className="flex-1 overflow-y-auto">
           {isLoadingList && conversations.length === 0 ? (
