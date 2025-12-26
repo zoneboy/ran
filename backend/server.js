@@ -20,8 +20,11 @@ const pool = new Pool({
   }
 });
 
-// Initialize Database Tables (Auto-create if not exist)
+// Database Initialization Logic
+let dbInitialized = false;
 const initDb = async () => {
+    if (dbInitialized) return;
+    
     const schema = `
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -77,6 +80,7 @@ const initDb = async () => {
           receipt TEXT
       );
     `;
+    
     try {
       await pool.query(schema);
       console.log('Database tables checked/created successfully');
@@ -98,24 +102,17 @@ const initDb = async () => {
                   'HONORARY', 'RAN Headquarters', 'Abuja', 'FCT', $3, $4
               )
           `, [id, hashedPassword, new Date().toISOString().split('T')[0], '2099-12-31']);
-          console.log('Default admin created: admin@ran.org.ng / Admin@123');
       }
-
+      dbInitialized = true;
     } catch (e) {
       console.error('Error initializing database tables:', e);
     }
-  };
-  
-// Run initialization
-initDb();
+};
 
-// Email Transporter
-const transporter = nodemailer.createTransport({
-  service: 'gmail', // Or use 'smtp.mailgun.org', etc.
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS // App Password if using Gmail
-  }
+// Middleware to ensure DB is initialized before handling request
+app.use(async (req, res, next) => {
+    await initDb();
+    next();
 });
 
 // Helper to convert snake_case DB columns to camelCase for frontend
@@ -167,7 +164,7 @@ const checkExpiry = async (user) => {
     return user;
 };
 
-// Routes via Router to work with Netlify Functions pathing
+// Routes via Router
 const router = express.Router();
 
 // Login
@@ -371,12 +368,6 @@ router.put('/users/:id', async (req, res) => {
         updates.documents = JSON.stringify(updates.documents);
     }
 
-    // Special case for ID update (admin action)
-    if (updates.id && updates.id !== id) {
-        // Need to handle this carefully due to foreign keys, skipping for generic update
-        // We have specific route for ID update
-    }
-
     Object.keys(updates).forEach(key => {
         if (fieldMap[key] && updates[key] !== undefined) {
             fields.push(`${fieldMap[key]} = $${idx}`);
@@ -455,7 +446,6 @@ router.post('/payments', async (req, res) => {
 
 router.put('/payments/:id', async (req, res) => {
     const { status } = req.body;
-    // Assuming only status update is needed for now
     await pool.query('UPDATE payments SET status = $1 WHERE id = $2', [status, req.params.id]);
     res.json({ success: true });
 });
@@ -469,15 +459,12 @@ router.delete('/payments/:id', async (req, res) => {
 router.post('/users/update-id', async (req, res) => {
     const { currentId, newId } = req.body;
     
-    // Check if new exists
     const check = await pool.query('SELECT * FROM users WHERE id = $1', [newId]);
     if (check.rows.length > 0) return res.status(400).json({message: 'ID already taken'});
 
     try {
         await pool.query('BEGIN');
-        // Update User
         await pool.query('UPDATE users SET id = $1 WHERE id = $2', [newId, currentId]);
-        // Update Payments FK
         await pool.query('UPDATE payments SET user_id = $1 WHERE user_id = $2', [newId, currentId]);
         await pool.query('COMMIT');
         res.json({ success: true });
@@ -487,13 +474,14 @@ router.post('/users/update-id', async (req, res) => {
     }
 });
 
-// Mount router at /api
-app.use('/api', router);
+// MOUNT ROUTER
+// Important: Handle both local (/api) and Netlify Function (/.netlify/functions/api) paths
+app.use(['/api', '/.netlify/functions/api'], router);
 
-// Export for Netlify Functions (Serverless)
+// Export for Netlify
 module.exports = app;
 
-// Keep listen for local dev if run via node
+// Keep listen for local dev
 if (process.env.NODE_ENV !== 'production' && !process.env.NETLIFY) {
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {

@@ -4,6 +4,25 @@ import { User, Announcement, Payment } from '../types';
 // We use a relative path '/api' which Netlify redirects to the function
 const API_URL = '/api'; 
 
+const handleResponse = async (res: Response) => {
+    if (!res.ok) {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+            const errorData = await res.json();
+            throw new Error(errorData.message || 'Request failed');
+        } else {
+            // Handle non-JSON errors (like 404 HTML pages or 500 server errors)
+            const text = await res.text();
+            console.error("API Error (Non-JSON):", text);
+            if (res.status === 404) {
+                 throw new Error(`Endpoint not found (404). Please ensure the backend is deployed.`);
+            }
+            throw new Error(`Server Error: ${res.status} ${res.statusText}. The backend might be starting up or unreachable.`);
+        }
+    }
+    return res.json();
+};
+
 export const api = {
   // Authentication
   login: async (email: string, password?: string): Promise<User> => {
@@ -13,12 +32,7 @@ export const api = {
       body: JSON.stringify({ email, password })
     });
     
-    if (!res.ok) {
-      const errorData = await res.json();
-      throw new Error(errorData.message || 'Login failed');
-    }
-    
-    const user = await res.json();
+    const user = await handleResponse(res);
     localStorage.setItem('ran_user', JSON.stringify(user));
     return user;
   },
@@ -29,12 +43,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userData)
     });
-    
-    if (!res.ok) {
-      const errorData = await res.json();
-      throw new Error(errorData.message || 'Registration failed');
-    }
-    return await res.json();
+    return await handleResponse(res);
   },
 
   resetPassword: async (email: string): Promise<void> => {
@@ -52,11 +61,7 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, token, newPassword })
     });
-    
-    if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || 'Reset failed');
-    }
+    await handleResponse(res);
   },
 
   logout: async () => {
@@ -70,14 +75,18 @@ export const api = {
 
   // User Management
   getUser: async (id: string): Promise<User | null> => {
-    const res = await fetch(`${API_URL}/users/${id}`);
-    if (!res.ok) return null;
-    return await res.json();
+    try {
+        const res = await fetch(`${API_URL}/users/${id}`);
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (e) {
+        return null;
+    }
   },
 
   getUsers: async (): Promise<User[]> => {
     const res = await fetch(`${API_URL}/users`);
-    return await res.json();
+    return await handleResponse(res);
   },
 
   updateUser: async (updatedUser: User): Promise<User> => {
@@ -86,7 +95,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updatedUser)
     });
-    const data = await res.json();
+    const data = await handleResponse(res);
     // Update local session if it's the current user
     const currentUser = JSON.parse(localStorage.getItem('ran_user') || '{}');
     if (currentUser.id === updatedUser.id) {
@@ -101,16 +110,13 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentId, newId })
     });
-    if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || 'Failed to update ID');
-    }
+    await handleResponse(res);
   },
 
   // Announcements CRUD
   getAnnouncements: async (): Promise<Announcement[]> => {
     const res = await fetch(`${API_URL}/announcements`);
-    return await res.json();
+    return await handleResponse(res);
   },
 
   createAnnouncement: async (announcement: Omit<Announcement, 'id'>): Promise<Announcement> => {
@@ -119,7 +125,7 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(announcement)
     });
-    return await res.json();
+    return await handleResponse(res);
   },
 
   deleteAnnouncement: async (id: string): Promise<void> => {
@@ -129,12 +135,12 @@ export const api = {
   // Payments
   getAllPayments: async (): Promise<Payment[]> => {
     const res = await fetch(`${API_URL}/payments`);
-    return await res.json();
+    return await handleResponse(res);
   },
 
   getPayments: async (userId: string): Promise<Payment[]> => {
     const res = await fetch(`${API_URL}/payments/${userId}`);
-    return await res.json();
+    return await handleResponse(res);
   },
 
   createPayment: async (paymentData: any): Promise<Payment> => {
@@ -143,8 +149,7 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(paymentData)
     });
-    if (!res.ok) throw new Error('Failed to record payment');
-    return await res.json();
+    return await handleResponse(res);
   },
 
   updatePaymentStatus: async (paymentId: string, status: 'Successful' | 'Pending' | 'Failed'): Promise<void> => {
