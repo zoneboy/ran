@@ -701,28 +701,30 @@ router.get('/messages/:userId/:otherUserId', async (req, res) => {
     }
 });
 
-// Get Conversations List - REDESIGNED FOR ROBUSTNESS
+// Get Conversations List - UPDATED FOR ROBUSTNESS (JOIN with DISTINCT)
 router.get('/messages/conversations/:userId', async (req, res) => {
     const { userId } = req.params;
     console.log(`Fetching conversations for user: ${userId}`);
     
     try {
-        // Find ALL users who have either sent a message to ME or received a message from ME.
-        // We use UNION to combine the lists and filter out duplicates.
-        // We join directly with the users table to ensure we only return valid users and get their details immediately.
+        // Find distinct contact IDs by looking at both sender and receiver columns
+        // Then join with users table to get details
         const query = `
-            SELECT DISTINCT u.* 
+            SELECT u.* 
             FROM users u
-            WHERE u.id IN (
-                SELECT sender_id FROM messages WHERE receiver_id = $1
-                UNION
-                SELECT receiver_id FROM messages WHERE sender_id = $1
-            )
+            JOIN (
+                SELECT DISTINCT CASE 
+                    WHEN sender_id = $1 THEN receiver_id 
+                    ELSE sender_id 
+                END as contact_id
+                FROM messages 
+                WHERE sender_id = $1 OR receiver_id = $1
+            ) m ON u.id = m.contact_id
         `;
         
         const result = await pool.query(query, [userId]);
         
-        console.log(`Found ${result.rows.length} conversations`);
+        console.log(`Found ${result.rows.length} conversations for user ${userId}`);
         
         const users = result.rows.map(mapUser);
         res.json(users);
