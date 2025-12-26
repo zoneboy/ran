@@ -1,11 +1,19 @@
 import React, { useState } from 'react';
 import { MembershipCategory, BusinessCategory } from '../types';
-import { CheckCircle, AlertCircle, Loader2, Eye, EyeOff, User } from 'lucide-react';
+import { CheckCircle, AlertCircle, Loader2, Eye, EyeOff, User, UploadCloud } from 'lucide-react';
 import { api } from '../services/api';
 
 interface RegisterProps {
   navigate: (page: string) => void;
 }
+
+const NIGERIAN_STATES = [
+  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno", 
+  "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT - Abuja", "Gombe", 
+  "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", 
+  "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", 
+  "Taraba", "Yobe", "Zamfara"
+];
 
 const Register: React.FC<RegisterProps> = ({ navigate }) => {
   const [step, setStep] = useState(1);
@@ -21,6 +29,7 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     password: '',
     confirmPassword: '',
     dob: '',
+    gender: '', // Added Gender
     businessName: '',
     businessCommencement: '',
     businessAddress: '',
@@ -28,21 +37,27 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     businessState: '',
     statesOfOperation: '',
     businessCategory: '',
+    otherBusinessCategory: '', // Temp field for Other Category
     materialTypes: [] as string[],
+    otherMaterialType: '', // Temp field for Other Material
     monthlyVolume: '',
     machineryDeployed: [] as string[],
+    otherMachinery: '', // Temp field for Other Machinery
     employees: '',
     areasOfInterest: [] as string[],
     membershipCategory: '',
     relatedAssociation: 'No',
     relatedAssociationName: '',
-    portraitImage: '', // Stores Base64 string of the uploaded portrait
+    portraitImage: '', 
+    // Document Uploads
+    cacCertificate: '',
+    businessLogo: '',
+    businessEvidence: ''
   });
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    // Clear error for field when user types
     if (errors[name]) {
       setErrors(prev => ({...prev, [name]: ''}));
     }
@@ -61,20 +76,65 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     });
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, field: string) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) { 
+         alert("File is too large. Max 5MB allowed.");
+         return;
+      }
+
+      if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 800; // Reasonable width for docs
+              const scaleSize = MAX_WIDTH / img.width;
+              if (scaleSize < 1) {
+                  canvas.width = MAX_WIDTH;
+                  canvas.height = img.height * scaleSize;
+              } else {
+                  canvas.width = img.width;
+                  canvas.height = img.height;
+              }
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+              // Aggressive compression: JPEG at 0.5 quality
+              const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.5);
+              // @ts-ignore
+              setFormData(prev => ({ ...prev, [field]: compressedDataUrl }));
+            };
+            img.src = event.target?.result as string;
+          };
+          reader.readAsDataURL(file);
+      } else {
+          // For PDFs or non-images, check size stricter for localStorage
+          if (file.size > 1024 * 1024) {
+             alert("Warning: Large PDF files may fill local storage. Please use compressed files or images if possible.");
+          }
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            // @ts-ignore
+            setFormData(prev => ({ ...prev, [field]: event.target?.result as string }));
+          };
+          reader.readAsDataURL(file);
+      }
+    }
+  };
+
   const handlePortraitChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Create a file reader
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new Image();
         img.onload = () => {
-          // Create canvas for resizing
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 400; // Constrain width to 400px
+          const MAX_WIDTH = 400; 
           const scaleSize = MAX_WIDTH / img.width;
           
-          // If image is smaller than max width, keep original size, else resize
           if (scaleSize < 1) {
               canvas.width = MAX_WIDTH;
               canvas.height = img.height * scaleSize;
@@ -86,8 +146,8 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
           const ctx = canvas.getContext('2d');
           ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
           
-          // Get compressed base64 string
-          const compressedDataUrl = canvas.toDataURL(file.type);
+          // Compress to JPEG 0.5 for storage efficiency
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.5);
           setFormData(prev => ({ ...prev, portraitImage: compressedDataUrl }));
         };
         img.src = event.target?.result as string;
@@ -101,13 +161,11 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
   };
 
   const validatePhone = (phone: string) => {
-    // Basic check for digits, allow +, -, spaces. Min 10 digits.
     const digits = phone.replace(/\D/g, '');
     return digits.length >= 10 && digits.length <= 15;
   };
 
   const validatePassword = (password: string) => {
-    // Min 8 chars, 1 upper, 1 lower, 1 number, 1 special
     const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
     return regex.test(password);
   };
@@ -129,6 +187,7 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     if (!formData.firstName) newErrors.firstName = "First name is required.";
     if (!formData.lastName) newErrors.lastName = "Last name is required.";
     if (!formData.dob) newErrors.dob = "Date of birth is required.";
+    if (!formData.gender) newErrors.gender = "Gender is required.";
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -140,9 +199,23 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     if (!formData.businessName) newErrors.businessName = "Business name is required.";
     if (!formData.businessAddress) newErrors.businessAddress = "Address is required.";
     if (!formData.businessState) newErrors.businessState = "Primary state is required.";
-    if (!formData.businessCategory) newErrors.businessCategory = "Category is required.";
     
-    // Numeric checks
+    if (!formData.businessCategory) {
+        newErrors.businessCategory = "Category is required.";
+    } else if (formData.businessCategory === 'Other' && !formData.otherBusinessCategory) {
+        newErrors.businessCategory = "Please specify the other category.";
+    }
+
+    // Validate Other Material
+    if (formData.materialTypes.includes('Other') && !formData.otherMaterialType) {
+        newErrors.materialTypes = "Please specify the other material.";
+    }
+    
+    // Validate Other Machinery
+    if (formData.machineryDeployed.includes('Other') && !formData.otherMachinery) {
+        newErrors.machineryDeployed = "Please specify the other machinery.";
+    }
+    
     const empNum = Number(formData.employees);
     if (!formData.employees || isNaN(empNum) || empNum < 0) {
       newErrors.employees = "Please enter a valid number of employees.";
@@ -168,11 +241,47 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     e.preventDefault();
     setIsSubmitting(true);
     
+    // Logic to handle "Other" text inputs
+    // 1. Materials
+    let finalMaterials = [...formData.materialTypes];
+    if (finalMaterials.includes('Other') && formData.otherMaterialType) {
+        // Remove the string 'Other' and add the custom text
+        finalMaterials = finalMaterials.filter(m => m !== 'Other');
+        finalMaterials.push(formData.otherMaterialType);
+    }
+    
+    // 2. Machinery
+    let finalMachinery = [...formData.machineryDeployed];
+    if (finalMachinery.includes('Other') && formData.otherMachinery) {
+        // Remove the string 'Other' and add the custom text
+        finalMachinery = finalMachinery.filter(m => m !== 'Other');
+        finalMachinery.push(formData.otherMachinery);
+    }
+
+    // 3. Business Category
+    let finalBusinessCategory = formData.businessCategory;
+    if (finalBusinessCategory === 'Other' && formData.otherBusinessCategory) {
+        finalBusinessCategory = formData.otherBusinessCategory;
+    }
+
+    // Structure documents properly
     const registrationPayload = {
       ...formData,
+      materialTypes: finalMaterials,
+      machineryDeployed: finalMachinery,
+      businessCategory: finalBusinessCategory,
       category: formData.membershipCategory,
       profileImage: formData.portraitImage,
+      documents: {
+          cac: formData.cacCertificate,
+          logo: formData.businessLogo,
+          evidence: formData.businessEvidence
+      }
     };
+
+    // Clean up temporary fields before sending if needed, but the spread above captures them.
+    // The backend receives extra fields but likely ignores them unless defined in schema, 
+    // but our Mock backend stores everything, which is fine.
 
     try {
       await api.register(registrationPayload);
@@ -192,8 +301,8 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     }
   };
 
-  const machineryOptions = ['Tricycle', 'Mintrucks', 'Baler', 'Crusher', 'Washing Line', 'Pelletizing Line', 'Manufacturing Line', 'None'];
-  const materialsOptions = ['PET Plastics', 'Other Plastics', 'Paper', 'Cartons', 'UBC', 'Metals'];
+  const machineryOptions = ['Tricycle', 'Mintrucks', 'Baler', 'Crusher', 'Washing Line', 'Pelletizing Line', 'Manufacturing Line', 'None', 'Other'];
+  const materialsOptions = ['PET Plastics', 'Other Plastics', 'Paper', 'Cartons', 'UBC', 'Metals', 'Other'];
   const interestOptions = ['Capacity Development', 'Access to Finance', 'Supply Chain', 'Compliance and Government', 'Community'];
 
   const getFees = (category: string) => {
@@ -206,7 +315,7 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:p-6 lg:p-8">
       <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden">
         <div className="bg-green-700 px-6 py-4">
           <h2 className="text-2xl font-bold text-white">Membership Registration</h2>
@@ -214,7 +323,6 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="p-8">
-          
           {/* Step 1: Personal Information */}
           {step === 1 && (
             <div className="space-y-6">
@@ -244,6 +352,32 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                   <label className="block text-sm font-medium text-gray-700">Date of Birth</label>
                   <input required name="dob" value={formData.dob} onChange={handleInputChange} type="date" className={`mt-1 block w-full rounded-md border ${errors.dob ? 'border-red-500' : 'border-gray-300'} px-3 py-2 focus:border-green-500 focus:ring-green-500`} />
                    {errors.dob && <p className="text-red-500 text-xs mt-1">{errors.dob}</p>}
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
+                    <div className="flex space-x-4">
+                        <label className="flex items-center">
+                            <input 
+                                type="radio" 
+                                name="gender" 
+                                value="Male" 
+                                checked={formData.gender === 'Male'} 
+                                onChange={handleInputChange} 
+                                className="mr-2 text-green-600 focus:ring-green-500"
+                            /> Male
+                        </label>
+                        <label className="flex items-center">
+                            <input 
+                                type="radio" 
+                                name="gender" 
+                                value="Female" 
+                                checked={formData.gender === 'Female'} 
+                                onChange={handleInputChange} 
+                                className="mr-2 text-green-600 focus:ring-green-500"
+                            /> Female
+                        </label>
+                    </div>
+                    {errors.gender && <p className="text-red-500 text-xs mt-1">{errors.gender}</p>}
                 </div>
               </div>
 
@@ -303,6 +437,16 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
+                    <label className="block text-sm font-medium text-gray-700">Date of Commencement</label>
+                    <input name="businessCommencement" value={formData.businessCommencement} onChange={handleInputChange} type="date" className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-green-500 focus:ring-green-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Business City</label>
+                    <input name="businessCity" value={formData.businessCity} onChange={handleInputChange} type="text" className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-green-500 focus:ring-green-500" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
                     <label className="block text-sm font-medium text-gray-700">Business Address</label>
                     <input required name="businessAddress" value={formData.businessAddress} onChange={handleInputChange} type="text" className={`mt-1 block w-full rounded-md border ${errors.businessAddress ? 'border-red-500' : 'border-gray-300'} px-3 py-2 focus:border-green-500 focus:ring-green-500`} />
                     {errors.businessAddress && <p className="text-red-500 text-xs mt-1">{errors.businessAddress}</p>}
@@ -311,11 +455,9 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                     <label className="block text-sm font-medium text-gray-700">State of Operation (Primary)</label>
                     <select name="businessState" value={formData.businessState} onChange={handleInputChange} className={`mt-1 block w-full rounded-md border ${errors.businessState ? 'border-red-500' : 'border-gray-300'} px-3 py-2 focus:border-green-500 focus:ring-green-500`}>
                       <option value="">Select State</option>
-                      <option value="Lagos">Lagos</option>
-                      <option value="Abuja">Abuja</option>
-                      <option value="Kano">Kano</option>
-                      <option value="Rivers">Rivers</option>
-                      <option value="Ogun">Ogun</option>
+                      {NIGERIAN_STATES.map(state => (
+                          <option key={state} value={state}>{state}</option>
+                      ))}
                     </select>
                     {errors.businessState && <p className="text-red-500 text-xs mt-1">{errors.businessState}</p>}
                   </div>
@@ -324,14 +466,31 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                   <label className="block text-sm font-medium text-gray-700">Additional States of Operation</label>
                   <input name="statesOfOperation" value={formData.statesOfOperation} onChange={handleInputChange} placeholder="e.g. Oyo, Edo" type="text" className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-green-500 focus:ring-green-500" />
                 </div>
+                
+                {/* Business Category with Other */}
                 <div>
                    <label className="block text-sm font-medium text-gray-700">Business Category</label>
                     <select name="businessCategory" value={formData.businessCategory} onChange={handleInputChange} className={`mt-1 block w-full rounded-md border ${errors.businessCategory ? 'border-red-500' : 'border-gray-300'} px-3 py-2 focus:border-green-500 focus:ring-green-500`}>
                       <option value="">Select Category</option>
                       {Object.values(BusinessCategory).map(cat => <option key={cat} value={cat}>{cat}</option>)}
                     </select>
+                    {formData.businessCategory === 'Other' && (
+                        <div className="mt-2 animate-in fade-in slide-in-from-top-1">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Please specify category:</label>
+                            <input 
+                                type="text" 
+                                name="otherBusinessCategory"
+                                value={formData.otherBusinessCategory} 
+                                onChange={handleInputChange} 
+                                placeholder="Enter your category"
+                                className="block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-green-500 focus:ring-green-500" 
+                            />
+                        </div>
+                    )}
                     {errors.businessCategory && <p className="text-red-500 text-xs mt-1">{errors.businessCategory}</p>}
                 </div>
+
+                {/* Materials with Other */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Materials Collected/Processed</label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -342,7 +501,22 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                       </label>
                     ))}
                   </div>
+                  {formData.materialTypes.includes('Other') && (
+                        <div className="mt-2 animate-in fade-in slide-in-from-top-1">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Please specify other material:</label>
+                            <input 
+                                type="text" 
+                                name="otherMaterialType"
+                                value={formData.otherMaterialType} 
+                                onChange={handleInputChange} 
+                                placeholder="e.g. Glass, E-waste"
+                                className="block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-green-500 focus:ring-green-500" 
+                            />
+                            {errors.materialTypes && <p className="text-red-500 text-xs mt-1">{errors.materialTypes}</p>}
+                        </div>
+                  )}
                 </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Monthly Volume (Tons)</label>
@@ -355,6 +529,8 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                     {errors.employees && <p className="text-red-500 text-xs mt-1">{errors.employees}</p>}
                   </div>
                 </div>
+
+                {/* Machinery with Other */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Machinery Deployed</label>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -365,6 +541,20 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                       </label>
                     ))}
                   </div>
+                  {formData.machineryDeployed.includes('Other') && (
+                        <div className="mt-2 animate-in fade-in slide-in-from-top-1">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Please specify other machinery:</label>
+                            <input 
+                                type="text" 
+                                name="otherMachinery"
+                                value={formData.otherMachinery} 
+                                onChange={handleInputChange} 
+                                placeholder="e.g. Forklift, Extruder"
+                                className="block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-green-500 focus:ring-green-500" 
+                            />
+                             {errors.machineryDeployed && <p className="text-red-500 text-xs mt-1">{errors.machineryDeployed}</p>}
+                        </div>
+                  )}
                 </div>
               </div>
               <div className="flex justify-between pt-4">
@@ -392,6 +582,17 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                     Selected Fee: {getFees(formData.membershipCategory)}
                   </p>
                 )}
+              </div>
+
+              <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-1">Are you part of any other Recycling Association?</label>
+                 <div className="flex space-x-4 mb-2">
+                    <label className="flex items-center"><input type="radio" name="relatedAssociation" value="Yes" checked={formData.relatedAssociation === 'Yes'} onChange={handleInputChange} className="mr-2" /> Yes</label>
+                    <label className="flex items-center"><input type="radio" name="relatedAssociation" value="No" checked={formData.relatedAssociation === 'No'} onChange={handleInputChange} className="mr-2" /> No</label>
+                 </div>
+                 {formData.relatedAssociation === 'Yes' && (
+                     <input type="text" name="relatedAssociationName" value={formData.relatedAssociationName} onChange={handleInputChange} placeholder="Name of Association" className="w-full border rounded-md px-3 py-2" />
+                 )}
               </div>
 
               <div>
@@ -432,16 +633,25 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">CAC Registration Certificate</label>
-                    <input type="file" className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
+                    <label className="block text-sm font-medium text-gray-700 flex justify-between">
+                        <span>CAC Registration Certificate</span>
+                        {formData.cacCertificate && <span className="text-green-600 text-xs font-bold">File Selected</span>}
+                    </label>
+                    <input type="file" onChange={(e) => handleFileChange(e, 'cacCertificate')} accept="image/*,.pdf" className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Business Logo</label>
-                    <input type="file" accept="image/*" className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
+                    <label className="block text-sm font-medium text-gray-700 flex justify-between">
+                        <span>Business Logo</span>
+                        {formData.businessLogo && <span className="text-green-600 text-xs font-bold">File Selected</span>}
+                    </label>
+                    <input type="file" onChange={(e) => handleFileChange(e, 'businessLogo')} accept="image/*" className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
                   </div>
                    <div>
-                    <label className="block text-sm font-medium text-gray-700">Evidence of Business Activity (Photo/Doc)</label>
-                    <input type="file" className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
+                    <label className="block text-sm font-medium text-gray-700 flex justify-between">
+                        <span>Evidence of Business Activity (Photo/Doc)</span>
+                        {formData.businessEvidence && <span className="text-green-600 text-xs font-bold">File Selected</span>}
+                    </label>
+                    <input type="file" onChange={(e) => handleFileChange(e, 'businessEvidence')} accept="image/*,.pdf" className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
                   </div>
                 </div>
               </div>
@@ -463,17 +673,30 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                   <div>
                     <p><span className="font-bold">Name:</span> {formData.firstName} {formData.lastName}</p>
                     <p><span className="font-bold">Email:</span> {formData.email}</p>
+                    <p><span className="font-bold">Gender:</span> {formData.gender}</p>
                   </div>
                   {formData.portraitImage && (
                     <img src={formData.portraitImage} alt="Profile Preview" className="h-16 w-16 rounded-full object-cover border border-gray-300" />
                   )}
                 </div>
                 <p><span className="font-bold">Business:</span> {formData.businessName}</p>
-                <p><span className="font-bold">Category:</span> {formData.businessCategory}</p>
+                <p>
+                    <span className="font-bold">Category:</span> {formData.businessCategory === 'Other' ? formData.otherBusinessCategory : formData.businessCategory}
+                </p>
+                <p><span className="font-bold">State:</span> {formData.businessState}</p>
                 <p><span className="font-bold">Membership Type:</span> {formData.membershipCategory}</p>
                 <p><span className="font-bold">Fee Due:</span> {getFees(formData.membershipCategory)}</p>
                 <p><span className="font-bold">Monthly Volume:</span> {formData.monthlyVolume} Tons</p>
                 <p><span className="font-bold">Employees:</span> {formData.employees}</p>
+                
+                <div className="border-t pt-2 mt-2">
+                    <p className="font-bold text-xs text-gray-500 uppercase">Documents Attached:</p>
+                    <div className="flex gap-2 mt-1">
+                        {formData.cacCertificate ? <span className="text-xs bg-green-100 text-green-700 px-2 rounded">CAC Cert</span> : <span className="text-xs text-red-400">No CAC</span>}
+                        {formData.businessLogo ? <span className="text-xs bg-green-100 text-green-700 px-2 rounded">Logo</span> : <span className="text-xs text-gray-400">No Logo</span>}
+                        {formData.businessEvidence ? <span className="text-xs bg-green-100 text-green-700 px-2 rounded">Evidence</span> : <span className="text-xs text-red-400">No Evidence</span>}
+                    </div>
+                </div>
               </div>
 
               <div className="flex items-start space-x-2 bg-blue-50 p-4 rounded-md">

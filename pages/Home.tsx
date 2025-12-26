@@ -1,11 +1,21 @@
 import React from 'react';
-import { ArrowRight, Leaf, ShieldCheck, Users, TrendingUp } from 'lucide-react';
+import { ArrowRight, Leaf, ShieldCheck, Users, TrendingUp, LayoutDashboard } from 'lucide-react';
+import { User } from '../types';
 
 interface HomeProps {
   navigate: (page: string) => void;
+  user: User | null;
 }
 
-const Home: React.FC<HomeProps> = ({ navigate }) => {
+const Home: React.FC<HomeProps> = ({ navigate, user }) => {
+  const handleDashboardClick = () => {
+    if (user?.role === 'ADMIN') {
+      navigate('admin-dashboard');
+    } else {
+      navigate('dashboard');
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-screen">
       {/* Hero Section */}
@@ -25,19 +35,31 @@ const Home: React.FC<HomeProps> = ({ navigate }) => {
           <p className="text-xl md:text-2xl text-gray-300 max-w-3xl mb-10">
             Uniting the recycling ecosystem for a sustainable future. We advocate for policies, build capacity, and foster growth for recyclers across Nigeria.
           </p>
+          
           <div className="flex flex-col sm:flex-row gap-4">
-            <button 
-              onClick={() => navigate('register')}
-              className="px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg shadow-lg flex items-center justify-center transition-transform hover:scale-105"
-            >
-              Join the Association <ArrowRight className="ml-2 h-5 w-5" />
-            </button>
-            <button 
-              onClick={() => navigate('login')}
-              className="px-8 py-4 bg-transparent border-2 border-white hover:bg-white hover:text-green-900 text-white font-bold rounded-lg shadow-lg transition-colors"
-            >
-              Member Login
-            </button>
+            {user ? (
+              <button 
+                onClick={handleDashboardClick}
+                className="px-8 py-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg flex items-center justify-center transition-transform hover:scale-105 border border-green-500"
+              >
+                <LayoutDashboard className="mr-2 h-5 w-5" /> Go to Dashboard
+              </button>
+            ) : (
+              <>
+                <button 
+                  onClick={() => navigate('register')}
+                  className="px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg shadow-lg flex items-center justify-center transition-transform hover:scale-105"
+                >
+                  Join the Association <ArrowRight className="ml-2 h-5 w-5" />
+                </button>
+                <button 
+                  onClick={() => navigate('login')}
+                  className="px-8 py-4 bg-transparent border-2 border-white hover:bg-white hover:text-green-900 text-white font-bold rounded-lg shadow-lg transition-colors"
+                >
+                  Member Login
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

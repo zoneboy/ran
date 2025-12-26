@@ -66,7 +66,7 @@ function App() {
   const renderPage = () => {
     switch (currentPage) {
       case 'home':
-        return <Home navigate={navigate} />;
+        return <Home navigate={navigate} user={user} />;
       case 'register':
         return <Register navigate={navigate} />;
       case 'login':
@@ -74,11 +74,11 @@ function App() {
       case 'dashboard':
         return user ? <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       case 'admin-dashboard':
-        return user && user.role === 'ADMIN' ? <AdminDashboard /> : <Home navigate={navigate} />;
+        return user && user.role === 'ADMIN' ? <AdminDashboard /> : <Home navigate={navigate} user={user} />;
       case 'member-directory':
         return user ? <MemberDirectory navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       default:
-        return <Home navigate={navigate} />;
+        return <Home navigate={navigate} user={user} />;
     }
   };
 
@@ -103,7 +103,7 @@ function App() {
               <h4 className="text-white font-semibold mb-4">Quick Links</h4>
               <ul className="space-y-2 text-sm">
                 <li><button onClick={() => navigate('home')} className="hover:text-white">Home</button></li>
-                <li><button onClick={() => navigate('register')} className="hover:text-white">Join Us</button></li>
+                {!user && <li><button onClick={() => navigate('register')} className="hover:text-white">Join Us</button></li>}
                 <li><button className="hover:text-white">Contact Support</button></li>
                 <li><button className="hover:text-white">Privacy Policy</button></li>
               </ul>

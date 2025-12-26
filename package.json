@@ -4,7 +4,7 @@
   "private": true,
   "description": "Membership portal for Recyclers Association of Nigeria",
   "scripts": {
-    "start": "vite",
+    "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "server": "node backend/server.js"
@@ -17,7 +17,11 @@
     "bcryptjs": "^2.4.3",
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "body-parser": "^1.20.2"
+    "body-parser": "^1.20.2",
+    "pg": "^8.11.3",
+    "serverless-http": "^3.2.0",
+    "nodemailer": "^6.9.13",
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "@types/react": "^18.2.66",

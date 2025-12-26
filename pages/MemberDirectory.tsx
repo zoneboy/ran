@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Briefcase, Tag, ArrowLeft, Users, Layers, Factory, Loader2, Phone, Mail, BarChart, Settings, ShieldAlert } from 'lucide-react';
+import { Search, MapPin, Briefcase, Tag, ArrowLeft, Users, Layers, Factory, Loader2, Phone, Mail, BarChart, Settings, ShieldAlert, User as UserIcon } from 'lucide-react';
 import { BusinessCategory, User, UserRole } from '../types';
 import { api } from '../services/api';
 
@@ -127,6 +127,13 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
                   {/* Contact details restricted to Admins */}
                   {isAdmin ? (
                     <>
+                        <div className="flex items-start">
+                            <UserIcon className="h-5 w-5 text-gray-400 mr-3 mt-1" />
+                            <div>
+                            <p className="text-sm font-medium text-gray-500">Gender</p>
+                            <p className="text-gray-900">{selectedMember.gender || 'N/A'}</p>
+                            </div>
+                        </div>
                         <div className="flex items-start">
                             <Phone className="h-5 w-5 text-gray-400 mr-3 mt-1" />
                             <div>

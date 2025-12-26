@@ -37,17 +37,28 @@ export interface User {
   role: UserRole;
   status: MembershipStatus;
   category: MembershipCategory;
+  gender?: 'Male' | 'Female';
   businessName: string;
   businessAddress: string;
   businessState: string;
+  businessCity?: string;
+  businessCommencement?: string;
+  businessCategory?: string; // String to allow custom "Other" values
   statesOfOperation: string;
   materialTypes: string[];
   machineryDeployed: string[];
   monthlyVolume: string;
   employees: number;
+  areasOfInterest?: string[];
+  relatedAssociation?: string;
+  relatedAssociationName?: string;
+  dob?: string;
   dateJoined: string;
   expiryDate: string;
   profileImage?: string;
+  // Security fields
+  resetToken?: string;
+  resetTokenExpiry?: number; // Timestamp
   documents?: {
     cac?: string;
     logo?: string;

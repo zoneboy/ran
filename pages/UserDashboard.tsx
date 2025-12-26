@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, MembershipStatus, Announcement, Payment } from '../types';
 import { api } from '../services/api';
-import { CreditCard, Download, User as UserIcon, Bell, AlertTriangle, Users, Camera, X, Check, Loader2, Clock, UploadCloud } from 'lucide-react';
+import { CreditCard, Download, User as UserIcon, Bell, AlertTriangle, Users, Camera, X, Check, Loader2, Clock, UploadCloud, MessageCircle } from 'lucide-react';
 
 interface UserDashboardProps {
   user: User;
@@ -104,7 +104,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
           ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
           
           // Get compressed base64 string
-          const compressedDataUrl = canvas.toDataURL(file.type);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.5);
           setFormData(prev => ({ ...prev, profileImage: compressedDataUrl }));
         };
         img.src = event.target?.result as string;
@@ -128,11 +128,38 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         alert("Receipt file is too large. Max 2MB.");
         return;
       }
-      const reader = new FileReader();
-      reader.onload = (event) => {
-         setReceiptFile(event.target?.result as string);
-      };
-      reader.readAsDataURL(file);
+
+      if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 800; 
+              const scaleSize = MAX_WIDTH / img.width;
+              
+              if (scaleSize < 1) {
+                  canvas.width = MAX_WIDTH;
+                  canvas.height = img.height * scaleSize;
+              } else {
+                  canvas.width = img.width;
+                  canvas.height = img.height;
+              }
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+              // Compressed receipt
+              setReceiptFile(canvas.toDataURL('image/jpeg', 0.5));
+            };
+            img.src = event.target?.result as string;
+          };
+          reader.readAsDataURL(file);
+      } else {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+             setReceiptFile(event.target?.result as string);
+          };
+          reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -195,7 +222,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   return (
     <div className="min-h-screen bg-gray-100 p-4 sm:p-6 lg:p-8 relative">
       <div className="max-w-7xl mx-auto space-y-6">
-        
+        {/* ... (Rest of component matches existing structure) ... */}
         {/* Alerts Section */}
         {isExpired && (
             <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm animate-in fade-in slide-in-from-top-4 duration-500">
@@ -301,9 +328,18 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                   </div>
                   <span className="font-semibold text-gray-800">Update Profile</span>
                </button>
-               <div className="bg-white p-4 rounded-lg shadow-sm flex flex-col items-center justify-center opacity-75">
-                  <span className="font-semibold text-gray-500">Contact Support</span>
-               </div>
+               
+               <a 
+                  href="https://wa.me/2348122975338?text=I%20need%20help%20on"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-white p-4 rounded-lg shadow-sm flex flex-col items-center justify-center hover:bg-green-50 transition-colors border border-transparent hover:border-green-200 group cursor-pointer"
+               >
+                  <div className="p-3 bg-amber-100 text-amber-600 rounded-full mb-2 group-hover:bg-white group-hover:scale-110 transition-transform">
+                     <MessageCircle className="h-6 w-6" />
+                  </div>
+                  <span className="font-semibold text-gray-800">Contact Support</span>
+               </a>
              </div>
 
              {/* ID Card & Certificate */}

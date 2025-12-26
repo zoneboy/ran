@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink } from 'lucide-react';
+import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File } from 'lucide-react';
 import { api } from '../services/api';
 
 interface AdminDashboardProps {
   // In a real app, this would fetch data
 }
 
+// ... (getRegion function remains unchanged) ...
 const getRegion = (state: string) => {
   if (!state) return 'Other';
   const mapping: { [key: string]: string } = {
@@ -22,14 +23,20 @@ const getRegion = (state: string) => {
 };
 
 const AdminDashboard: React.FC<AdminDashboardProps> = () => {
+  // ... (State and useEffects remain unchanged) ...
   const [users, setUsers] = useState<User[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [pendingPayments, setPendingPayments] = useState<Payment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('');
   const [reminderSent, setReminderSent] = useState(false);
   
-  // Export Modal State
+  // Modal States
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showAnnounceModal, setShowAnnounceModal] = useState(false);
+  const [showPendingPaymentModal, setShowPendingPaymentModal] = useState(false);
+
+  // Export Config
   const [exportConfig, setExportConfig] = useState({
     state: '',
     region: '',
@@ -38,8 +45,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     format: 'Excel'
   });
 
-  // Announcement Modal State
-  const [showAnnounceModal, setShowAnnounceModal] = useState(false);
+  // Announcement Config
   const [newAnnouncement, setNewAnnouncement] = useState({
     title: '',
     content: '',
@@ -47,20 +53,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     date: new Date().toISOString().split('T')[0]
   });
 
-  // ID Assignment Modal State
+  // Edit Modals
   const [idEditModal, setIdEditModal] = useState<{ isOpen: boolean; userId: string; currentId: string; newId: string; name: string } | null>(null);
-
-  // Expiry Date Edit Modal State
   const [expiryEditModal, setExpiryEditModal] = useState<{ isOpen: boolean; userId: string; currentExpiry: string; name: string } | null>(null);
-
-  // Status Edit Modal State
   const [statusEditModal, setStatusEditModal] = useState<{ isOpen: boolean; userId: string; currentStatus: MembershipStatus; name: string } | null>(null);
-
-  // Document Upload Modal State
   const [docModal, setDocModal] = useState<{ 
     isOpen: boolean; 
     userId: string; 
-    name: string; 
+    name: string;
+    // User Uploads
+    profileImage?: string;
+    cac?: string;
+    logo?: string;
+    evidence?: string;
+    // Issued Docs
     idCard?: string; 
     certificate?: string 
   } | null>(null);
@@ -84,12 +90,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
   const refreshData = async () => {
     try {
-      const [usersData, announcementsData] = await Promise.all([
+      const [usersData, announcementsData, allPayments] = await Promise.all([
         api.getUsers(),
-        api.getAnnouncements()
+        api.getAnnouncements(),
+        api.getAllPayments()
       ]);
       setUsers(usersData);
       setAnnouncements(announcementsData);
+      setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
     } catch (error) {
       console.error('Failed to load data', error);
     } finally {
@@ -153,24 +161,67 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   };
 
   const handleDeleteAnnouncement = async (e: React.MouseEvent, id: string) => {
-    // Stop event propagation to prevent any parent handlers from firing
     e.preventDefault();
     e.stopPropagation();
 
     if (window.confirm('Are you sure you want to delete this announcement?')) {
-      // Optimistic Update
       const previousAnnouncements = [...announcements];
       setAnnouncements(prev => prev.filter(ann => ann.id !== id));
 
       try {
         await api.deleteAnnouncement(id);
-        await refreshData(); // Force sync
+        await refreshData();
       } catch (e) {
         console.error("Delete failed", e);
         alert("Failed to delete announcement.");
         setAnnouncements(previousAnnouncements);
       }
     }
+  };
+
+  const handleGlobalApprovePayment = async (e: React.MouseEvent, paymentId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if(!window.confirm("Confirm approval of this payment?")) return;
+    
+    try {
+        await api.updatePaymentStatus(paymentId, 'Successful');
+        // Optimistic update
+        setPendingPayments(prev => prev.filter(p => p.id !== paymentId));
+        // Refresh full data
+        const allPayments = await api.getAllPayments();
+        setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
+        alert("Payment approved successfully.");
+    } catch(e) {
+        console.error(e);
+        alert("Failed to approve payment.");
+    }
+  };
+
+  const handleGlobalRejectPayment = async (e: React.MouseEvent, paymentId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if(!window.confirm("Are you sure you want to reject (delete) this payment record?")) return;
+    
+    try {
+        await api.deletePayment(paymentId);
+         // Optimistic update
+        setPendingPayments(prev => prev.filter(p => p.id !== paymentId));
+        // Refresh full data
+        const allPayments = await api.getAllPayments();
+        setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
+        alert("Payment rejected and removed.");
+    } catch(e) {
+        console.error(e);
+        alert("Failed to reject payment.");
+    }
+  };
+
+  const getUserName = (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    return user ? `${user.businessName} (${user.firstName})` : 'Unknown User';
   };
 
   const handleOpenIdModal = (user: User) => {
@@ -190,7 +241,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         return;
     }
     
-    // UI check for existing ID before calling API to give instant feedback if possible
     const existingUser = users.find(u => u.id === idEditModal.newId && u.id !== idEditModal.currentId);
     if (existingUser) {
         alert(`User ID '${idEditModal.newId}' is already assigned to ${existingUser.businessName}.`);
@@ -200,7 +250,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     try {
         await api.updateUserId(idEditModal.currentId, idEditModal.newId);
         setIdEditModal(null);
-        await refreshData(); // Await to ensure UI updates after modal closes
+        await refreshData();
         alert(`Successfully updated ID to ${idEditModal.newId}`);
     } catch (e: any) {
         alert(e.message || "Failed to update ID");
@@ -262,16 +312,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       isOpen: true,
       userId: user.id,
       name: user.businessName,
+      // Load user uploads
+      profileImage: user.profileImage,
+      cac: user.documents?.cac,
+      logo: user.documents?.logo,
+      evidence: user.documents?.evidence,
+      // Load issued docs
       idCard: user.documents?.membershipIdCard,
       certificate: user.documents?.membershipCertificate
     });
-    setDocFiles({}); // Reset pending files
+    setDocFiles({}); 
   };
 
   const handleDocFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'idCard' | 'certificate') => {
     const file = e.target.files?.[0];
     if (file) {
-      // Check size (5MB max)
       if (file.size > 5 * 1024 * 1024) {
         alert("File is too large. Max 5MB allowed.");
         return;
@@ -279,7 +334,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       
       const reader = new FileReader();
       reader.onload = (event) => {
-        // If it's an image, compress it to save storage space
         if (file.type.startsWith('image/')) {
             const img = new Image();
             img.onload = () => {
@@ -295,13 +349,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 }
                 const ctx = canvas.getContext('2d');
                 ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-                // Compress to JPEG at 0.7 quality
-                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.5); // 0.5 for safe storage
                 setDocFiles(prev => ({ ...prev, [type]: compressedBase64 }));
             };
             img.src = event.target?.result as string;
         } else {
-            // Use original base64 for non-images (e.g. PDF)
             const base64 = event.target?.result as string;
             setDocFiles(prev => ({ ...prev, [type]: base64 }));
         }
@@ -317,7 +369,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       const userToUpdate = users.find(u => u.id === docModal.userId);
       if (!userToUpdate) throw new Error("User not found");
 
-      // Merge existing documents with new uploads
       const updatedDocuments = {
         ...userToUpdate.documents,
         ...(docFiles.idCard && { membershipIdCard: docFiles.idCard }),
@@ -336,7 +387,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  // Payment Handlers
   const handleOpenPaymentModal = async (user: User) => {
     setPaymentModal({
       isOpen: true,
@@ -345,7 +395,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     });
     setShowAddPaymentForm(false);
     
-    // Fetch payments
     try {
         const data = await api.getPayments(user.id);
         setUserPayments(data);
@@ -366,15 +415,42 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const handlePaymentFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) { // 2MB Limit
+      if (file.size > 2 * 1024 * 1024) { 
         alert("Receipt file is too large. Max 2MB.");
         return;
       }
-      const reader = new FileReader();
-      reader.onload = (event) => {
-         setPaymentForm(prev => ({ ...prev, receipt: event.target?.result as string }));
-      };
-      reader.readAsDataURL(file);
+      
+      if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 800; 
+              const scaleSize = MAX_WIDTH / img.width;
+              
+              if (scaleSize < 1) {
+                  canvas.width = MAX_WIDTH;
+                  canvas.height = img.height * scaleSize;
+              } else {
+                  canvas.width = img.width;
+                  canvas.height = img.height;
+              }
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+              // Compressed receipt
+              setPaymentForm(prev => ({ ...prev, receipt: canvas.toDataURL('image/jpeg', 0.5) }));
+            };
+            img.src = event.target?.result as string;
+          };
+          reader.readAsDataURL(file);
+      } else {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+             setPaymentForm(prev => ({ ...prev, receipt: event.target?.result as string }));
+          };
+          reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -391,7 +467,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             status: paymentForm.status,
             receipt: paymentForm.receipt
         });
-        // Refresh local list
         const updated = await api.getPayments(paymentModal.userId);
         setUserPayments(updated);
         
@@ -408,7 +483,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     if(!paymentModal) return;
     try {
         await api.updatePaymentStatus(paymentId, 'Successful');
-        // Refresh local list
         const updated = await api.getPayments(paymentModal.userId);
         setUserPayments(updated);
         alert("Payment approved!");
@@ -421,20 +495,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     e.preventDefault();
     e.stopPropagation();
 
-    // Do NOT rely on modal state for verification logic to avoid state closure issues
-    // Just confirm and delete
     if(!window.confirm("Are you sure you want to delete this payment record? This cannot be undone.")) {
         return;
     }
 
-    // Optimistic Update
     const previousPayments = [...userPayments];
     setUserPayments(prev => prev.filter(p => p.id !== paymentId));
 
     try {
         await api.deletePayment(paymentId);
-        
-        // Ensure UI matches backend/storage
         if (paymentModal) {
             const updated = await api.getPayments(paymentModal.userId);
             setUserPayments(updated);
@@ -442,12 +511,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     } catch(e) {
         console.error("Delete Error", e);
         alert("Failed to delete payment.");
-        // Revert UI on error
         setUserPayments(previousPayments);
     }
   };
 
-  // Improved Search Logic with safe access
+  // ... (Filtering and Rendering logic unchanged) ...
   const filteredUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN) return false;
     const searchTerm = filter.toLowerCase();
@@ -472,7 +540,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     );
   });
 
-  // Expiration Logic (Check within 30 days)
   const today = new Date();
   const expiringUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN || u.status === MembershipStatus.SUSPENDED) return false;
@@ -482,12 +549,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays >= 0 && diffDays <= 30;
   });
-
-  const triggerReminders = () => {
-    setReminderSent(true);
-    setTimeout(() => setReminderSent(false), 5000);
-    alert(`System Message: Automated check initiated. ${expiringUsers.length} notifications queued for delivery via Email/SMS.`);
-  };
 
   const handleExport = () => {
     const exportData = users.filter(u => {
@@ -500,83 +561,152 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     });
 
     if (exportConfig.format === 'Excel') {
-        // Generate CSV
-        const headers = ['Business Name', 'Member ID', 'Contact Name', 'Email', 'Phone', 'Category', 'State', 'Region', 'Status', 'Expiry Date', 'Volume (Tons)', 'Employees'];
+        const headers = [
+            'ID', 'Business Name', 'Category', 'Status', 'Expiry Date',
+            'First Name', 'Last Name', 'Gender', 'Email', 'Phone', 'DOB',
+            'Address', 'City', 'State', 'Region', 'Other States',
+            'Commencement Date', 'Monthly Volume (Tons)', 'Employees',
+            'Materials', 'Machinery',
+            'Interests', 'Related Association'
+        ];
+        
         const csvContent = [
             headers.join(','),
-            ...exportData.map(u => [
-                `"${u.businessName}"`,
-                `"${u.id}"`,
-                `"${u.firstName} ${u.lastName}"`,
-                u.email,
-                `"${u.phone}"`,
-                u.category,
-                u.businessState,
-                getRegion(u.businessState),
-                u.status,
-                u.expiryDate,
-                u.monthlyVolume,
-                u.employees
-            ].join(','))
+            ...exportData.map(u => {
+                 const safeUser = u as any; 
+                 return [
+                    `"${safeUser.id}"`,
+                    `"${safeUser.businessName}"`,
+                    `"${safeUser.category}"`,
+                    `"${safeUser.status}"`,
+                    `"${safeUser.expiryDate}"`,
+                    `"${safeUser.firstName}"`,
+                    `"${safeUser.lastName}"`,
+                    `"${safeUser.gender || ''}"`,
+                    `"${safeUser.email}"`,
+                    `"${safeUser.phone}"`,
+                    `"${safeUser.dob || ''}"`,
+                    `"${safeUser.businessAddress}"`,
+                    `"${safeUser.businessCity || ''}"`,
+                    `"${safeUser.businessState}"`,
+                    `"${getRegion(safeUser.businessState)}"`,
+                    `"${safeUser.statesOfOperation || ''}"`,
+                    `"${safeUser.businessCommencement || ''}"`,
+                    `"${safeUser.monthlyVolume}"`,
+                    `"${safeUser.employees}"`,
+                    `"${(safeUser.materialTypes || []).join(' | ')}"`,
+                    `"${(safeUser.machineryDeployed || []).join(' | ')}"`,
+                    `"${(safeUser.areasOfInterest || []).join(' | ')}"`,
+                    `"${safeUser.relatedAssociation === 'Yes' ? safeUser.relatedAssociationName : 'No'}"`
+                ].join(',');
+            })
         ].join('\n');
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.setAttribute('download', `ran_members_export_${new Date().toISOString().split('T')[0]}.csv`);
+        link.setAttribute('download', `ran_members_full_export_${new Date().toISOString().split('T')[0]}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     } else {
-        // PDF (Print View)
         const printWindow = window.open('', '_blank');
         if (printWindow) {
             printWindow.document.write(`
                 <html>
                 <head>
-                    <title>RAN Membership Report</title>
+                    <title>RAN Member Profiles</title>
                     <style>
-                        body { font-family: sans-serif; padding: 20px; }
-                        h1 { color: #166534; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
-                        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                        th { background-color: #f3f4f6; font-weight: bold; }
-                        tr:nth-child(even) { background-color: #f9fafb; }
+                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #f9f9f9; }
+                        .member-card { background: white; border: 1px solid #ddd; margin-bottom: 40px; padding: 30px; border-radius: 8px; page-break-inside: avoid; }
+                        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #16a34a; padding-bottom: 15px; margin-bottom: 20px; }
+                        .header h1 { margin: 0; color: #166534; font-size: 24px; }
+                        .header .meta { text-align: right; font-size: 12px; color: #666; }
+                        .profile-header { display: flex; gap: 20px; margin-bottom: 20px; align-items: start; }
+                        .profile-img { width: 120px; height: 120px; object-fit: cover; border-radius: 50%; border: 4px solid #f0fdf4; box-shadow: 0 2px 4px rgba(0,0,0,0.1); background: #eee; }
+                        .logo-img { width: 100px; height: 100px; object-fit: contain; margin-left: auto; border: 1px solid #eee; padding: 5px; }
+                        .section-title { font-weight: bold; color: #15803d; border-bottom: 1px solid #eee; margin-top: 20px; margin-bottom: 10px; padding-bottom: 5px; font-size: 14px; text-transform: uppercase; }
+                        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
+                        .field { margin-bottom: 5px; }
+                        .label { font-weight: bold; color: #555; display: block; font-size: 11px; }
+                        .value { color: #000; }
+                        .status-active { color: green; font-weight: bold; }
+                        .status-expired { color: red; font-weight: bold; }
+                        .doc-badge { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-right: 5px; border: 1px solid #bae6fd; }
                     </style>
                 </head>
                 <body>
-                    <h1>Recyclers Association of Nigeria - Membership Report</h1>
-                    <p>Generated on: ${new Date().toLocaleDateString()}</p>
-                    <p>Total Records: ${exportData.length}</p>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Business Name</th>
-                                <th>Contact</th>
-                                <th>Email</th>
-                                <th>Category</th>
-                                <th>State</th>
-                                <th>Expiry Date</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${exportData.map(u => `
-                                <tr>
-                                    <td>${u.id}</td>
-                                    <td>${u.businessName}</td>
-                                    <td>${u.firstName} ${u.lastName}</td>
-                                    <td>${u.email}</td>
-                                    <td>${u.category}</td>
-                                    <td>${u.businessState}</td>
-                                    <td>${u.expiryDate}</td>
-                                    <td>${u.status}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
+                    <div style="text-align:center; margin-bottom: 40px;">
+                        <h1 style="color:#166534;">Recyclers Association of Nigeria</h1>
+                        <p>Membership Database Export - Generated: ${new Date().toLocaleDateString()}</p>
+                    </div>
+
+                    ${exportData.map(u => {
+                        const safeUser = u as any;
+                        return `
+                        <div class="member-card">
+                            <div class="header">
+                                <div>
+                                    <h1>${safeUser.businessName}</h1>
+                                    <div style="font-size:14px; color:#555;">${safeUser.category}</div>
+                                </div>
+                                <div class="meta">
+                                    ID: <strong>${safeUser.id}</strong><br/>
+                                    Status: <span class="${safeUser.status === 'Active' ? 'status-active' : 'status-expired'}">${safeUser.status}</span><br/>
+                                    Expires: ${safeUser.expiryDate}
+                                </div>
+                            </div>
+
+                            <div class="profile-header">
+                                ${safeUser.profileImage ? `<img src="${safeUser.profileImage}" class="profile-img" />` : '<div class="profile-img" style="display:flex;align-items:center;justify-content:center;color:#999;">No Photo</div>'}
+                                <div style="flex:1; padding-left: 10px;">
+                                    <div class="grid">
+                                        <div class="field"><span class="label">Contact Name</span><span class="value">${safeUser.firstName} ${safeUser.lastName}</span></div>
+                                        <div class="field"><span class="label">Gender</span><span class="value">${safeUser.gender || 'N/A'}</span></div>
+                                        <div class="field"><span class="label">Email</span><span class="value">${safeUser.email}</span></div>
+                                        <div class="field"><span class="label">Phone</span><span class="value">${safeUser.phone}</span></div>
+                                        <div class="field"><span class="label">Date of Birth</span><span class="value">${safeUser.dob || 'N/A'}</span></div>
+                                    </div>
+                                </div>
+                                ${safeUser.documents?.logo ? `<img src="${safeUser.documents.logo}" class="logo-img" />` : ''}
+                            </div>
+
+                            <div class="section-title">Business Information</div>
+                            <div class="grid">
+                                <div class="field"><span class="label">Address</span><span class="value">${safeUser.businessAddress}, ${safeUser.businessCity || ''}</span></div>
+                                <div class="field"><span class="label">State / Region</span><span class="value">${safeUser.businessState} (${getRegion(safeUser.businessState)})</span></div>
+                                <div class="field"><span class="label">Date Commenced</span><span class="value">${safeUser.businessCommencement || 'N/A'}</span></div>
+                                <div class="field"><span class="label">Other States</span><span class="value">${safeUser.statesOfOperation || 'None'}</span></div>
+                            </div>
+
+                            <div class="section-title">Operational Data</div>
+                            <div class="grid">
+                                <div class="field"><span class="label">Materials</span><span class="value">${(safeUser.materialTypes || []).join(', ')}</span></div>
+                                <div class="field"><span class="label">Machinery</span><span class="value">${(safeUser.machineryDeployed || []).join(', ')}</span></div>
+                                <div class="field"><span class="label">Monthly Volume</span><span class="value">${safeUser.monthlyVolume} Tons</span></div>
+                                <div class="field"><span class="label">Employees</span><span class="value">${safeUser.employees}</span></div>
+                            </div>
+                            
+                            <div class="section-title">Other Details</div>
+                            <div class="grid">
+                                <div class="field"><span class="label">Areas of Interest</span><span class="value">${(safeUser.areasOfInterest || []).join(', ')}</span></div>
+                                <div class="field"><span class="label">Related Association</span><span class="value">${safeUser.relatedAssociation === 'Yes' ? safeUser.relatedAssociationName : 'No'}</span></div>
+                                <div class="field">
+                                    <span class="label">Uploaded Documents</span>
+                                    <div style="margin-top:2px;">
+                                        ${safeUser.documents?.cac ? '<span class="doc-badge">CAC Cert</span>' : ''}
+                                        ${safeUser.documents?.evidence ? '<span class="doc-badge">Evidence</span>' : ''}
+                                        ${safeUser.documents?.membershipIdCard ? '<span class="doc-badge">ID Card</span>' : ''}
+                                        ${safeUser.documents?.membershipCertificate ? '<span class="doc-badge">RAN Cert</span>' : ''}
+                                        ${(!safeUser.documents?.cac && !safeUser.documents?.evidence) ? '<span style="color:#999;font-style:italic;">None</span>' : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        `
+                    }).join('')}
+
                     <script>window.print();</script>
                 </body>
                 </html>
@@ -599,28 +729,41 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
           <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
           
-          <div className="mt-4 md:mt-0 flex items-center space-x-4">
-             <div className="relative cursor-pointer bg-white p-2 rounded-full shadow-sm hover:shadow-md transition-shadow">
+          <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
+             <div className="relative cursor-pointer bg-white p-2 rounded-full shadow-sm hover:shadow-md transition-shadow" title="Expiring Members">
                 <Bell className="h-6 w-6 text-gray-600" />
                 {expiringUsers.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                  <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full animate-pulse">
                     {expiringUsers.length}
                   </span>
                 )}
              </div>
+
+             <button 
+                onClick={() => setShowPendingPaymentModal(true)}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-md font-medium text-sm shadow-sm transition-all ${
+                   pendingPayments.length > 0 
+                   ? 'bg-red-600 text-white hover:bg-red-700 animate-pulse' 
+                   : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                }`}
+             >
+                <CreditCard className="h-4 w-4" />
+                <span>Payment Requests</span>
+                {pendingPayments.length > 0 && (
+                   <span className="bg-white text-red-600 px-1.5 py-0.5 rounded-full text-xs font-bold">{pendingPayments.length}</span>
+                )}
+             </button>
+
              <button 
                onClick={() => setShowAnnounceModal(true)}
                className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center shadow-sm"
              >
                 <Megaphone className="h-4 w-4 mr-2" /> Make Announcement
              </button>
-             <div className="text-sm text-gray-500 text-right hidden sm:block">
-                <p>System Status: <span className="text-green-600 font-semibold">Online</span></p>
-                <p className="text-xs">Last Check: {new Date().toLocaleTimeString()}</p>
-             </div>
           </div>
         </div>
 
+        {/* ... (Rest of dashboard components) ... */}
         {/* Analytics Section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="bg-white p-6 rounded-lg shadow-sm">
@@ -829,6 +972,85 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       </div>
 
+      {/* Pending Payments Modal */}
+      {showPendingPaymentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+           <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+             <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 flex items-center">
+                    <CreditCard className="mr-2 h-5 w-5 text-red-600" /> Pending Payment Requests
+                  </h2>
+                  <p className="text-sm text-gray-500">Review receipts and approve membership payments.</p>
+                </div>
+                <button onClick={() => setShowPendingPaymentModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="h-6 w-6" />
+                </button>
+             </div>
+
+             <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
+                <table className="min-w-full divide-y divide-gray-200">
+                   <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th>
+                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receipt</th>
+                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                   </thead>
+                   <tbody className="bg-white divide-y divide-gray-200">
+                      {pendingPayments.length > 0 ? pendingPayments.map(p => (
+                         <tr key={p.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm text-gray-600">{p.date}</td>
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900">{getUserName(p.userId)}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600">{p.description}</td>
+                            <td className="px-4 py-3 text-sm font-bold text-green-700">{p.amount.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-sm">
+                               {p.receipt ? (
+                                  <a 
+                                    href={p.receipt} 
+                                    download={`receipt_${p.reference}`} 
+                                    className="text-blue-600 hover:underline flex items-center text-xs"
+                                  >
+                                    <Download className="h-3 w-3 mr-1" /> View/Download
+                                  </a>
+                               ) : (
+                                  <span className="text-red-400 text-xs italic">No receipt</span>
+                               )}
+                            </td>
+                            <td className="px-4 py-3 text-sm space-x-2">
+                               <button 
+                                 onClick={(e) => handleGlobalApprovePayment(e, p.id)}
+                                 className="bg-green-100 text-green-700 hover:bg-green-200 px-2 py-1 rounded text-xs font-semibold border border-green-200"
+                               >
+                                  Approve
+                               </button>
+                               <button 
+                                 onClick={(e) => handleGlobalRejectPayment(e, p.id)}
+                                 className="bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs font-semibold border border-red-200"
+                               >
+                                  Reject
+                               </button>
+                            </td>
+                         </tr>
+                      )) : (
+                         <tr><td colSpan={6} className="text-center py-8 text-gray-500">No pending payment requests.</td></tr>
+                      )}
+                   </tbody>
+                </table>
+             </div>
+             
+             <div className="flex justify-end">
+                <button onClick={() => setShowPendingPaymentModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button>
+             </div>
+           </div>
+        </div>
+      )}
+
+      {/* Export Modal, Announcement Modal, Edit Modals ... (Rest remains unchanged) */}
+      {/* ... */}
       {/* Export Modal */}
       {showExportModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -914,7 +1136,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                       onChange={() => setExportConfig({...exportConfig, format: 'PDF'})}
                       className="mr-2 text-green-600 focus:ring-green-500"
                     />
-                    PDF (Print)
+                    PDF (Print Detailed)
                   </label>
                 </div>
               </div>
@@ -1137,7 +1359,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       {/* Document Upload Modal */}
       {docModal && docModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
              <div className="flex justify-between items-center mb-6">
                <div>
                   <h2 className="text-xl font-bold text-gray-900 flex items-center">
@@ -1151,6 +1373,63 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
              </div>
 
              <div className="space-y-6">
+                
+                {/* User Submissions Section */}
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                    <h3 className="font-bold text-blue-800 mb-3 text-sm uppercase flex items-center">
+                        <UserIcon className="h-4 w-4 mr-1"/> Registration Submissions
+                    </h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        {/* Profile Image */}
+                        <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center">
+                            <span className="text-xs font-semibold text-gray-500 mb-2">Profile Image</span>
+                            {docModal.profileImage ? (
+                                <>
+                                    <img src={docModal.profileImage} alt="Profile" className="h-20 w-20 object-cover rounded-full mb-2 border border-gray-200"/>
+                                    <a href={docModal.profileImage} download="Profile_Image" className="text-xs text-blue-600 hover:underline flex items-center"><Download className="h-3 w-3 mr-1"/> Download</a>
+                                </>
+                            ) : <span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>}
+                        </div>
+
+                        {/* Business Logo */}
+                        <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center">
+                            <span className="text-xs font-semibold text-gray-500 mb-2">Business Logo</span>
+                            {docModal.logo ? (
+                                <>
+                                    <img src={docModal.logo} alt="Logo" className="h-20 w-20 object-contain mb-2"/>
+                                    <a href={docModal.logo} download="Business_Logo" className="text-xs text-blue-600 hover:underline flex items-center"><Download className="h-3 w-3 mr-1"/> Download</a>
+                                </>
+                            ) : <span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>}
+                        </div>
+
+                        {/* CAC Cert */}
+                        <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center justify-center text-center">
+                            <span className="text-xs font-semibold text-gray-500 mb-2">CAC Certificate</span>
+                            {docModal.cac ? (
+                                <a href={docModal.cac} download="CAC_Certificate" className="flex flex-col items-center text-blue-600 hover:text-blue-800">
+                                    <FileText className="h-8 w-8 mb-1"/>
+                                    <span className="text-xs hover:underline">Download File</span>
+                                </a>
+                            ) : <span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>}
+                        </div>
+
+                        {/* Evidence */}
+                        <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center justify-center text-center">
+                            <span className="text-xs font-semibold text-gray-500 mb-2">Business Evidence</span>
+                            {docModal.evidence ? (
+                                <a href={docModal.evidence} download="Business_Evidence" className="flex flex-col items-center text-blue-600 hover:text-blue-800">
+                                    <ImageIcon className="h-8 w-8 mb-1"/>
+                                    <span className="text-xs hover:underline">Download File</span>
+                                </a>
+                            ) : <span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="border-t border-gray-200 my-4"></div>
+
+                <h3 className="font-bold text-gray-800 mb-1 text-sm uppercase">Issue Documents</h3>
+
                 {/* ID Card Section */}
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                    <div className="flex justify-between items-start mb-3">
