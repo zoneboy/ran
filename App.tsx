@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
@@ -20,8 +21,27 @@ function App() {
   useEffect(() => {
     const initSession = async () => {
       try {
-        const currentUser = await api.getCurrentUser();
-        setUser(currentUser);
+        const storedUser = await api.getCurrentUser(); // Gets from LocalStorage
+        
+        if (storedUser) {
+           // Validate against backend to ensure ID exists in Live DB
+           try {
+             const validUser = await api.getUser(storedUser.id);
+             if (validUser) {
+               setUser(validUser);
+               // Update local storage with fresh data
+               localStorage.setItem('ran_user', JSON.stringify(validUser));
+             } else {
+               // User exists in local storage but not in DB (Zombie session)
+               console.warn("User ID not found in backend. Logging out.");
+               await api.logout();
+               setUser(null);
+             }
+           } catch (e) {
+             console.warn("Backend validation failed (offline?), using stored session.");
+             setUser(storedUser);
+           }
+        }
       } catch (error) {
         console.error('Session restore failed', error);
       } finally {

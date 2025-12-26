@@ -19,6 +19,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
   const [isSending, setIsSending] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [convoError, setConvoError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -95,6 +96,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
     };
 
     fetchMessages();
+    setSendError(null);
     
     // Poll for new messages in active chat
     const interval = setInterval(fetchMessages, 5000);
@@ -113,6 +115,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
     
     const tempContent = newMessage;
     setNewMessage(''); // Optimistic clear
+    setSendError(null);
     setIsSending(true);
 
     try {
@@ -125,9 +128,9 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
              return [activeChatUser, ...others];
         });
 
-    } catch (e) {
-        console.error("Failed to send");
-        alert("Failed to send message. Please check connection.");
+    } catch (e: any) {
+        console.error("Failed to send", e);
+        setSendError("Failed to send. " + (e.message || "Check connection."));
         setNewMessage(tempContent);
     } finally {
         setIsSending(false);
@@ -273,22 +276,30 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
                     </div>
 
                     {/* Input Area */}
-                    <form onSubmit={handleSendMessage} className="p-4 border-t bg-white flex items-center gap-2">
-                        <input 
-                          type="text" 
-                          value={newMessage}
-                          onChange={(e) => setNewMessage(e.target.value)}
-                          placeholder="Type a message..."
-                          className="flex-1 border border-gray-300 rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                        />
-                        <button 
-                          type="submit" 
-                          disabled={isSending || !newMessage.trim()}
-                          className={`p-2 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors ${isSending ? 'opacity-50' : ''}`}
-                        >
-                           <Send className="h-5 w-5" />
-                        </button>
-                    </form>
+                    <div className="p-4 border-t bg-white">
+                        {sendError && (
+                            <div className="mb-2 text-xs text-red-500 flex items-center bg-red-50 p-2 rounded">
+                                <AlertCircle className="h-4 w-4 mr-1" />
+                                {sendError}
+                            </div>
+                        )}
+                        <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                            <input 
+                            type="text" 
+                            value={newMessage}
+                            onChange={(e) => setNewMessage(e.target.value)}
+                            placeholder="Type a message..."
+                            className="flex-1 border border-gray-300 rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                            />
+                            <button 
+                            type="submit" 
+                            disabled={isSending || !newMessage.trim()}
+                            className={`p-2 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors ${isSending ? 'opacity-50' : ''}`}
+                            >
+                            <Send className="h-5 w-5" />
+                            </button>
+                        </form>
+                    </div>
                  </>
              ) : (
                  <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-8">
