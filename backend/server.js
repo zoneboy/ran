@@ -448,23 +448,65 @@ router.put('/users/:id', async (req, res) => {
 // Update User ID (Admin Feature)
 router.post('/users/update-id', async (req, res) => {
     const { currentId, newId } = req.body;
+    const client = await pool.connect();
+    
     try {
-        // Check if new ID exists
-        const check = await pool.query('SELECT id FROM users WHERE id = $1', [newId]);
+        await client.query('BEGIN');
+
+        // 1. Check if new ID exists
+        const check = await client.query('SELECT id FROM users WHERE id = $1', [newId]);
         if (check.rows.length > 0) {
-            return res.status(400).json({ message: 'ID already taken' });
+            throw new Error('ID already taken');
         }
         
-        // This requires cascading updates usually, but we will do manual transaction if needed.
-        // Assuming simple foreign keys for now.
-        await pool.query('UPDATE users SET id = $1 WHERE id = $2', [newId, currentId]);
-        // Also update payments
-        await pool.query('UPDATE payments SET user_id = $1 WHERE user_id = $2', [newId, currentId]);
+        // 2. Fetch original user to get email and ensure existence
+        const userRes = await client.query('SELECT email FROM users WHERE id = $1', [currentId]);
+        if (userRes.rows.length === 0) throw new Error('User not found');
+        const originalEmail = userRes.rows[0].email;
+
+        // 3. Rename old user's email to temporary to free up the UNIQUE constraint
+        // (Since we are essentially copying the user, the new copy needs the original email)
+        const tempEmail = `temp_${Date.now()}_${originalEmail}`;
+        await client.query('UPDATE users SET email = $1 WHERE id = $2', [tempEmail, currentId]);
+
+        // 4. Copy User to New ID
+        // We explicitly list columns to avoid issues with ID and ensure email is set correctly
+        const columns = [
+          'first_name', 'last_name', 'phone', 'password', 'role', 'status', 
+          'category', 'gender', 'business_name', 'business_address', 'business_state', 
+          'business_city', 'business_commencement', 'business_category', 'states_of_operation', 
+          'material_types', 'machinery_deployed', 'monthly_volume', 'employees', 
+          'areas_of_interest', 'related_association', 'related_association_name', 'dob', 
+          'date_joined', 'expiry_date', 'profile_image', 'reset_token', 'reset_token_expiry', 
+          'documents'
+        ];
         
-        res.json({ message: 'ID Updated' });
+        const colsStr = columns.map(c => `"${c}"`).join(', ');
+        
+        // Query: INSERT INTO users (id, email, ...cols) SELECT $1, $3, ...cols FROM users WHERE id = $2
+        // $1 = newId, $2 = currentId (which now has temp email), $3 = originalEmail
+        const copyQuery = `
+            INSERT INTO users (id, email, ${colsStr}) 
+            SELECT $1, $3, ${colsStr} 
+            FROM users WHERE id = $2
+        `;
+        
+        await client.query(copyQuery, [newId, currentId, originalEmail]);
+
+        // 5. Update foreign keys (Payments)
+        await client.query('UPDATE payments SET user_id = $1 WHERE user_id = $2', [newId, currentId]);
+
+        // 6. Delete old user (which has the temp email now)
+        await client.query('DELETE FROM users WHERE id = $1', [currentId]);
+
+        await client.query('COMMIT');
+        res.json({ message: 'ID Updated successfully' });
     } catch (e) {
-        console.error(e);
-        res.status(500).json({ message: 'Failed to update ID' });
+        await client.query('ROLLBACK');
+        console.error("Update ID Error:", e);
+        res.status(500).json({ message: 'Failed to update ID: ' + e.message });
+    } finally {
+        client.release();
     }
 });
 
