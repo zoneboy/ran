@@ -170,14 +170,13 @@ export const api = {
     return stored ? JSON.parse(stored) : null;
   },
 
-  // User Management - UPDATED TO USE QUERY PARAMS FOR SLASH SUPPORT
+  // User Management
   getUser: async (id: string): Promise<User | null> => {
     if (USE_MOCK_BACKEND) {
         const users = getStoredUsers();
         let found = users.find((u: any) => u.id === id);
         return found ? checkAndExpireUser(found) : null;
     }
-    // Use /user?id=... instead of /users/:id to safely handle slashes
     const res = await fetch(`${API_URL}/user?id=${encodeURIComponent(id)}`);
     if (!res.ok) return null;
     return await res.json();
@@ -195,9 +194,6 @@ export const api = {
 
   updateUser: async (updatedUser: User): Promise<User> => {
     if (USE_MOCK_BACKEND) return updatedUser;
-    // Uses PUT /users/:id (kept as :id mostly because it's usually cleaner, but should be mindful)
-    // Actually, update should probably also be query param if possible, but standard is path.
-    // Express should handle it if encoded correctly, but for maximum safety in these serverless envs:
     const res = await fetch(`${API_URL}/users/${encodeURIComponent(updatedUser.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -242,7 +238,7 @@ export const api = {
     await fetch(`${API_URL}/announcements/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
-  // Payments - UPDATED
+  // Payments
   getAllPayments: async (): Promise<Payment[]> => {
     if (USE_MOCK_BACKEND) return getStoredPayments();
     const res = await fetch(`${API_URL}/payments`);
@@ -251,7 +247,6 @@ export const api = {
 
   getPayments: async (userId: string): Promise<Payment[]> => {
     if (USE_MOCK_BACKEND) return getStoredPayments().filter((p: Payment) => p.userId === userId);
-    // Use query param
     const res = await fetch(`${API_URL}/payments?userId=${encodeURIComponent(userId)}`);
     return await handleResponse(res);
   },
