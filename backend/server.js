@@ -701,36 +701,46 @@ router.get('/messages/:userId/:otherUserId', async (req, res) => {
     }
 });
 
-// Get Conversations List - UPDATED FOR ROBUSTNESS (JOIN with DISTINCT)
+// Get Conversations List - REDESIGNED FOR MAX RELIABILITY
 router.get('/messages/conversations/:userId', async (req, res) => {
     const { userId } = req.params;
-    console.log(`Fetching conversations for user: ${userId}`);
+    console.log(`Getting conversations for: ${userId}`);
     
     try {
-        // Find distinct contact IDs by looking at both sender and receiver columns
-        // Then join with users table to get details
-        const query = `
-            SELECT u.* 
-            FROM users u
-            JOIN (
-                SELECT DISTINCT CASE 
-                    WHEN sender_id = $1 THEN receiver_id 
-                    ELSE sender_id 
-                END as contact_id
-                FROM messages 
-                WHERE sender_id = $1 OR receiver_id = $1
-            ) m ON u.id = m.contact_id
+        // Step 1: Get ALL unique IDs you have interacted with (sent to OR received from)
+        // We use UNION to ensure uniqueness.
+        // This relies on basic SQL and avoids complex JOIN behavior issues.
+        const contactsQuery = `
+            SELECT DISTINCT sender_id as contact_id FROM messages WHERE receiver_id = $1
+            UNION
+            SELECT DISTINCT receiver_id as contact_id FROM messages WHERE sender_id = $1
         `;
         
-        const result = await pool.query(query, [userId]);
+        const contactsResult = await pool.query(contactsQuery, [userId]);
         
-        console.log(`Found ${result.rows.length} conversations for user ${userId}`);
+        // Extract the IDs into a clean array
+        const contactIds = contactsResult.rows.map(r => r.contact_id).filter(id => id && id !== userId);
         
-        const users = result.rows.map(mapUser);
+        console.log(`Found ${contactIds.length} contact IDs for ${userId}:`, contactIds);
+
+        if (contactIds.length === 0) {
+            return res.json([]);
+        }
+
+        // Step 2: Fetch the user details for these specific IDs
+        const usersQuery = `
+            SELECT * FROM users WHERE id = ANY($1)
+        `;
+        
+        const usersResult = await pool.query(usersQuery, [contactIds]);
+        const users = usersResult.rows.map(mapUser);
+        
+        console.log(`Returning ${users.length} user profiles.`);
         res.json(users);
+
     } catch (e) {
         console.error("Conversation Fetch Error:", e);
-        res.status(500).json({ message: 'Server error fetching conversations' });
+        res.status(500).json({ message: 'Server error fetching conversations: ' + e.message });
     }
 });
 
