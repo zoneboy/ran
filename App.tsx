@@ -6,11 +6,13 @@ import Login from './pages/Login';
 import UserDashboard from './pages/UserDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import MemberDirectory from './pages/MemberDirectory';
+import Messages from './pages/Messages';
 import { User } from './types';
 import { api } from './services/api';
 
 function App() {
   const [currentPage, setCurrentPage] = useState('home');
+  const [pageParams, setPageParams] = useState<any>(null); // State to hold parameters passed during navigation
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -29,7 +31,8 @@ function App() {
     initSession();
   }, []);
 
-  const navigate = (page: string) => {
+  const navigate = (page: string, params?: any) => {
+    setPageParams(params);
     setCurrentPage(page);
     window.scrollTo(0, 0);
   };
@@ -77,6 +80,8 @@ function App() {
         return user && user.role === 'ADMIN' ? <AdminDashboard /> : <Home navigate={navigate} user={user} />;
       case 'member-directory':
         return user ? <MemberDirectory navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} />;
+      case 'messages':
+        return user ? <Messages currentUser={user} navigate={navigate} targetUserId={pageParams?.targetUserId} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       default:
         return <Home navigate={navigate} user={user} />;
     }

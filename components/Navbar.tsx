@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Menu, X, Recycle, User, LogOut, Users } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Menu, X, Recycle, User, LogOut, Users, MessageSquare } from 'lucide-react';
 import { User as UserType } from '../types';
+import { api } from '../services/api';
 
 interface NavbarProps {
   user: UserType | null;
@@ -11,6 +12,20 @@ interface NavbarProps {
 
 const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+     if (user) {
+         const checkUnread = async () => {
+             const count = await api.getUnreadCount(user.id);
+             setUnreadCount(count);
+         };
+         checkUnread();
+         // Poll for unread count occasionally
+         const interval = setInterval(checkUnread, 30000);
+         return () => clearInterval(interval);
+     }
+  }, [user]);
 
   const navLinks = [
     { name: 'Home', value: 'home' },
@@ -48,14 +63,30 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
 
               {/* Authenticated Links */}
               {user && (
-                 <button
-                    onClick={() => handleNav('member-directory')}
-                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center ${
-                      currentPage === 'member-directory' ? 'bg-green-800 text-white' : 'hover:bg-green-600'
-                    }`}
-                  >
-                    <Users className="h-4 w-4 mr-1" /> Directory
-                  </button>
+                 <>
+                    <button
+                        onClick={() => handleNav('member-directory')}
+                        className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center ${
+                        currentPage === 'member-directory' ? 'bg-green-800 text-white' : 'hover:bg-green-600'
+                        }`}
+                    >
+                        <Users className="h-4 w-4 mr-1" /> Directory
+                    </button>
+                    <button
+                        onClick={() => handleNav('messages')}
+                        className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center relative ${
+                        currentPage === 'messages' ? 'bg-green-800 text-white' : 'hover:bg-green-600'
+                        }`}
+                    >
+                        <MessageSquare className="h-4 w-4 mr-1" /> 
+                        Messages
+                        {unreadCount > 0 && (
+                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-4 w-4 flex items-center justify-center">
+                                {unreadCount > 9 ? '9+' : unreadCount}
+                            </span>
+                        )}
+                    </button>
+                  </>
               )}
 
               {!user && (
@@ -111,12 +142,21 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
               </button>
             ))}
              {user && (
-                <button 
-                  onClick={() => handleNav('member-directory')} 
-                  className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600"
-                >
-                  Member Directory
-                </button>
+                <>
+                    <button 
+                    onClick={() => handleNav('member-directory')} 
+                    className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600"
+                    >
+                    Member Directory
+                    </button>
+                    <button 
+                    onClick={() => handleNav('messages')} 
+                    className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600 flex items-center justify-between"
+                    >
+                    Messages
+                    {unreadCount > 0 && <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">{unreadCount} new</span>}
+                    </button>
+                </>
              )}
             {!user && (
               <>

@@ -88,6 +88,21 @@ export interface Payment {
   receipt?: string; // Base64 string of the uploaded receipt
 }
 
+export interface Message {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  content: string;
+  timestamp: string; // ISO String
+  isRead: boolean;
+}
+
+export interface Conversation {
+  otherUser: User;
+  lastMessage: Message;
+  unreadCount: number;
+}
+
 export interface StatData {
   name: string;
   value: number;

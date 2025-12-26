@@ -1,4 +1,4 @@
-import { User, Announcement, Payment } from '../types';
+import { User, Announcement, Payment, Message } from '../types';
 
 // API Configuration
 // For Netlify production, we point directly to the function path to avoid redirect issues.
@@ -166,5 +166,40 @@ export const api = {
 
   deletePayment: async (paymentId: string): Promise<void> => {
     await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, { method: 'DELETE' });
+  },
+
+  // Messaging
+  getConversations: async (userId: string): Promise<User[]> => {
+    const res = await fetch(`${API_URL}/messages/conversations/${encodeURIComponent(userId)}`);
+    return await handleResponse(res);
+  },
+
+  getMessages: async (userId: string, otherUserId: string): Promise<Message[]> => {
+    const res = await fetch(`${API_URL}/messages/${encodeURIComponent(userId)}/${encodeURIComponent(otherUserId)}`);
+    return await handleResponse(res);
+  },
+
+  sendMessage: async (senderId: string, receiverId: string, content: string): Promise<Message> => {
+    const res = await fetch(`${API_URL}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ senderId, receiverId, content })
+    });
+    return await handleResponse(res);
+  },
+
+  markMessagesRead: async (userId: string, otherUserId: string): Promise<void> => {
+    await fetch(`${API_URL}/messages/read/${encodeURIComponent(userId)}/${encodeURIComponent(otherUserId)}`, { method: 'PUT' });
+  },
+  
+  getUnreadCount: async (userId: string): Promise<number> => {
+      try {
+          const res = await fetch(`${API_URL}/messages/unread/${encodeURIComponent(userId)}`);
+          if(!res.ok) return 0;
+          const data = await res.json();
+          return data.count;
+      } catch {
+          return 0;
+      }
   }
 };

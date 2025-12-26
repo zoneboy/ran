@@ -88,6 +88,15 @@ const initDb = async () => {
           reference TEXT,
           receipt TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS messages (
+          id TEXT PRIMARY KEY,
+          sender_id TEXT REFERENCES users(id),
+          receiver_id TEXT REFERENCES users(id),
+          content TEXT,
+          timestamp TEXT,
+          is_read BOOLEAN DEFAULT FALSE
+      );
     `;
     
     try {
@@ -524,8 +533,10 @@ router.post('/users/update-id', async (req, res) => {
         
         await client.query(copyQuery, [newId, currentId, originalEmail]);
 
-        // 5. Update foreign keys (Payments)
+        // 5. Update foreign keys (Payments & Messages)
         await client.query('UPDATE payments SET user_id = $1 WHERE user_id = $2', [newId, currentId]);
+        await client.query('UPDATE messages SET sender_id = $1 WHERE sender_id = $2', [newId, currentId]);
+        await client.query('UPDATE messages SET receiver_id = $1 WHERE receiver_id = $2', [newId, currentId]);
 
         // 6. Delete old user (which has the temp email now)
         await client.query('DELETE FROM users WHERE id = $1', [currentId]);
@@ -660,6 +671,109 @@ router.delete('/payments/:id', async (req, res) => {
         res.status(500).json({ message: 'Server error' });
     }
 });
+
+// --- MESSAGES ---
+
+// Get Messages between two users
+router.get('/messages/:userId/:otherUserId', async (req, res) => {
+    const { userId, otherUserId } = req.params;
+    try {
+        const query = `
+            SELECT * FROM messages 
+            WHERE (sender_id = $1 AND receiver_id = $2) 
+               OR (sender_id = $2 AND receiver_id = $1)
+            ORDER BY timestamp ASC
+        `;
+        const result = await pool.query(query, [userId, otherUserId]);
+        const messages = result.rows.map(row => ({
+            id: row.id,
+            senderId: row.sender_id,
+            receiverId: row.receiver_id,
+            content: row.content,
+            timestamp: row.timestamp,
+            isRead: row.is_read
+        }));
+        res.json(messages);
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Get Conversations List
+router.get('/messages/conversations/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        // Find distinct users interacted with
+        const query = `
+            SELECT DISTINCT 
+                CASE WHEN sender_id = $1 THEN receiver_id ELSE sender_id END as other_id 
+            FROM messages 
+            WHERE sender_id = $1 OR receiver_id = $1
+        `;
+        const result = await pool.query(query, [userId]);
+        const otherIds = result.rows.map(r => r.other_id);
+
+        if (otherIds.length === 0) return res.json([]);
+
+        // Fetch user details for these IDs
+        const userQuery = `SELECT * FROM users WHERE id = ANY($1)`;
+        const userResult = await pool.query(userQuery, [otherIds]);
+        const users = userResult.rows.map(mapUser);
+
+        res.json(users);
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Send Message
+router.post('/messages', async (req, res) => {
+    const { senderId, receiverId, content } = req.body;
+    const id = `msg-${Date.now()}`;
+    const timestamp = new Date().toISOString();
+
+    try {
+        await pool.query(
+            'INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, is_read) VALUES ($1, $2, $3, $4, $5, $6)',
+            [id, senderId, receiverId, content, timestamp, false]
+        );
+        res.status(201).json({ id, senderId, receiverId, content, timestamp, isRead: false });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Mark Read
+router.put('/messages/read/:userId/:otherUserId', async (req, res) => {
+    const { userId, otherUserId } = req.params; // userId is the READER (receiver of message)
+    try {
+        await pool.query(
+            'UPDATE messages SET is_read = TRUE WHERE sender_id = $2 AND receiver_id = $1 AND is_read = FALSE',
+            [userId, otherUserId]
+        );
+        res.json({ message: 'Marked read' });
+    } catch (e) {
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Check Unread Count Total
+router.get('/messages/unread/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const result = await pool.query(
+            'SELECT COUNT(*) FROM messages WHERE receiver_id = $1 AND is_read = FALSE',
+            [userId]
+        );
+        res.json({ count: parseInt(result.rows[0].count) });
+    } catch (e) {
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
 
 // MOUNT ROUTER for Serverless and Local
 // Netlify Functions often use the /.netlify/functions/api path
