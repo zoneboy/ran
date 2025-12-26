@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Message } from '../types';
 import { api } from '../services/api';
-import { Send, User as UserIcon, Loader2, ArrowLeft, RefreshCw, MessageSquare } from 'lucide-react';
+import { Send, User as UserIcon, Loader2, ArrowLeft, RefreshCw, MessageSquare, AlertCircle } from 'lucide-react';
 
 interface MessagesProps {
   currentUser: User;
@@ -18,38 +18,51 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [convoError, setConvoError] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const fetchConversations = async () => {
+    setConvoError(null);
+    try {
+        const users = await api.getConversations(currentUser.id);
+        setConversations(users);
+        return users;
+    } catch (e: any) {
+        console.error("Failed to load conversations", e);
+        setConvoError("Could not connect to the messaging server. Please check your internet or try again later.");
+        return [];
+    } finally {
+        setIsLoading(false);
+    }
+  };
 
   // Initial Load
   useEffect(() => {
     const init = async () => {
-      try {
-        const users = await api.getConversations(currentUser.id);
-        setConversations(users);
+      const users = await fetchConversations();
 
-        // If targetUserId is provided (from directory), load that chat
-        if (targetUserId) {
-            // Check if user is in conversations list, if not fetch them
-            const existing = users.find(u => u.id === targetUserId);
-            if (existing) {
-                setActiveChatUser(existing);
-            } else {
-                const target = await api.getUser(targetUserId);
-                if (target) {
-                    setConversations(prev => {
-                        // Prevent duplicates
-                        if (prev.find(u => u.id === target.id)) return prev;
-                        return [target, ...prev];
-                    });
-                    setActiveChatUser(target);
-                }
-            }
-        }
-      } catch (e) {
-        console.error("Failed to load conversations", e);
-      } finally {
-        setIsLoading(false);
+      // If targetUserId is provided (from directory), load that chat
+      if (targetUserId) {
+          // Check if user is in conversations list
+          const existing = users.find(u => u.id === targetUserId);
+          if (existing) {
+              setActiveChatUser(existing);
+          } else {
+              // If not in list, fetch their details and add temporarily to list
+              try {
+                  const target = await api.getUser(targetUserId);
+                  if (target) {
+                      setConversations(prev => {
+                          if (prev.find(u => u.id === target.id)) return prev;
+                          return [target, ...prev];
+                      });
+                      setActiveChatUser(target);
+                  }
+              } catch (e) {
+                  console.error("Failed to fetch target user");
+              }
+          }
       }
     };
     init();
@@ -106,14 +119,14 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
 
     } catch (e) {
         console.error("Failed to send");
-        alert("Failed to send message. Please try again.");
+        alert("Failed to send message. Please check your connection.");
         setNewMessage(tempContent);
     } finally {
         setIsSending(false);
     }
   };
 
-  const manualRefresh = async () => {
+  const manualRefreshMessages = async () => {
     if (!activeChatUser) return;
     setIsRefreshing(true);
     const msgs = await api.getMessages(currentUser.id, activeChatUser.id);
@@ -144,14 +157,33 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
           <div className={`${activeChatUser ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 bg-white border-r md:rounded-l-lg shadow-sm overflow-hidden`}>
              <div className="p-4 border-b bg-gray-50 flex justify-between items-center hidden md:flex">
                  <h2 className="font-bold text-gray-700">Inbox</h2>
+                 <button onClick={fetchConversations} title="Refresh List" className="text-gray-400 hover:text-green-600">
+                    <RefreshCw className="h-4 w-4" />
+                 </button>
              </div>
              
-             <div className="flex-1 overflow-y-auto">
-                 {conversations.length === 0 ? (
+             <div className="flex-1 overflow-y-auto relative">
+                 {convoError && (
+                    <div className="p-4 text-center">
+                        <p className="text-red-500 text-sm flex flex-col items-center">
+                            <AlertCircle className="h-6 w-6 mb-2" />
+                            {convoError}
+                        </p>
+                        <button onClick={fetchConversations} className="mt-2 text-green-600 text-sm underline">Try Again</button>
+                    </div>
+                 )}
+                 
+                 {!convoError && conversations.length === 0 ? (
                      <div className="p-8 text-center text-gray-500">
                          <MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-30" />
                          <p>No conversations yet.</p>
                          <p className="text-xs mt-1">Visit the directory to message a member.</p>
+                         <button 
+                            onClick={() => navigate('member-directory')} 
+                            className="mt-4 px-4 py-2 bg-green-100 text-green-700 rounded-md text-sm hover:bg-green-200"
+                         >
+                            Go to Directory
+                         </button>
                      </div>
                  ) : (
                      conversations.map(u => (
@@ -196,7 +228,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
                                 <p className="text-xs text-gray-500">{activeChatUser.firstName} {activeChatUser.lastName}</p>
                             </div>
                         </div>
-                        <button onClick={manualRefresh} title="Refresh Messages" className="text-gray-400 hover:text-green-600">
+                        <button onClick={manualRefreshMessages} title="Refresh Messages" className="text-gray-400 hover:text-green-600">
                             <RefreshCw className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} />
                         </button>
                     </div>

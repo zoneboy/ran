@@ -9,7 +9,8 @@ require('dotenv').config();
 const app = express();
 
 // Middleware
-app.use(cors());
+// Allow all origins to prevent CORS issues in live deployment/testing
+app.use(cors({ origin: '*' }));
 app.use(bodyParser.json({ limit: '50mb' })); // Increased limit for image uploads
 
 // Database Connection
