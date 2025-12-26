@@ -1,4 +1,4 @@
-import { User, Announcement, Payment, MembershipStatus } from '../types';
+import { User, Announcement, Payment, Message, MembershipStatus } from '../types';
 import { MOCK_USERS, MOCK_ANNOUNCEMENTS, MOCK_PAYMENTS } from './mockData';
 // @ts-ignore
 import bcrypt from 'bcryptjs';
@@ -16,6 +16,7 @@ const USERS_KEY = 'ran_users';
 const CURRENT_USER_KEY = 'ran_user';
 const ANNOUNCEMENTS_KEY = 'ran_announcements';
 const PAYMENTS_KEY = 'ran_payments';
+const MESSAGES_KEY = 'ran_messages';
 
 // Helper: Check for expiration and update status
 const checkAndExpireUser = (user: any): any => {
@@ -79,6 +80,32 @@ const getStoredPayments = () => {
     return MOCK_PAYMENTS;
   }
   return JSON.parse(stored);
+};
+
+// Helper: Get messages from storage
+const getStoredMessages = () => {
+  if (typeof window === 'undefined') return [];
+  const stored = localStorage.getItem(MESSAGES_KEY);
+  return stored ? JSON.parse(stored) : [];
+};
+
+const handleResponse = async (res: Response) => {
+    if (!res.ok) {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+            const errorData = await res.json();
+            throw new Error(errorData.message || 'Request failed');
+        } else {
+            // Handle non-JSON errors (like 404 HTML pages or 500 server errors)
+            const text = await res.text();
+            console.error("API Error (Non-JSON):", text);
+            if (res.status === 404) {
+                 throw new Error(`Endpoint not found (404). The backend function is not reachable at ${API_URL}.`);
+            }
+            throw new Error(`Server Error: ${res.status} ${res.statusText}. The backend might be starting up or unreachable.`);
+        }
+    }
+    return res.json();
 };
 
 // Initialize on load just in case
@@ -389,7 +416,7 @@ export const api = {
             throw new Error('Storage full. Cannot save ID update.');
         }
 
-        // 2. Update Foreign Keys (Payments) to maintain history
+        // 2. Update Foreign Keys (Payments & Messages) to maintain history
         const payments = getStoredPayments();
         let paymentsChanged = false;
         const updatedPayments = payments.map((p: Payment) => {
@@ -402,6 +429,30 @@ export const api = {
 
         if (paymentsChanged) {
             localStorage.setItem(PAYMENTS_KEY, JSON.stringify(updatedPayments));
+        }
+
+        const messages = getStoredMessages();
+        let messagesChanged = false;
+        const updatedMessages = messages.map((m: Message) => {
+            let changed = false;
+            let newMsg = { ...m };
+            if (m.senderId === currentId) {
+                newMsg.senderId = newId;
+                changed = true;
+            }
+            if (m.receiverId === currentId) {
+                newMsg.receiverId = newId;
+                changed = true;
+            }
+            if (changed) {
+                messagesChanged = true;
+                return newMsg;
+            }
+            return m;
+        });
+        
+        if (messagesChanged) {
+            localStorage.setItem(MESSAGES_KEY, JSON.stringify(updatedMessages));
         }
 
         // 3. Update Session if Admin changed their own ID
@@ -455,6 +506,15 @@ export const api = {
        // Placeholder for real backend deletion
        await fetch(`${API_URL}/announcements/${id}`, { method: 'DELETE' });
     }
+  },
+
+  // Payments
+  getAllPayments: async (): Promise<Payment[]> => {
+    if (USE_MOCK_BACKEND) {
+        return getStoredPayments();
+    }
+    const res = await fetch(`${API_URL}/payments`);
+    return await handleResponse(res);
   },
 
   getPayments: async (userId: string): Promise<Payment[]> => {
@@ -517,6 +577,11 @@ export const api = {
         return;
     }
     // Backend impl
+    await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+    });
   },
 
   deletePayment: async (paymentId: string): Promise<void> => {
@@ -534,5 +599,102 @@ export const api = {
     } else {
         await fetch(`${API_URL}/payments/${paymentId}`, { method: 'DELETE' });
     }
+  },
+
+  // Messaging
+  getConversations: async (userId: string): Promise<User[]> => {
+    if (USE_MOCK_BACKEND) {
+        await delay(300);
+        const messages: Message[] = getStoredMessages();
+        const users = getStoredUsers();
+        
+        // Find unique interactors
+        const interactedUserIds = new Set<string>();
+        messages.forEach(msg => {
+            if (msg.senderId === userId) interactedUserIds.add(msg.receiverId);
+            if (msg.receiverId === userId) interactedUserIds.add(msg.senderId);
+        });
+
+        // Map to User objects
+        return Array.from(interactedUserIds)
+            .map(id => users.find((u: User) => u.id === id))
+            .filter((u): u is User => !!u);
+    }
+    const res = await fetch(`${API_URL}/messages/conversations/${encodeURIComponent(userId)}`);
+    return await handleResponse(res);
+  },
+
+  getMessages: async (userId: string, otherUserId: string): Promise<Message[]> => {
+    if (USE_MOCK_BACKEND) {
+        await delay(200);
+        const messages: Message[] = getStoredMessages();
+        return messages
+            .filter(msg => 
+                (msg.senderId === userId && msg.receiverId === otherUserId) || 
+                (msg.senderId === otherUserId && msg.receiverId === userId)
+            )
+            .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    }
+    const res = await fetch(`${API_URL}/messages/${encodeURIComponent(userId)}/${encodeURIComponent(otherUserId)}`);
+    return await handleResponse(res);
+  },
+
+  sendMessage: async (senderId: string, receiverId: string, content: string): Promise<Message> => {
+    if (USE_MOCK_BACKEND) {
+        await delay(300);
+        const messages: Message[] = getStoredMessages();
+        const newMessage: Message = {
+            id: `msg-${Date.now()}`,
+            senderId,
+            receiverId,
+            content,
+            timestamp: new Date().toISOString(),
+            isRead: false
+        };
+        messages.push(newMessage);
+        localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages));
+        return newMessage;
+    }
+    const res = await fetch(`${API_URL}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ senderId, receiverId, content })
+    });
+    return await handleResponse(res);
+  },
+
+  markMessagesRead: async (userId: string, otherUserId: string): Promise<void> => {
+    if (USE_MOCK_BACKEND) {
+        const messages: Message[] = getStoredMessages();
+        let changed = false;
+        const updated = messages.map(msg => {
+            // Mark read if I am the receiver (userId) and it was sent by other person
+            if (msg.receiverId === userId && msg.senderId === otherUserId && !msg.isRead) {
+                changed = true;
+                return { ...msg, isRead: true };
+            }
+            return msg;
+        });
+        if (changed) {
+            localStorage.setItem(MESSAGES_KEY, JSON.stringify(updated));
+        }
+        return;
+    }
+    await fetch(`${API_URL}/messages/read/${encodeURIComponent(userId)}/${encodeURIComponent(otherUserId)}`, { method: 'PUT' });
+  },
+  
+  getUnreadCount: async (userId: string): Promise<number> => {
+      if (USE_MOCK_BACKEND) {
+          const messages: Message[] = getStoredMessages();
+          return messages.filter(msg => msg.receiverId === userId && !msg.isRead).length;
+      }
+      try {
+          const res = await fetch(`${API_URL}/messages/unread/${encodeURIComponent(userId)}`);
+          if(!res.ok) return 0;
+          const data = await res.json();
+          return data.count;
+      } catch {
+          return 0;
+      }
   }
 };
