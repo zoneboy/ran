@@ -20,6 +20,15 @@ const pool = new Pool({
   }
 });
 
+// Email Transporter Configuration
+const transporter = nodemailer.createTransport({
+    service: 'gmail', // Default to gmail, or configure host/port via env
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
+
 // Database Initialization Logic
 let dbInitialized = false;
 const initDb = async () => {
@@ -116,7 +125,7 @@ app.use(async (req, res, next) => {
         next();
     } catch (e) {
         console.error("DB Init Middleware Error:", e);
-        next(); // Proceed even if init fails, might fail in route but better than hanging
+        next(); // Proceed even if init fails
     }
 });
 
@@ -229,6 +238,15 @@ router.post('/auth/request-reset', async (req, res) => {
 
       await pool.query('UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE email = $3', [token, expiry, email]);
 
+      // Check if email credentials are provided. If not, return token in response (DEV MODE)
+      if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+          console.log("Mock Email (No Credentials):", token);
+          return res.status(200).json({ 
+              message: 'Email credentials not configured. Use this code to reset:', 
+              debugToken: token 
+          });
+      }
+
       // Send Email
       const mailOptions = {
         from: process.env.EMAIL_USER,
@@ -241,8 +259,9 @@ router.post('/auth/request-reset', async (req, res) => {
 
       res.status(200).json({ message: 'Reset code sent.' });
   } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: 'Error sending email' });
+      console.error("Reset Request Error:", err);
+      // Fallback: If email fails, return error or mock token if needed, but here we error
+      res.status(500).json({ message: 'Error processing reset request. ' + err.message });
   }
 });
 
@@ -320,190 +339,3 @@ router.post('/auth/register', async (req, res) => {
     res.status(201).json(safeUser);
 
   } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ message: 'Server error during registration' });
-  }
-});
-
-// Get User
-router.get('/users/:id', async (req, res) => {
-    try {
-        const result = await pool.query('SELECT * FROM users WHERE id = $1', [req.params.id]);
-        if (result.rows.length === 0) return res.status(404).json({message: 'Not found'});
-        
-        let user = mapUser(result.rows[0]);
-        user = await checkExpiry(user);
-        const { password, ...safeUser } = user;
-        res.json(safeUser);
-    } catch (err) {
-        res.status(500).json({message: 'Error'});
-    }
-});
-
-// Get All Users
-router.get('/users', async (req, res) => {
-    try {
-        const result = await pool.query('SELECT * FROM users');
-        const users = await Promise.all(result.rows.map(row => checkExpiry(mapUser(row))));
-        const safeUsers = users.map(u => {
-            const { password, resetToken, ...safe } = u;
-            return safe;
-        });
-        res.json(safeUsers);
-    } catch (err) {
-        res.status(500).json({message: 'Error fetching users'});
-    }
-});
-
-// Update User
-router.put('/users/:id', async (req, res) => {
-    const { id } = req.params;
-    const updates = req.body;
-    
-    // Construct dynamic query
-    const fields = [];
-    const values = [];
-    let idx = 1;
-
-    // Mapping frontend camelCase to DB snake_case
-    const fieldMap = {
-        firstName: 'first_name', lastName: 'last_name', phone: 'phone', 
-        status: 'status', expiryDate: 'expiry_date', documents: 'documents',
-        profileImage: 'profile_image', businessAddress: 'business_address',
-        monthlyVolume: 'monthly_volume'
-    };
-
-    // Special case for documents: ensure it's stringified if object
-    if (updates.documents && typeof updates.documents === 'object') {
-        updates.documents = JSON.stringify(updates.documents);
-    }
-
-    Object.keys(updates).forEach(key => {
-        if (fieldMap[key] && updates[key] !== undefined) {
-            fields.push(`${fieldMap[key]} = $${idx}`);
-            values.push(updates[key]);
-            idx++;
-        }
-    });
-
-    if (fields.length === 0) return res.json({ message: 'No valid fields to update' });
-
-    values.push(id);
-    const query = `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`;
-
-    try {
-        const result = await pool.query(query, values);
-        if (result.rows.length === 0) return res.status(404).json({message: 'User not found'});
-        res.json(mapUser(result.rows[0]));
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({message: 'Update failed'});
-    }
-});
-
-// Announcements
-router.get('/announcements', async (req, res) => {
-    const result = await pool.query('SELECT * FROM announcements ORDER BY date DESC');
-    const mapped = result.rows.map(r => ({
-        id: r.id, title: r.title, content: r.content, date: r.date, isImportant: r.is_important
-    }));
-    res.json(mapped);
-});
-
-router.post('/announcements', async (req, res) => {
-    const { title, content, date, isImportant } = req.body;
-    const id = `ann-${Date.now()}`;
-    await pool.query('INSERT INTO announcements (id, title, content, date, is_important) VALUES ($1, $2, $3, $4, $5)',
-        [id, title, content, date, isImportant]);
-    res.json({ id, title, content, date, isImportant });
-});
-
-router.delete('/announcements/:id', async (req, res) => {
-    await pool.query('DELETE FROM announcements WHERE id = $1', [req.params.id]);
-    res.json({ success: true });
-});
-
-// Payments
-router.get('/payments', async (req, res) => {
-    const result = await pool.query('SELECT * FROM payments ORDER BY date DESC');
-    const mapped = result.rows.map(r => ({
-        id: r.id, userId: r.user_id, amount: parseFloat(r.amount), currency: r.currency,
-        date: r.date, description: r.description, status: r.status, reference: r.reference, receipt: r.receipt
-    }));
-    res.json(mapped);
-});
-
-router.get('/payments/:userId', async (req, res) => {
-    const result = await pool.query('SELECT * FROM payments WHERE user_id = $1 ORDER BY date DESC', [req.params.userId]);
-    const mapped = result.rows.map(r => ({
-        id: r.id, userId: r.user_id, amount: parseFloat(r.amount), currency: r.currency,
-        date: r.date, description: r.description, status: r.status, reference: r.reference, receipt: r.receipt
-    }));
-    res.json(mapped);
-});
-
-router.post('/payments', async (req, res) => {
-    const p = req.body;
-    const id = `pay-${Date.now()}`;
-    const ref = p.reference || `REF-${Math.floor(Math.random() * 1000000)}`;
-    
-    await pool.query(
-        'INSERT INTO payments (id, user_id, amount, currency, date, description, status, reference, receipt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-        [id, p.userId, p.amount, 'NGN', p.date, p.description, p.status, ref, p.receipt]
-    );
-    res.json({ id, ...p });
-});
-
-router.put('/payments/:id', async (req, res) => {
-    const { status } = req.body;
-    await pool.query('UPDATE payments SET status = $1 WHERE id = $2', [status, req.params.id]);
-    res.json({ success: true });
-});
-
-router.delete('/payments/:id', async (req, res) => {
-    await pool.query('DELETE FROM payments WHERE id = $1', [req.params.id]);
-    res.json({ success: true });
-});
-
-// Update ID route
-router.post('/users/update-id', async (req, res) => {
-    const { currentId, newId } = req.body;
-    
-    const check = await pool.query('SELECT * FROM users WHERE id = $1', [newId]);
-    if (check.rows.length > 0) return res.status(400).json({message: 'ID already taken'});
-
-    try {
-        await pool.query('BEGIN');
-        await pool.query('UPDATE users SET id = $1 WHERE id = $2', [newId, currentId]);
-        await pool.query('UPDATE payments SET user_id = $1 WHERE user_id = $2', [newId, currentId]);
-        await pool.query('COMMIT');
-        res.json({ success: true });
-    } catch (e) {
-        await pool.query('ROLLBACK');
-        res.status(500).json({message: 'Failed to update ID'});
-    }
-});
-
-// MOUNT ROUTER
-// Explicitly mount on both paths without using array to avoid serverless-http/express issues
-app.use('/api', router);
-app.use('/.netlify/functions/api', router);
-
-// Catch-all 404 for debugging
-app.use((req, res) => {
-    res.status(404).json({ 
-        message: `API Route not found: ${req.method} ${req.originalUrl}`,
-        path: req.path
-    });
-});
-
-// Export for Netlify
-module.exports = app;
-
-// Keep listen for local dev
-if (process.env.NODE_ENV !== 'production' && !process.env.NETLIFY) {
-    const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => {
-        console.log(`Local Server running on port ${PORT}`);
-    });
-}
