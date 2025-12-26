@@ -337,6 +337,37 @@ router.post('/auth/register', async (req, res) => {
     const mappedUser = mapUser(newUser.rows[0]);
     const { password, ...safeUser } = mappedUser;
     
+    // --- SEND WELCOME EMAIL ---
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+        try {
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: data.email,
+                subject: 'Registration Received - Recyclers Association of Nigeria',
+                html: `
+                    <div style="font-family: Arial, sans-serif; color: #333;">
+                        <h2 style="color: #166534;">Welcome to the Recyclers Association of Nigeria</h2>
+                        <p>Dear ${data.firstName} ${data.lastName},</p>
+                        <p>Thank you for submitting your membership registration application.</p>
+                        <p><strong>Your Current Status: <span style="color: #eab308;">Pending Approval</span></strong></p>
+                        <p>Our administrative team has received your business details and documents. We will review your application shortly to ensure all requirements are met.</p>
+                        <p>Once your documents are verified and your application is approved, you will receive another email notifying you that your account is Active, and you will be able to log in to the portal.</p>
+                        <br/>
+                        <p>Best Regards,<br/><strong>RAN Secretariat</strong></p>
+                    </div>
+                `
+            };
+            await transporter.sendMail(mailOptions);
+            console.log(`Registration email sent to ${data.email}`);
+        } catch (emailErr) {
+            console.error("Failed to send registration email:", emailErr);
+            // We do not fail the request here; the user is still registered.
+        }
+    } else {
+        console.log("Email credentials missing, skipping welcome email.");
+    }
+    // ---------------------------
+
     res.status(201).json(safeUser);
 
   } catch (error) {
