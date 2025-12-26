@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Message } from '../types';
 import { api } from '../services/api';
-import { Send, User as UserIcon, Loader2, ArrowLeft, RefreshCw, MessageSquare, AlertCircle } from 'lucide-react';
+import { Send, User as UserIcon, Loader2, ArrowLeft, RefreshCw, MessageSquare } from 'lucide-react';
 
 interface MessagesProps {
   currentUser: User;
@@ -22,15 +22,11 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
 
   // 1. Fetch Conversations List
   const fetchConversations = async () => {
-    console.log("Fetching conversations for user:", currentUser.id);
     setIsLoadingList(true); 
     try {
       const users = await api.getConversations(currentUser.id);
-      console.log("Conversations fetched:", users);
       
-      // Basic validation
       if (!Array.isArray(users)) {
-          console.error("API returned non-array for conversations:", users);
           setConversations([]);
           return [];
       }
@@ -56,8 +52,6 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
     let mounted = true;
 
     const init = async () => {
-      // Load initial list without showing loader if we already have data (prevents flickering)
-      // but if conversations is empty, we do want to show loader
       if (conversations.length === 0) setIsLoadingList(true);
       
       const users = await api.getConversations(currentUser.id);
@@ -71,7 +65,6 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
 
       // Handle "Message" click from Directory (Target User)
       if (targetUserId) {
-        // Check if user is already in our list
         const existing = Array.isArray(users) ? users.find(u => u.id === targetUserId) : null;
         
         if (existing) {
@@ -81,7 +74,6 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
           try {
             const target = await api.getUser(targetUserId);
             if (target && mounted) {
-              // Add to local list immediately so they appear
               setConversations(prev => [target, ...prev]);
               setActiveChatUser(target);
             }
@@ -95,7 +87,6 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
     
     // Polling for new conversations
     const interval = setInterval(() => {
-        // Only background poll if not actively sending
         if (!isSending && mounted) {
              api.getConversations(currentUser.id).then(users => {
                  if (mounted && Array.isArray(users)) setConversations(users);
@@ -165,7 +156,6 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
   };
 
   const handleUserClick = (user: User) => {
-      console.log("Selected user for chat:", user.id);
       setActiveChatUser(user);
   };
 
@@ -203,9 +193,9 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
               <div 
                 key={user.id}
                 onClick={() => handleUserClick(user)}
-                className={`p-4 border-b cursor-pointer hover:bg-gray-50 flex items-center transition-colors ${activeChatUser?.id === user.id ? 'bg-green-50 border-l-4 border-l-green-600' : ''}`}
+                className={`p-4 border-b cursor-pointer flex items-center transition-colors ${activeChatUser?.id === user.id ? 'bg-green-100 border-l-4 border-green-600' : 'hover:bg-gray-50 border-l-4 border-transparent'}`}
               >
-                 <div className="h-10 w-10 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden mr-3 shrink-0">
+                 <div className="h-10 w-10 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden mr-3 shrink-0 border border-gray-300">
                     {user.profileImage ? (
                         <img src={user.profileImage} alt="" className="h-full w-full object-cover" />
                     ) : (
@@ -231,7 +221,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
                     <button onClick={() => setActiveChatUser(null)} className="md:hidden mr-3 text-gray-600">
                         <ArrowLeft className="h-5 w-5" />
                     </button>
-                    <div className="h-8 w-8 bg-gray-200 rounded-full overflow-hidden mr-3">
+                    <div className="h-8 w-8 bg-gray-200 rounded-full overflow-hidden mr-3 border border-gray-300">
                         {activeChatUser.profileImage ? (
                              <img src={activeChatUser.profileImage} alt="" className="h-full w-full object-cover" />
                         ) : (
@@ -255,7 +245,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
                         const isMe = msg.senderId === currentUser.id;
                         return (
                             <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[80%] rounded-lg p-3 ${isMe ? 'bg-green-600 text-white rounded-br-none' : 'bg-white border text-gray-800 rounded-bl-none'}`}>
+                                <div className={`max-w-[80%] rounded-lg p-3 shadow-sm ${isMe ? 'bg-green-600 text-white rounded-br-none' : 'bg-white border text-gray-800 rounded-bl-none'}`}>
                                     <p className="text-sm">{msg.content}</p>
                                     <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-green-200' : 'text-gray-400'}`}>
                                         {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
@@ -281,7 +271,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
                         <button 
                             type="submit" 
                             disabled={isSending || !newMessage.trim()}
-                            className="bg-green-600 text-white p-2 rounded-full hover:bg-green-700 disabled:opacity-50"
+                            className="bg-green-600 text-white p-2 rounded-full hover:bg-green-700 disabled:opacity-50 transition-colors"
                         >
                             <Send className="h-5 w-5" />
                         </button>
