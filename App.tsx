@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
@@ -7,13 +6,11 @@ import Login from './pages/Login';
 import UserDashboard from './pages/UserDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import MemberDirectory from './pages/MemberDirectory';
-import Messages from './pages/Messages';
 import { User } from './types';
 import { api } from './services/api';
 
 function App() {
   const [currentPage, setCurrentPage] = useState('home');
-  const [pageParams, setPageParams] = useState<any>(null); // State to hold parameters passed during navigation
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -21,27 +18,8 @@ function App() {
   useEffect(() => {
     const initSession = async () => {
       try {
-        const storedUser = await api.getCurrentUser(); // Gets from LocalStorage
-        
-        if (storedUser) {
-           // Validate against backend to ensure ID exists in Live DB
-           try {
-             const validUser = await api.getUser(storedUser.id);
-             if (validUser) {
-               setUser(validUser);
-               // Update local storage with fresh data
-               localStorage.setItem('ran_user', JSON.stringify(validUser));
-             } else {
-               // User exists in local storage but not in DB (Zombie session)
-               console.warn("User ID not found in backend. Logging out.");
-               await api.logout();
-               setUser(null);
-             }
-           } catch (e) {
-             console.warn("Backend validation failed (offline?), using stored session.");
-             setUser(storedUser);
-           }
-        }
+        const currentUser = await api.getCurrentUser();
+        setUser(currentUser);
       } catch (error) {
         console.error('Session restore failed', error);
       } finally {
@@ -51,8 +29,7 @@ function App() {
     initSession();
   }, []);
 
-  const navigate = (page: string, params?: any) => {
-    setPageParams(params);
+  const navigate = (page: string) => {
     setCurrentPage(page);
     window.scrollTo(0, 0);
   };
@@ -100,8 +77,6 @@ function App() {
         return user && user.role === 'ADMIN' ? <AdminDashboard /> : <Home navigate={navigate} user={user} />;
       case 'member-directory':
         return user ? <MemberDirectory navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} />;
-      case 'messages':
-        return user ? <Messages currentUser={user} navigate={navigate} targetUserId={pageParams?.targetUserId} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       default:
         return <Home navigate={navigate} user={user} />;
     }

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, (process as any).cwd(), '');
+    const env = loadEnv(mode, process.cwd(), '');
     return {
       server: {
         port: 3000,
@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
       },
       resolve: {
         alias: {
-          '@': path.resolve((process as any).cwd(), '.'),
+          '@': path.resolve(process.cwd(), '.'),
         }
       }
     };

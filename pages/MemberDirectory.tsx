@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Briefcase, Tag, ArrowLeft, Users, Layers, Factory, Loader2, Phone, Mail, BarChart, Settings, ShieldAlert, User as UserIcon, MessageSquare } from 'lucide-react';
+import { Search, MapPin, Briefcase, Tag, ArrowLeft, Users, Layers, Factory, Loader2, Phone, Mail, BarChart, Settings, ShieldAlert, User as UserIcon } from 'lucide-react';
 import { BusinessCategory, User, UserRole } from '../types';
 import { api } from '../services/api';
 
 interface MemberDirectoryProps {
-  navigate: (page: string, params?: any) => void;
+  navigate: (page: string) => void;
   currentUser: User;
 }
 
@@ -40,9 +40,6 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
     // Admins can see everyone, Members only see Active
     if (!isAdmin && user.status !== 'Active') return false;
 
-    // Filter out self
-    if (user.id === currentUser.id) return false;
-
     const safeBusiness = (user.businessName || '').toLowerCase();
     const safeMaterials = user.materialTypes || [];
     const searchLower = searchTerm.toLowerCase();
@@ -59,14 +56,6 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
   });
 
   const uniqueStates = Array.from(new Set(members.filter(u => u.role !== 'ADMIN').map(u => u.businessState || 'Unknown')));
-
-  const handleMessageUser = () => {
-      if (!selectedMember) return;
-      // In App.tsx, we need to handle passing parameters to pages
-      // But for simple SPA, we can just pass the target user ID via a global state or simple prop drilling workaround
-      // For now, let's assume navigate can take params or we pass it via App state
-      navigate('messages', { targetUserId: selectedMember.id });
-  };
 
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-10 w-10 text-green-600 animate-spin" /></div>;
@@ -107,15 +96,16 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
                   </div>
                 </div>
                 <div className="mt-4 md:mt-0 flex flex-col items-end gap-2">
-                  <button 
-                    onClick={handleMessageUser}
-                    className="px-6 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-md font-bold shadow-sm flex items-center transition-colors"
-                  >
-                     <MessageSquare className="h-4 w-4 mr-2" /> Message Member
-                  </button>
-                  <span className="px-4 py-1 bg-green-800 bg-opacity-50 rounded-full text-xs font-semibold border border-green-600 mt-2">
+                  <span className="px-4 py-2 bg-green-600 rounded-full text-sm font-semibold border border-green-500">
                     Since {new Date(selectedMember.dateJoined).getFullYear()}
                   </span>
+                  {isAdmin && (
+                    <span className={`px-4 py-1 rounded-full text-xs font-bold border ${
+                        selectedMember.status === 'Active' ? 'bg-white text-green-700 border-white' : 'bg-red-100 text-red-700 border-red-200'
+                    }`}>
+                        {selectedMember.status}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -162,7 +152,7 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
                   ) : (
                     <div className="p-3 bg-gray-50 rounded border border-gray-100 text-xs text-gray-500 italic flex items-center">
                         <ShieldAlert className="h-4 w-4 mr-2" />
-                        Direct contact details are private. Use the Message button above.
+                        Contact details are private.
                     </div>
                   )}
                 </div>
