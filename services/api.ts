@@ -80,7 +80,7 @@ export const api = {
   // User Management
   getUser: async (id: string): Promise<User | null> => {
     try {
-        const res = await fetch(`${API_URL}/users/${id}`);
+        const res = await fetch(`${API_URL}/users/${encodeURIComponent(id)}`);
         if (!res.ok) return null;
         return await res.json();
     } catch (e) {
@@ -94,7 +94,7 @@ export const api = {
   },
 
   updateUser: async (updatedUser: User): Promise<User> => {
-    const res = await fetch(`${API_URL}/users/${updatedUser.id}`, {
+    const res = await fetch(`${API_URL}/users/${encodeURIComponent(updatedUser.id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updatedUser)
@@ -133,7 +133,7 @@ export const api = {
   },
 
   deleteAnnouncement: async (id: string): Promise<void> => {
-    await fetch(`${API_URL}/announcements/${id}`, { method: 'DELETE' });
+    await fetch(`${API_URL}/announcements/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
   // Payments
@@ -143,7 +143,7 @@ export const api = {
   },
 
   getPayments: async (userId: string): Promise<Payment[]> => {
-    const res = await fetch(`${API_URL}/payments/${userId}`);
+    const res = await fetch(`${API_URL}/payments/${encodeURIComponent(userId)}`);
     return await handleResponse(res);
   },
 
@@ -157,7 +157,7 @@ export const api = {
   },
 
   updatePaymentStatus: async (paymentId: string, status: 'Successful' | 'Pending' | 'Failed'): Promise<void> => {
-    await fetch(`${API_URL}/payments/${paymentId}`, {
+    await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
@@ -165,6 +165,6 @@ export const api = {
   },
 
   deletePayment: async (paymentId: string): Promise<void> => {
-    await fetch(`${API_URL}/payments/${paymentId}`, { method: 'DELETE' });
+    await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, { method: 'DELETE' });
   }
 };
