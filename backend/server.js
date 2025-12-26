@@ -701,39 +701,32 @@ router.get('/messages/:userId/:otherUserId', async (req, res) => {
     }
 });
 
-// Get Conversations List - REDESIGNED: TWO-STEP FETCH (Guaranteed to work)
+// Get Conversations List - UNIFIED SQL QUERY (Solves "Missing Chat" issues)
 router.get('/messages/conversations/:userId', async (req, res) => {
     const { userId } = req.params;
     console.log(`Getting conversations for user: ${userId}`);
     
     try {
-        // Step 1: Find all IDs who sent me a message
-        const received = await pool.query('SELECT DISTINCT sender_id FROM messages WHERE receiver_id = $1', [userId]);
+        // This query finds ANY message where the user is sender OR receiver
+        // It uses a CASE statement to determine the "Partner ID" (the other person)
+        // Then it joins with users table to get details.
+        const query = `
+            SELECT DISTINCT u.*
+            FROM users u
+            JOIN (
+                SELECT 
+                    CASE 
+                        WHEN sender_id = $1 THEN receiver_id 
+                        ELSE sender_id 
+                    END as partner_id
+                FROM messages 
+                WHERE sender_id = $1 OR receiver_id = $1
+            ) m ON u.id = m.partner_id
+        `;
         
-        // Step 2: Find all IDs I sent a message to
-        const sent = await pool.query('SELECT DISTINCT receiver_id FROM messages WHERE sender_id = $1', [userId]);
-
-        // Step 3: Combine into a unique Set of User IDs
-        const contactIds = new Set();
-        received.rows.forEach(r => contactIds.add(r.sender_id));
-        sent.rows.forEach(r => contactIds.add(r.receiver_id));
+        const result = await pool.query(query, [userId]);
+        const users = result.rows.map(mapUser);
         
-        // Remove self if accidentally included (shouldn't happen but safe)
-        contactIds.delete(userId);
-
-        if (contactIds.size === 0) {
-            console.log("No contacts found.");
-            return res.json([]);
-        }
-
-        // Step 4: Fetch user details for these IDs
-        const idsArray = Array.from(contactIds);
-        console.log("Fetching profiles for IDs:", idsArray);
-
-        const usersQuery = `SELECT * FROM users WHERE id = ANY($1::text[])`;
-        const usersResult = await pool.query(usersQuery, [idsArray]);
-        
-        const users = usersResult.rows.map(mapUser);
         console.log(`Returning ${users.length} conversations.`);
         res.json(users);
 

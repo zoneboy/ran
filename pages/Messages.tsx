@@ -24,7 +24,14 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
   const fetchConversations = async () => {
     try {
       const users = await api.getConversations(currentUser.id);
-      setConversations(users);
+      
+      setConversations(prev => {
+         // Merge logic: ensure activeChatUser stays in list even if API delays
+         if (activeChatUser && !users.find(u => u.id === activeChatUser.id)) {
+            return [activeChatUser, ...users];
+         }
+         return users;
+      });
       return users;
     } catch (e) {
       console.error("Failed to fetch conversations", e);
@@ -36,22 +43,24 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
 
   useEffect(() => {
     let mounted = true;
+
     const init = async () => {
+      // Load initial list
       const users = await fetchConversations();
       
       if (!mounted) return;
 
-      // If we navigated here with a target user (from Directory)
+      // Handle "Message" click from Directory
       if (targetUserId) {
-        // Check if they are already in the list
         const existing = users.find(u => u.id === targetUserId);
         if (existing) {
           setActiveChatUser(existing);
         } else {
-          // If not in list (new chat), fetch their details and ADD them to the list locally
+          // New chat: fetch user details
           try {
             const target = await api.getUser(targetUserId);
             if (target && mounted) {
+              // Add to local list immediately
               setConversations(prev => [target, ...prev]);
               setActiveChatUser(target);
             }
@@ -63,10 +72,10 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
     };
     init();
     
-    // Polling for new conversations every 10s
+    // Polling for new conversations (friendlier interval)
     const interval = setInterval(() => {
         if (!isSending && mounted) fetchConversations();
-    }, 10000);
+    }, 15000);
     return () => {
         mounted = false;
         clearInterval(interval);
@@ -114,9 +123,8 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
       const msg = await api.sendMessage(currentUser.id, activeChatUser.id, content);
       setMessages(prev => [...prev, msg]);
       
-      // Ensure this conversation bubbles to top or exists in list
+      // Update Conversation List Order Locally
       setConversations(prev => {
-          // Remove if exists then add to top
           const others = prev.filter(u => u.id !== activeChatUser.id);
           return [activeChatUser, ...others];
       });
@@ -142,7 +150,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
         </div>
         
         <div className="flex-1 overflow-y-auto">
-          {isLoadingList ? (
+          {isLoadingList && conversations.length === 0 ? (
             <div className="flex justify-center p-8"><Loader2 className="animate-spin h-6 w-6 text-green-600" /></div>
           ) : conversations.length === 0 ? (
             <div className="p-6 text-center text-gray-500">
