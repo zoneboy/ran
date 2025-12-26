@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Message } from '../types';
 import { api } from '../services/api';
@@ -7,7 +6,7 @@ import { Send, User as UserIcon, Loader2, ArrowLeft, RefreshCw, MessageSquare, A
 interface MessagesProps {
   currentUser: User;
   navigate: (page: string) => void;
-  targetUserId?: string | null; // Optional prop to jump straight to a chat
+  targetUserId?: string | null;
 }
 
 const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId }) => {
@@ -15,301 +14,235 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingList, setIsLoadingList] = useState(true);
   const [isSending, setIsSending] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [convoError, setConvoError] = useState<string | null>(null);
-  const [sendError, setSendError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // 1. Fetch Conversations List
   const fetchConversations = async () => {
-    setConvoError(null);
     try {
-        const users = await api.getConversations(currentUser.id);
-        console.log("Fetched conversations:", users);
-        setConversations(users);
-        return users;
-    } catch (e: any) {
-        console.error("Failed to load conversations", e);
-        setConvoError(e.message || "Could not connect to messaging server.");
-        return [];
+      const users = await api.getConversations(currentUser.id);
+      setConversations(users);
+      return users;
+    } catch (e) {
+      console.error("Failed to fetch conversations");
+      return [];
     } finally {
-        setIsLoading(false);
+      setIsLoadingList(false);
     }
   };
 
-  // Initial Load & Polling for Sidebar
   useEffect(() => {
     const init = async () => {
       const users = await fetchConversations();
-
-      // If targetUserId is provided (from directory), load that chat
+      
+      // If we navigated here with a target user (from Directory)
       if (targetUserId) {
-          // Check if user is in conversations list
-          const existing = users.find(u => u.id === targetUserId);
-          if (existing) {
-              setActiveChatUser(existing);
-          } else {
-              // If not in list, fetch their details and add temporarily to list
-              try {
-                  const target = await api.getUser(targetUserId);
-                  if (target) {
-                      setConversations(prev => {
-                          if (prev.find(u => u.id === target.id)) return prev;
-                          return [target, ...prev];
-                      });
-                      setActiveChatUser(target);
-                  }
-              } catch (e) {
-                  console.error("Failed to fetch target user");
-              }
+        // Check if they are already in the list
+        const existing = users.find(u => u.id === targetUserId);
+        if (existing) {
+          setActiveChatUser(existing);
+        } else {
+          // If not in list (new chat), fetch their details and ADD them to the list locally
+          try {
+            const target = await api.getUser(targetUserId);
+            if (target) {
+              setConversations(prev => [target, ...prev]);
+              setActiveChatUser(target);
+            }
+          } catch (e) {
+            console.error("Failed to load target user details");
           }
+        }
       }
     };
     init();
     
-    // Poll conversation list occasionally to catch new incoming chats
+    // Polling for new conversations every 10s
     const interval = setInterval(() => {
-        // Only fetch if we are not actively typing or sending to avoid jitter
         if (!isSending) fetchConversations();
-    }, 15000);
+    }, 10000);
     return () => clearInterval(interval);
   }, [currentUser.id, targetUserId]);
 
-  // Load Messages when Active Chat Changes
+
+  // 2. Fetch Messages for Active Chat
   useEffect(() => {
     if (!activeChatUser) return;
-    
-    const fetchMessages = async () => {
-        setIsRefreshing(true);
-        try {
-            const msgs = await api.getMessages(currentUser.id, activeChatUser.id);
-            setMessages(msgs);
-            // Mark read
-            await api.markMessagesRead(currentUser.id, activeChatUser.id);
-        } catch (e) {
-            console.error("Failed to fetch messages");
-        } finally {
-            setIsRefreshing(false);
-        }
+
+    const loadMessages = async () => {
+      try {
+        const msgs = await api.getMessages(currentUser.id, activeChatUser.id);
+        setMessages(msgs);
+        await api.markMessagesRead(currentUser.id, activeChatUser.id);
+      } catch (e) {
+        console.error("Failed to load messages");
+      }
     };
+    loadMessages();
 
-    fetchMessages();
-    setSendError(null);
-    
-    // Poll for new messages in active chat
-    const interval = setInterval(fetchMessages, 5000);
+    // Poll for new messages in this chat
+    const interval = setInterval(loadMessages, 5000);
     return () => clearInterval(interval);
-
   }, [activeChatUser, currentUser.id]);
 
-  // Auto-scroll to bottom
+
+  // Scroll to bottom of chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !activeChatUser) return;
-    
-    const tempContent = newMessage;
-    setNewMessage(''); // Optimistic clear
-    setSendError(null);
+
     setIsSending(true);
+    setError(null);
+    const content = newMessage;
+    setNewMessage(''); // Optimistic clear
 
     try {
-        const sentMsg = await api.sendMessage(currentUser.id, activeChatUser.id, tempContent);
-        setMessages(prev => [...prev, sentMsg]);
-        
-        // Ensure the conversation is moved to/added to the top of the list
-        setConversations(prev => {
-             const others = prev.filter(u => u.id !== activeChatUser.id);
-             return [activeChatUser, ...others];
-        });
+      const msg = await api.sendMessage(currentUser.id, activeChatUser.id, content);
+      setMessages(prev => [...prev, msg]);
+      
+      // Ensure this conversation bubbles to top or exists in list
+      setConversations(prev => {
+          const others = prev.filter(u => u.id !== activeChatUser.id);
+          return [activeChatUser, ...others];
+      });
 
     } catch (e: any) {
-        console.error("Failed to send", e);
-        setSendError("Failed to send. " + (e.message || "Check connection."));
-        setNewMessage(tempContent);
+      setError("Failed to send message.");
+      setNewMessage(content); // Restore message
     } finally {
-        setIsSending(false);
+      setIsSending(false);
     }
   };
 
-  const manualRefresh = async () => {
-      setIsLoading(true);
-      await fetchConversations();
-      if (activeChatUser) {
-          const msgs = await api.getMessages(currentUser.id, activeChatUser.id);
-          setMessages(msgs);
-      }
-      setIsLoading(false);
-  };
-
-  if (isLoading && conversations.length === 0) {
-      return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-10 w-10 text-green-600 animate-spin" /></div>;
-  }
-
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
-       {/* Mobile Header */}
-       <div className="md:hidden bg-white p-4 border-b flex items-center justify-between sticky top-0 z-10">
-           {activeChatUser ? (
-               <button onClick={() => setActiveChatUser(null)} className="flex items-center text-gray-600">
-                   <ArrowLeft className="h-5 w-5 mr-2" /> Back
-               </button>
-           ) : (
-               <h1 className="text-xl font-bold text-gray-800">Messages</h1>
-           )}
-       </div>
+    <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] bg-gray-100 max-w-7xl mx-auto md:p-6">
+      
+      {/* Sidebar - Conversation List */}
+      <div className={`${activeChatUser ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 bg-white border-r md:rounded-l-lg shadow-sm overflow-hidden h-full`}>
+        <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+            <h3 className="font-bold text-gray-700">Conversations</h3>
+            <button onClick={fetchConversations} className="text-gray-400 hover:text-green-600">
+                <RefreshCw className="h-4 w-4" />
+            </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto">
+          {isLoadingList ? (
+            <div className="flex justify-center p-8"><Loader2 className="animate-spin h-6 w-6 text-green-600" /></div>
+          ) : conversations.length === 0 ? (
+            <div className="p-6 text-center text-gray-500">
+                <MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                <p>No conversations yet.</p>
+                <button onClick={() => navigate('member-directory')} className="mt-4 text-green-600 text-sm font-bold hover:underline">
+                    Find Members
+                </button>
+            </div>
+          ) : (
+            conversations.map(user => (
+              <div 
+                key={user.id}
+                onClick={() => setActiveChatUser(user)}
+                className={`p-4 border-b cursor-pointer hover:bg-gray-50 flex items-center transition-colors ${activeChatUser?.id === user.id ? 'bg-green-50 border-l-4 border-l-green-600' : ''}`}
+              >
+                 <div className="h-10 w-10 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden mr-3 shrink-0">
+                    {user.profileImage ? (
+                        <img src={user.profileImage} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                        <UserIcon className="h-5 w-5 text-gray-400" />
+                    )}
+                 </div>
+                 <div className="overflow-hidden">
+                    <h4 className="font-bold text-sm text-gray-900 truncate">{user.businessName}</h4>
+                    <p className="text-xs text-gray-500 truncate">{user.firstName} {user.lastName}</p>
+                 </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
 
-       <div className="flex-1 max-w-7xl w-full mx-auto md:p-6 flex md:h-[calc(100vh-64px)] overflow-hidden">
-          
-          {/* Sidebar / Conversation List */}
-          <div className={`${activeChatUser ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 bg-white border-r md:rounded-l-lg shadow-sm overflow-hidden`}>
-             <div className="p-4 border-b bg-gray-50 flex justify-between items-center hidden md:flex">
-                 <h2 className="font-bold text-gray-700">Inbox</h2>
-                 <button onClick={manualRefresh} title="Refresh List" className="text-gray-400 hover:text-green-600">
-                    <RefreshCw className="h-4 w-4" />
-                 </button>
-             </div>
-             
-             <div className="flex-1 overflow-y-auto relative">
-                 {convoError && (
-                    <div className="p-4 text-center bg-red-50 m-2 rounded">
-                        <p className="text-red-500 text-xs flex flex-col items-center">
-                            <AlertCircle className="h-5 w-5 mb-1" />
-                            {convoError}
-                        </p>
-                        <button onClick={manualRefresh} className="mt-2 text-green-600 text-xs underline font-bold">Retry</button>
-                    </div>
-                 )}
-                 
-                 {!convoError && conversations.length === 0 ? (
-                     <div className="p-8 text-center text-gray-500">
-                         <MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                         <p className="font-medium">No conversations yet.</p>
-                         <p className="text-xs mt-1 mb-4">Messages from member directory will appear here.</p>
-                         <button 
-                            onClick={() => navigate('member-directory')} 
-                            className="w-full px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 shadow-sm transition-colors"
-                         >
-                            Go to Directory
-                         </button>
-                         <div className="mt-6 pt-4 border-t border-gray-100">
-                            <p className="text-[10px] text-gray-400">Your ID: {currentUser.id}</p>
-                         </div>
-                     </div>
-                 ) : (
-                     conversations.map(u => (
-                         <div 
-                           key={u.id}
-                           onClick={() => setActiveChatUser(u)}
-                           className={`p-4 border-b cursor-pointer hover:bg-green-50 transition-colors flex items-center ${activeChatUser?.id === u.id ? 'bg-green-50 border-l-4 border-l-green-600' : ''}`}
-                         >
-                            <div className="h-10 w-10 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden mr-3 shrink-0">
-                                {u.profileImage ? (
-                                    <img src={u.profileImage} alt="" className="h-full w-full object-cover" />
-                                ) : (
-                                    <UserIcon className="h-5 w-5 text-gray-400" />
-                                )}
-                            </div>
-                            <div className="overflow-hidden">
-                                <h4 className="font-bold text-sm text-gray-900 truncate">{u.businessName}</h4>
-                                <p className="text-xs text-gray-500 truncate">{u.firstName} {u.lastName}</p>
-                            </div>
-                         </div>
-                     ))
-                 )}
-             </div>
-          </div>
-
-          {/* Chat Area */}
-          <div className={`${!activeChatUser ? 'hidden md:flex' : 'flex'} flex-col flex-1 bg-white md:rounded-r-lg shadow-sm overflow-hidden`}>
-             {activeChatUser ? (
-                 <>
-                    {/* Chat Header */}
-                    <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-                        <div className="flex items-center">
-                            <div className="h-8 w-8 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden mr-3">
-                                {activeChatUser.profileImage ? (
-                                    <img src={activeChatUser.profileImage} alt="" className="h-full w-full object-cover" />
-                                ) : (
-                                    <UserIcon className="h-4 w-4 text-gray-400" />
-                                )}
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-gray-800 text-sm md:text-base">{activeChatUser.businessName}</h3>
-                                <p className="text-xs text-gray-500">{activeChatUser.firstName} {activeChatUser.lastName}</p>
-                            </div>
-                        </div>
-                        <button onClick={manualRefresh} title="Refresh Messages" className="text-gray-400 hover:text-green-600">
-                            <RefreshCw className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                        </button>
-                    </div>
-
-                    {/* Messages List */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
-                        {messages.length === 0 ? (
-                            <div className="text-center text-gray-400 mt-10 text-sm">
-                                <p>Start a conversation with {activeChatUser.businessName}.</p>
-                                <p className="text-xs">Messages are secure and private.</p>
-                            </div>
+      {/* Chat Area */}
+      <div className={`${!activeChatUser ? 'hidden md:flex' : 'flex'} flex-col flex-1 bg-white md:rounded-r-lg shadow-sm h-full`}>
+        {activeChatUser ? (
+            <>
+                {/* Chat Header */}
+                <div className="p-4 border-b flex items-center bg-gray-50">
+                    <button onClick={() => setActiveChatUser(null)} className="md:hidden mr-3 text-gray-600">
+                        <ArrowLeft className="h-5 w-5" />
+                    </button>
+                    <div className="h-8 w-8 bg-gray-200 rounded-full overflow-hidden mr-3">
+                        {activeChatUser.profileImage ? (
+                             <img src={activeChatUser.profileImage} alt="" className="h-full w-full object-cover" />
                         ) : (
-                            messages.map((msg) => {
-                                const isMe = msg.senderId === currentUser.id;
-                                return (
-                                    <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                        <div className={`max-w-[75%] rounded-lg p-3 ${isMe ? 'bg-green-600 text-white rounded-br-none' : 'bg-white border text-gray-800 rounded-bl-none shadow-sm'}`}>
-                                            <p className="text-sm">{msg.content}</p>
-                                            <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-green-200' : 'text-gray-400'}`}>
-                                                {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                                {isMe && msg.isRead && <span className="ml-1">✓✓</span>}
-                                            </p>
-                                        </div>
-                                    </div>
-                                );
-                            })
+                             <UserIcon className="h-4 w-4 text-gray-400 m-2" />
                         )}
-                        <div ref={messagesEndRef} />
                     </div>
+                    <div>
+                        <h3 className="font-bold text-gray-800">{activeChatUser.businessName}</h3>
+                        <p className="text-xs text-gray-500">{activeChatUser.firstName} {activeChatUser.lastName}</p>
+                    </div>
+                </div>
 
-                    {/* Input Area */}
-                    <div className="p-4 border-t bg-white">
-                        {sendError && (
-                            <div className="mb-2 text-xs text-red-500 flex items-center bg-red-50 p-2 rounded">
-                                <AlertCircle className="h-4 w-4 mr-1" />
-                                {sendError}
+                {/* Messages List */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
+                    {messages.length === 0 && (
+                        <div className="text-center text-gray-400 mt-10">
+                            <p>No messages yet. Say hello!</p>
+                        </div>
+                    )}
+                    {messages.map(msg => {
+                        const isMe = msg.senderId === currentUser.id;
+                        return (
+                            <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[80%] rounded-lg p-3 ${isMe ? 'bg-green-600 text-white rounded-br-none' : 'bg-white border text-gray-800 rounded-bl-none'}`}>
+                                    <p className="text-sm">{msg.content}</p>
+                                    <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-green-200' : 'text-gray-400'}`}>
+                                        {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                    </p>
+                                </div>
                             </div>
-                        )}
-                        <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-                            <input 
+                        )
+                    })}
+                    <div ref={messagesEndRef} />
+                </div>
+
+                {/* Input Area */}
+                <div className="p-4 border-t bg-white">
+                    {error && <p className="text-red-500 text-xs mb-2">{error}</p>}
+                    <form onSubmit={handleSendMessage} className="flex gap-2">
+                        <input 
                             type="text" 
                             value={newMessage}
                             onChange={(e) => setNewMessage(e.target.value)}
                             placeholder="Type a message..."
                             className="flex-1 border border-gray-300 rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                            />
-                            <button 
+                        />
+                        <button 
                             type="submit" 
                             disabled={isSending || !newMessage.trim()}
-                            className={`p-2 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors ${isSending ? 'opacity-50' : ''}`}
-                            >
+                            className="bg-green-600 text-white p-2 rounded-full hover:bg-green-700 disabled:opacity-50"
+                        >
                             <Send className="h-5 w-5" />
-                            </button>
-                        </form>
-                    </div>
-                 </>
-             ) : (
-                 <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-8">
-                     <MessageSquare className="h-16 w-16 mb-4 opacity-20" />
-                     <p className="text-lg">Select a conversation from the sidebar</p>
-                     <p className="text-sm">or find a member in the directory to message.</p>
-                 </div>
-             )}
-          </div>
-       </div>
+                        </button>
+                    </form>
+                </div>
+            </>
+        ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+                <MessageSquare className="h-16 w-16 mb-4 opacity-20" />
+                <p>Select a conversation to start chatting.</p>
+            </div>
+        )}
+      </div>
+
     </div>
   );
 };
