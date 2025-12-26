@@ -27,7 +27,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
       setConversations(users);
       return users;
     } catch (e) {
-      console.error("Failed to fetch conversations");
+      console.error("Failed to fetch conversations", e);
       return [];
     } finally {
       setIsLoadingList(false);
@@ -35,9 +35,12 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
   };
 
   useEffect(() => {
+    let mounted = true;
     const init = async () => {
       const users = await fetchConversations();
       
+      if (!mounted) return;
+
       // If we navigated here with a target user (from Directory)
       if (targetUserId) {
         // Check if they are already in the list
@@ -48,7 +51,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
           // If not in list (new chat), fetch their details and ADD them to the list locally
           try {
             const target = await api.getUser(targetUserId);
-            if (target) {
+            if (target && mounted) {
               setConversations(prev => [target, ...prev]);
               setActiveChatUser(target);
             }
@@ -62,9 +65,12 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
     
     // Polling for new conversations every 10s
     const interval = setInterval(() => {
-        if (!isSending) fetchConversations();
+        if (!isSending && mounted) fetchConversations();
     }, 10000);
-    return () => clearInterval(interval);
+    return () => {
+        mounted = false;
+        clearInterval(interval);
+    };
   }, [currentUser.id, targetUserId]);
 
 
@@ -110,6 +116,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
       
       // Ensure this conversation bubbles to top or exists in list
       setConversations(prev => {
+          // Remove if exists then add to top
           const others = prev.filter(u => u.id !== activeChatUser.id);
           return [activeChatUser, ...others];
       });
