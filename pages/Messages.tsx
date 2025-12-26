@@ -22,12 +22,21 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
 
   // 1. Fetch Conversations List
   const fetchConversations = async () => {
+    setIsLoadingList(true); // Show loading indicator specifically on refresh
     try {
       const users = await api.getConversations(currentUser.id);
       
+      // Safety check: ensure users is an array
+      if (!Array.isArray(users)) {
+          console.error("API returned non-array for conversations:", users);
+          setConversations([]);
+          return [];
+      }
+
       setConversations(prev => {
-         // Merge logic: ensure activeChatUser stays in list even if API delays
+         // Merge logic: ensure activeChatUser stays in list even if API delays or they fall off recent list
          if (activeChatUser && !users.find(u => u.id === activeChatUser.id)) {
+            // Keep active user at top temporarily if they aren't in the returned list
             return [activeChatUser, ...users];
          }
          return users;
@@ -45,37 +54,53 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
     let mounted = true;
 
     const init = async () => {
-      // Load initial list
-      const users = await fetchConversations();
+      // Load initial list without showing loader if we already have data (prevents flickering)
+      // but if conversations is empty, we do want to show loader
+      if (conversations.length === 0) setIsLoadingList(true);
+      
+      const users = await api.getConversations(currentUser.id);
       
       if (!mounted) return;
+      
+      if (Array.isArray(users)) {
+          setConversations(users);
+      }
+      setIsLoadingList(false);
 
-      // Handle "Message" click from Directory
+      // Handle "Message" click from Directory (Target User)
       if (targetUserId) {
-        const existing = users.find(u => u.id === targetUserId);
+        // Check if user is already in our list
+        const existing = Array.isArray(users) ? users.find(u => u.id === targetUserId) : null;
+        
         if (existing) {
           setActiveChatUser(existing);
         } else {
-          // New chat: fetch user details
+          // New chat: fetch user details separately
           try {
             const target = await api.getUser(targetUserId);
             if (target && mounted) {
-              // Add to local list immediately
+              // Add to local list immediately so they appear
               setConversations(prev => [target, ...prev]);
               setActiveChatUser(target);
             }
           } catch (e) {
-            console.error("Failed to load target user details");
+            console.error("Failed to load target user details", e);
           }
         }
       }
     };
     init();
     
-    // Polling for new conversations (friendlier interval)
+    // Polling for new conversations
     const interval = setInterval(() => {
-        if (!isSending && mounted) fetchConversations();
-    }, 15000);
+        // Only background poll if not actively sending
+        if (!isSending && mounted) {
+             api.getConversations(currentUser.id).then(users => {
+                 if (mounted && Array.isArray(users)) setConversations(users);
+             }).catch(console.error);
+        }
+    }, 10000);
+    
     return () => {
         mounted = false;
         clearInterval(interval);
@@ -123,7 +148,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
       const msg = await api.sendMessage(currentUser.id, activeChatUser.id, content);
       setMessages(prev => [...prev, msg]);
       
-      // Update Conversation List Order Locally
+      // Optimistically update conversation list order (Active user goes to top)
       setConversations(prev => {
           const others = prev.filter(u => u.id !== activeChatUser.id);
           return [activeChatUser, ...others];
@@ -137,6 +162,11 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
     }
   };
 
+  const handleUserClick = (user: User) => {
+      setActiveChatUser(user);
+      // On mobile, UI will automatically switch views due to conditional rendering
+  };
+
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] bg-gray-100 max-w-7xl mx-auto md:p-6">
       
@@ -144,8 +174,8 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
       <div className={`${activeChatUser ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 bg-white border-r md:rounded-l-lg shadow-sm overflow-hidden h-full`}>
         <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
             <h3 className="font-bold text-gray-700">Conversations</h3>
-            <button onClick={fetchConversations} className="text-gray-400 hover:text-green-600">
-                <RefreshCw className="h-4 w-4" />
+            <button onClick={fetchConversations} className="text-gray-400 hover:text-green-600 transition-colors" title="Refresh list">
+                <RefreshCw className={`h-4 w-4 ${isLoadingList ? 'animate-spin' : ''}`} />
             </button>
         </div>
         
@@ -164,7 +194,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
             conversations.map(user => (
               <div 
                 key={user.id}
-                onClick={() => setActiveChatUser(user)}
+                onClick={() => handleUserClick(user)}
                 className={`p-4 border-b cursor-pointer hover:bg-gray-50 flex items-center transition-colors ${activeChatUser?.id === user.id ? 'bg-green-50 border-l-4 border-l-green-600' : ''}`}
               >
                  <div className="h-10 w-10 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden mr-3 shrink-0">

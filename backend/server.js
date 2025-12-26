@@ -701,54 +701,58 @@ router.get('/messages/:userId/:otherUserId', async (req, res) => {
     }
 });
 
-// Get Conversations List - SIMPLIFIED TWO-STEP PROCESS (Recommended Fix)
+// Get Conversations List - SORTED BY RECENCY
 router.get('/messages/conversations/:userId', async (req, res) => {
     const { userId } = req.params;
     console.log(`Getting conversations for user: ${userId}`);
     
     try {
-        // Step 1: Get all unique user IDs that this user has messaged with
-        const queryContacts = `
-            SELECT DISTINCT 
+        // Step 1: Get contacts sorted by most recent message
+        const contactsQuery = `
+            SELECT 
                 CASE 
-                    WHEN sender_id = $1 THEN receiver_id
-                    ELSE sender_id
-                END as contact_id
-            FROM messages
+                    WHEN sender_id = $1 THEN receiver_id 
+                    ELSE sender_id 
+                END as contact_id,
+                MAX(timestamp) as last_activity
+            FROM messages 
             WHERE sender_id = $1 OR receiver_id = $1
+            GROUP BY contact_id
+            ORDER BY last_activity DESC
         `;
         
-        const resultContacts = await pool.query(queryContacts, [userId]);
-        const contactIds = resultContacts.rows
-            .map(row => row.contact_id)
-            .filter(id => id && id !== userId); // Basic cleanup
+        const contactsResult = await pool.query(contactsQuery, [userId]);
         
-        if (contactIds.length === 0) {
-            console.log("No contacts found.");
+        // Filter out self and nulls
+        const contacts = contactsResult.rows.filter(r => r.contact_id && r.contact_id !== userId);
+        
+        if (contacts.length === 0) {
             return res.json([]);
         }
 
-        console.log(`Found ${contactIds.length} contact IDs:`, contactIds);
-
-        // Step 2: Fetch user details for these IDs using IN clause
+        const contactIds = contacts.map(c => c.contact_id);
+        
+        // Step 2: Fetch details
         const placeholders = contactIds.map((_, i) => `$${i + 1}`).join(',');
-        const queryUsers = `SELECT * FROM users WHERE id IN (${placeholders})`;
-        const resultUsers = await pool.query(queryUsers, contactIds);
+        const usersQuery = `SELECT * FROM users WHERE id IN (${placeholders})`;
+        const usersResult = await pool.query(usersQuery, contactIds);
         
-        // Map and clean users
-        const users = resultUsers.rows.map(row => {
-            const mapped = mapUser(row);
-            if (!mapped) return null;
-            const { password, ...safe } = mapped;
+        const usersMap = new Map(usersResult.rows.map(r => [r.id, mapUser(r)]));
+        
+        // Step 3: Return users in the order of activity
+        const sortedUsers = contactIds.map(id => usersMap.get(id)).filter(u => u);
+        
+        // Clean passwords
+        const safeUsers = sortedUsers.map(u => {
+            const { password, ...safe } = u;
             return safe;
-        }).filter(Boolean); // Filter out any nulls
-        
-        console.log(`Returning ${users.length} conversations.`);
-        res.json(users);
+        });
+
+        res.json(safeUsers);
 
     } catch (e) {
         console.error("Conversation Fetch Error:", e);
-        res.status(500).json({ message: 'Server error fetching conversations: ' + e.message });
+        res.status(500).json({ message: 'Server error: ' + e.message });
     }
 });
 
