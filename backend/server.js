@@ -701,31 +701,47 @@ router.get('/messages/:userId/:otherUserId', async (req, res) => {
     }
 });
 
-// Get Conversations List - UNIFIED SQL QUERY (Solves "Missing Chat" issues)
+// Get Conversations List - SIMPLIFIED TWO-STEP PROCESS (Recommended Fix)
 router.get('/messages/conversations/:userId', async (req, res) => {
     const { userId } = req.params;
     console.log(`Getting conversations for user: ${userId}`);
     
     try {
-        // This query finds ANY message where the user is sender OR receiver
-        // It uses a CASE statement to determine the "Partner ID" (the other person)
-        // Then it joins with users table to get details.
-        const query = `
-            SELECT DISTINCT u.*
-            FROM users u
-            JOIN (
-                SELECT 
-                    CASE 
-                        WHEN sender_id = $1 THEN receiver_id 
-                        ELSE sender_id 
-                    END as partner_id
-                FROM messages 
-                WHERE sender_id = $1 OR receiver_id = $1
-            ) m ON u.id = m.partner_id
+        // Step 1: Get all unique user IDs that this user has messaged with
+        const queryContacts = `
+            SELECT DISTINCT 
+                CASE 
+                    WHEN sender_id = $1 THEN receiver_id
+                    ELSE sender_id
+                END as contact_id
+            FROM messages
+            WHERE sender_id = $1 OR receiver_id = $1
         `;
         
-        const result = await pool.query(query, [userId]);
-        const users = result.rows.map(mapUser);
+        const resultContacts = await pool.query(queryContacts, [userId]);
+        const contactIds = resultContacts.rows
+            .map(row => row.contact_id)
+            .filter(id => id && id !== userId); // Basic cleanup
+        
+        if (contactIds.length === 0) {
+            console.log("No contacts found.");
+            return res.json([]);
+        }
+
+        console.log(`Found ${contactIds.length} contact IDs:`, contactIds);
+
+        // Step 2: Fetch user details for these IDs using IN clause
+        const placeholders = contactIds.map((_, i) => `$${i + 1}`).join(',');
+        const queryUsers = `SELECT * FROM users WHERE id IN (${placeholders})`;
+        const resultUsers = await pool.query(queryUsers, contactIds);
+        
+        // Map and clean users
+        const users = resultUsers.rows.map(row => {
+            const mapped = mapUser(row);
+            if (!mapped) return null;
+            const { password, ...safe } = mapped;
+            return safe;
+        }).filter(Boolean); // Filter out any nulls
         
         console.log(`Returning ${users.length} conversations.`);
         res.json(users);
