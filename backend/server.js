@@ -701,30 +701,30 @@ router.get('/messages/:userId/:otherUserId', async (req, res) => {
     }
 });
 
-// Get Conversations List
+// Get Conversations List - REDESIGNED FOR ROBUSTNESS
 router.get('/messages/conversations/:userId', async (req, res) => {
     const { userId } = req.params;
     console.log(`Fetching conversations for user: ${userId}`);
+    
     try {
-        // Find distinct users interacted with
+        // Find ALL users who have either sent a message to ME or received a message from ME.
+        // We use UNION to combine the lists and filter out duplicates.
+        // We join directly with the users table to ensure we only return valid users and get their details immediately.
         const query = `
-            SELECT DISTINCT 
-                CASE WHEN sender_id = $1 THEN receiver_id ELSE sender_id END as other_id 
-            FROM messages 
-            WHERE sender_id = $1 OR receiver_id = $1
+            SELECT DISTINCT u.* 
+            FROM users u
+            WHERE u.id IN (
+                SELECT sender_id FROM messages WHERE receiver_id = $1
+                UNION
+                SELECT receiver_id FROM messages WHERE sender_id = $1
+            )
         `;
+        
         const result = await pool.query(query, [userId]);
-        const otherIds = result.rows.map(r => r.other_id);
-
-        console.log(`Found ${otherIds.length} conversations`);
-
-        if (otherIds.length === 0) return res.json([]);
-
-        // Fetch user details for these IDs
-        const userQuery = `SELECT * FROM users WHERE id = ANY($1)`;
-        const userResult = await pool.query(userQuery, [otherIds]);
-        const users = userResult.rows.map(mapUser);
-
+        
+        console.log(`Found ${result.rows.length} conversations`);
+        
+        const users = result.rows.map(mapUser);
         res.json(users);
     } catch (e) {
         console.error("Conversation Fetch Error:", e);

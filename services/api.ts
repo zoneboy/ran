@@ -306,8 +306,8 @@ export const api = {
             .filter((u): u is User => !!u);
     }
     
-    // LIVE MODE
-    const res = await fetch(`${API_URL}/messages/conversations/${encodeURIComponent(userId)}`);
+    // LIVE MODE - Add Timestamp to prevent caching of empty lists
+    const res = await fetch(`${API_URL}/messages/conversations/${encodeURIComponent(userId)}?t=${Date.now()}`);
     return await handleResponse(res);
   },
 
