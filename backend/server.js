@@ -111,8 +111,13 @@ const initDb = async () => {
 
 // Middleware to ensure DB is initialized before handling request
 app.use(async (req, res, next) => {
-    await initDb();
-    next();
+    try {
+        await initDb();
+        next();
+    } catch (e) {
+        console.error("DB Init Middleware Error:", e);
+        next(); // Proceed even if init fails, might fail in route but better than hanging
+    }
 });
 
 // Helper to convert snake_case DB columns to camelCase for frontend
@@ -166,6 +171,11 @@ const checkExpiry = async (user) => {
 
 // Routes via Router
 const router = express.Router();
+
+// Health Check Route
+router.get('/', (req, res) => {
+    res.json({ message: "RAN Portal API is running." });
+});
 
 // Login
 router.post('/auth/login', async (req, res) => {
@@ -475,8 +485,17 @@ router.post('/users/update-id', async (req, res) => {
 });
 
 // MOUNT ROUTER
-// Important: Handle both local (/api) and Netlify Function (/.netlify/functions/api) paths
-app.use(['/api', '/.netlify/functions/api'], router);
+// Explicitly mount on both paths without using array to avoid serverless-http/express issues
+app.use('/api', router);
+app.use('/.netlify/functions/api', router);
+
+// Catch-all 404 for debugging
+app.use((req, res) => {
+    res.status(404).json({ 
+        message: `API Route not found: ${req.method} ${req.originalUrl}`,
+        path: req.path
+    });
+});
 
 // Export for Netlify
 module.exports = app;
