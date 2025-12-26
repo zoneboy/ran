@@ -5,8 +5,10 @@ import bcrypt from 'bcryptjs';
 
 // CONFIGURATION
 // Set this to false when backend/server.js is running
-const USE_MOCK_BACKEND = true; 
-const API_URL = 'http://localhost:5000/api';
+const USE_MOCK_BACKEND = false; 
+const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+    ? 'http://localhost:5000/api' 
+    : '/.netlify/functions/api';
 
 // Helper for delays
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -109,9 +111,11 @@ const handleResponse = async (res: Response) => {
 };
 
 // Initialize on load just in case
-getStoredUsers();
-getStoredAnnouncements();
-getStoredPayments();
+if (USE_MOCK_BACKEND) {
+    getStoredUsers();
+    getStoredAnnouncements();
+    getStoredPayments();
+}
 
 export const api = {
   // Authentication
@@ -172,37 +176,10 @@ export const api = {
         localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(safeUser));
       } catch (e: any) {
         console.warn('Storage quota exceeded. Attempting to store lean user session.');
-        
-        // Strategy 1: Remove Profile Image
-        try {
-            const { profileImage, ...leanUser } = safeUser;
-            localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(leanUser));
-            return leanUser as User;
-        } catch (e2) {
-             // Strategy 2: Remove Documents AND Profile Image
-             try {
-                 const { profileImage, documents, ...leanerUser } = safeUser;
-                 localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(leanerUser));
-                 return leanerUser as User;
-             } catch (e3) {
-                 // Strategy 3: Minimal Session
-                 const minimalUser = {
-                    id: safeUser.id,
-                    firstName: safeUser.firstName,
-                    lastName: safeUser.lastName,
-                    email: safeUser.email,
-                    role: safeUser.role,
-                    status: safeUser.status,
-                    businessName: safeUser.businessName
-                 };
-                 try {
-                    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(minimalUser));
-                    return minimalUser as any;
-                 } catch (e4) {
-                    throw new Error("Login failed: Storage completely full. Please clear browser cache.");
-                 }
-             }
-        }
+        // Simplified strategy for mock storage limits
+        const { profileImage, documents, ...leanUser } = safeUser;
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(leanUser));
+        return leanUser as User;
       }
       return safeUser as User;
     } else {
@@ -212,12 +189,7 @@ export const api = {
         body: JSON.stringify({ email, password })
       });
       
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || 'Login failed');
-      }
-      
-      const user = await res.json();
+      const user = await handleResponse(res);
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
       return user;
     }
@@ -228,12 +200,10 @@ export const api = {
       await delay(1200);
       const users: any[] = getStoredUsers();
       
-      // Check for multiple registration of already registered email
       if (users.some(u => u.email === userData.email)) {
         throw new Error('User with this email already exists');
       }
 
-      // Hash the password before saving
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(userData.password || 'password123', salt);
 
@@ -241,7 +211,7 @@ export const api = {
         ...userData,
         id: `user-${Date.now()}`,
         role: 'MEMBER',
-        status: 'Pending', // Default status is Pending
+        status: 'Pending',
         category: userData.category || userData.membershipCategory,
         profileImage: userData.profileImage || userData.portraitImage, 
         dateJoined: new Date().toISOString().split('T')[0],
@@ -269,12 +239,7 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData)
       });
-      
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || 'Registration failed');
-      }
-      return await res.json();
+      return await handleResponse(res);
     }
   },
 
@@ -283,9 +248,23 @@ export const api = {
         await delay(1000);
         return;
     } else {
-        await delay(500);
-        return;
+        const res = await fetch(`${API_URL}/auth/request-reset`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        if (!res.ok) throw new Error('Request failed');
     }
+  },
+
+  confirmPasswordReset: async (email: string, token: string, newPassword: string): Promise<void> => {
+      // Shared logic for mock/live if endpoint just returns success for now
+      const res = await fetch(`${API_URL}/auth/confirm-reset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, token, newPassword })
+      });
+      await handleResponse(res);
   },
 
   logout: async () => {
@@ -304,14 +283,8 @@ export const api = {
         const users = getStoredUsers();
         let found = users.find((u: any) => u.id === id);
         if (found) {
-            // Check expiry
             const updated = checkAndExpireUser(found);
-            if (updated.status !== found.status) {
-                // We should theoretically save this back, but for getSingle user, 
-                // returning the dynamic status is sufficient for UI
-                found = updated;
-            }
-            const { password, ...safeUser } = found;
+            const { password, ...safeUser } = updated;
             return safeUser as User;
         }
         return null;
@@ -326,23 +299,10 @@ export const api = {
     if (USE_MOCK_BACKEND) {
       await delay(500);
       const users: any[] = getStoredUsers();
-      
-      // Check expiration for all users on fetch
-      let changed = false;
-      const updatedUsers = users.map((u: any) => {
-          const processed = checkAndExpireUser(u);
-          if (processed.status !== u.status) changed = true;
-          return processed;
-      });
-
-      if (changed) {
-          localStorage.setItem(USERS_KEY, JSON.stringify(updatedUsers));
-      }
-
-      return updatedUsers.map(({ password, ...u }: any) => u) as User[];
+      return users.map(({ password, ...u }: any) => checkAndExpireUser(u)) as User[];
     } else {
       const res = await fetch(`${API_URL}/users`);
-      return await res.json();
+      return await handleResponse(res);
     }
   },
 
@@ -355,29 +315,13 @@ export const api = {
       if (index !== -1) {
         const existingPassword = users[index].password;
         users[index] = { ...updatedUser, password: existingPassword };
-        
-        try {
-            localStorage.setItem(USERS_KEY, JSON.stringify(users));
-        } catch (e: any) {
-            if (e.name === 'QuotaExceededError') {
-                throw new Error('Failed to save: Image too large. Please use a smaller image.');
-            }
-        }
+        localStorage.setItem(USERS_KEY, JSON.stringify(users));
         
         // Update session user if it's the current user
         const currentUser = JSON.parse(localStorage.getItem(CURRENT_USER_KEY) || '{}');
         if (currentUser.id === updatedUser.id) {
-          try {
-             localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updatedUser));
-          } catch(e: any) {
-             // If session full, try saving without heavy fields
-             const { profileImage, documents, ...leanUser } = updatedUser;
-             try {
-                localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(leanUser));
-             } catch(e2) {
-                console.warn("Could not update session storage due to quota");
-             }
-          }
+           const { profileImage, documents, ...leanUser } = updatedUser;
+           localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(leanUser));
         }
       }
       return updatedUser;
@@ -387,83 +331,23 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedUser)
       });
-      const data = await res.json();
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(data));
+      const data = await handleResponse(res);
+      // Update local session
+      const currentUser = JSON.parse(localStorage.getItem(CURRENT_USER_KEY) || '{}');
+      if (currentUser.id === data.id) {
+         localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(data));
+      }
       return data;
     }
   },
 
-  // Assign Custom User ID
   updateUserId: async (currentId: string, newId: string): Promise<void> => {
-    if (USE_MOCK_BACKEND) {
-        await delay(500);
-        const users = getStoredUsers();
-        
-        // Check if new ID is already taken (excluding self)
-        if (users.some((u: any) => u.id === newId && u.id !== currentId)) {
-            throw new Error(`User ID '${newId}' is already assigned to another member.`);
-        }
-        
-        const userIndex = users.findIndex((u: any) => u.id === currentId);
-        if (userIndex === -1) throw new Error("User not found.");
-        
-        // 1. Update User ID in Users Array
-        users[userIndex].id = newId;
-        
-        try {
-            localStorage.setItem(USERS_KEY, JSON.stringify(users));
-        } catch (e) {
-            throw new Error('Storage full. Cannot save ID update.');
-        }
-
-        // 2. Update Foreign Keys (Payments & Messages) to maintain history
-        const payments = getStoredPayments();
-        let paymentsChanged = false;
-        const updatedPayments = payments.map((p: Payment) => {
-            if (p.userId === currentId) {
-                paymentsChanged = true;
-                return { ...p, userId: newId };
-            }
-            return p;
-        });
-
-        if (paymentsChanged) {
-            localStorage.setItem(PAYMENTS_KEY, JSON.stringify(updatedPayments));
-        }
-
-        const messages = getStoredMessages();
-        let messagesChanged = false;
-        const updatedMessages = messages.map((m: Message) => {
-            let changed = false;
-            let newMsg = { ...m };
-            if (m.senderId === currentId) {
-                newMsg.senderId = newId;
-                changed = true;
-            }
-            if (m.receiverId === currentId) {
-                newMsg.receiverId = newId;
-                changed = true;
-            }
-            if (changed) {
-                messagesChanged = true;
-                return newMsg;
-            }
-            return m;
-        });
-        
-        if (messagesChanged) {
-            localStorage.setItem(MESSAGES_KEY, JSON.stringify(updatedMessages));
-        }
-
-        // 3. Update Session if Admin changed their own ID
-        const currentUser = JSON.parse(localStorage.getItem(CURRENT_USER_KEY) || '{}');
-        if (currentUser && currentUser.id === currentId) {
-            currentUser.id = newId;
-            localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(currentUser));
-        }
-
-        return;
-    }
+     const res = await fetch(`${API_URL}/users/update-id`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentId, newId })
+    });
+    await handleResponse(res);
   },
 
   // Announcements CRUD
@@ -473,46 +357,40 @@ export const api = {
       return getStoredAnnouncements();
     }
     const res = await fetch(`${API_URL}/announcements`);
-    return await res.json();
+    return await handleResponse(res);
   },
 
   createAnnouncement: async (announcement: Omit<Announcement, 'id'>): Promise<Announcement> => {
     if (USE_MOCK_BACKEND) {
       await delay(500);
       const current = getStoredAnnouncements();
-      const newAnnouncement = {
-        ...announcement,
-        id: `ann-${Date.now()}`
-      };
-      // Add to beginning of array
+      const newAnnouncement = { ...announcement, id: `ann-${Date.now()}` };
       const updated = [newAnnouncement, ...current];
       localStorage.setItem(ANNOUNCEMENTS_KEY, JSON.stringify(updated));
       return newAnnouncement;
     }
-    // Backend implementation would go here
-    return {} as Announcement;
+    const res = await fetch(`${API_URL}/announcements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(announcement)
+    });
+    return await handleResponse(res);
   },
 
   deleteAnnouncement: async (id: string): Promise<void> => {
     if (USE_MOCK_BACKEND) {
       await delay(300);
       const current = getStoredAnnouncements();
-      // Filter out the item to delete
       const updated = current.filter((a: Announcement) => a.id !== id);
-      // Explicitly save the updated array
       localStorage.setItem(ANNOUNCEMENTS_KEY, JSON.stringify(updated));
       return;
-    } else {
-       // Placeholder for real backend deletion
-       await fetch(`${API_URL}/announcements/${id}`, { method: 'DELETE' });
     }
+    await fetch(`${API_URL}/announcements/${id}`, { method: 'DELETE' });
   },
 
   // Payments
   getAllPayments: async (): Promise<Payment[]> => {
-    if (USE_MOCK_BACKEND) {
-        return getStoredPayments();
-    }
+    if (USE_MOCK_BACKEND) return getStoredPayments();
     const res = await fetch(`${API_URL}/payments`);
     return await handleResponse(res);
   },
@@ -523,21 +401,13 @@ export const api = {
         return payments.filter((p: Payment) => p.userId === userId);
     }
     const res = await fetch(`${API_URL}/payments/${userId}`);
-    return await res.json();
+    return await handleResponse(res);
   },
 
-  createPayment: async (paymentData: { 
-    userId: string, 
-    amount: number, 
-    description: string,
-    date?: string,
-    status?: 'Successful' | 'Pending' | 'Failed',
-    receipt?: string
-  }): Promise<Payment> => {
+  createPayment: async (paymentData: any): Promise<Payment> => {
     if (USE_MOCK_BACKEND) {
       await delay(800);
       const payments = getStoredPayments();
-      
       const newPayment: Payment = {
         id: `pay-${Date.now()}`,
         userId: paymentData.userId,
@@ -549,19 +419,16 @@ export const api = {
         reference: `REF-${Math.floor(Math.random() * 1000000)}`,
         receipt: paymentData.receipt
       };
-
       const updatedPayments = [newPayment, ...payments];
-      try {
-        localStorage.setItem(PAYMENTS_KEY, JSON.stringify(updatedPayments));
-      } catch (e: any) {
-        if (e.name === 'QuotaExceededError') {
-             throw new Error('Storage Full: Receipt file might be too large. Try a smaller file.');
-        }
-        throw e;
-      }
+      localStorage.setItem(PAYMENTS_KEY, JSON.stringify(updatedPayments));
       return newPayment;
     }
-    return {} as Payment;
+    const res = await fetch(`${API_URL}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(paymentData)
+    });
+    return await handleResponse(res);
   },
 
   updatePaymentStatus: async (paymentId: string, status: 'Successful' | 'Pending' | 'Failed'): Promise<void> => {
@@ -569,14 +436,12 @@ export const api = {
         await delay(400);
         const payments = getStoredPayments();
         const index = payments.findIndex((p: Payment) => p.id === paymentId);
-        
         if (index !== -1) {
             payments[index].status = status;
             localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
         }
         return;
     }
-    // Backend impl
     await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -588,17 +453,11 @@ export const api = {
     if (USE_MOCK_BACKEND) {
         await delay(300);
         const payments = getStoredPayments();
-        // Keep everything EXCEPT the one to delete
         const updated = payments.filter((p: Payment) => p.id !== paymentId);
-        
-        // Ensure we are saving a valid array back
-        if (Array.isArray(updated)) {
-            localStorage.setItem(PAYMENTS_KEY, JSON.stringify(updated));
-        }
+        localStorage.setItem(PAYMENTS_KEY, JSON.stringify(updated));
         return;
-    } else {
-        await fetch(`${API_URL}/payments/${paymentId}`, { method: 'DELETE' });
     }
+    await fetch(`${API_URL}/payments/${paymentId}`, { method: 'DELETE' });
   },
 
   // Messaging
@@ -608,14 +467,12 @@ export const api = {
         const messages: Message[] = getStoredMessages();
         const users = getStoredUsers();
         
-        // Find unique interactors
         const interactedUserIds = new Set<string>();
         messages.forEach(msg => {
             if (msg.senderId === userId) interactedUserIds.add(msg.receiverId);
             if (msg.receiverId === userId) interactedUserIds.add(msg.senderId);
         });
 
-        // Map to User objects
         return Array.from(interactedUserIds)
             .map(id => users.find((u: User) => u.id === id))
             .filter((u): u is User => !!u);
@@ -668,7 +525,6 @@ export const api = {
         const messages: Message[] = getStoredMessages();
         let changed = false;
         const updated = messages.map(msg => {
-            // Mark read if I am the receiver (userId) and it was sent by other person
             if (msg.receiverId === userId && msg.senderId === otherUserId && !msg.isRead) {
                 changed = true;
                 return { ...msg, isRead: true };

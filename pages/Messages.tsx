@@ -37,7 +37,11 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
             } else {
                 const target = await api.getUser(targetUserId);
                 if (target) {
-                    setConversations(prev => [target, ...prev]);
+                    setConversations(prev => {
+                        // Prevent duplicates
+                        if (prev.find(u => u.id === target.id)) return prev;
+                        return [target, ...prev];
+                    });
                     setActiveChatUser(target);
                 }
             }
@@ -94,14 +98,12 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
         const sentMsg = await api.sendMessage(currentUser.id, activeChatUser.id, tempContent);
         setMessages(prev => [...prev, sentMsg]);
         
-        // Update conversations list order if needed
-        const convoIndex = conversations.findIndex(u => u.id === activeChatUser.id);
-        if (convoIndex > 0) {
-            const updatedConvos = [...conversations];
-            const [moved] = updatedConvos.splice(convoIndex, 1);
-            updatedConvos.unshift(moved);
-            setConversations(updatedConvos);
-        }
+        // Ensure the conversation is moved to/added to the top of the list
+        setConversations(prev => {
+             const others = prev.filter(u => u.id !== activeChatUser.id);
+             return [activeChatUser, ...others];
+        });
+
     } catch (e) {
         console.error("Failed to send");
         alert("Failed to send message. Please try again.");
