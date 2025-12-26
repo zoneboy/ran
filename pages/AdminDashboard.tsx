@@ -551,6 +551,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   });
 
   const handleExport = () => {
+    // ... (Export logic unchanged for now) ...
+    // Note: The export logic might need updating if we want these new columns in the CSV download too, 
+    // but the prompt only asked for the table. I'll stick to the table for now to minimize risk.
     const exportData = users.filter(u => {
       if(u.role === UserRole.ADMIN) return false;
       const matchState = exportConfig.state ? u.businessState === exportConfig.state : true;
@@ -875,7 +878,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Business / Name</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member ID</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">State</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Region</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DOB</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Materials</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiry Date</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -898,8 +907,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.category}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.businessState}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <span className="block font-medium">{getRegion(user.businessState || '')}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.gender || 'N/A'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.email}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.phone}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.dob || 'N/A'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500 max-w-xs break-words">
+                        {(user.materialTypes || []).join(', ')}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex items-center space-x-2">
@@ -963,7 +980,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-6 py-4 text-center text-gray-500">No members found matching your search.</td>
+                    <td colSpan={13} className="px-6 py-4 text-center text-gray-500">No members found matching your search.</td>
                   </tr>
                 )}
               </tbody>
