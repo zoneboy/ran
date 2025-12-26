@@ -258,6 +258,7 @@ router.post('/auth/register', async (req, res) => {
     const mappedUser = mapUser(newUser.rows[0]);
     const { password, ...safeUser } = mappedUser;
     
+<<<<<<< HEAD
     // Welcome Email (Optional)
     if (process.env.EMAIL_USER) {
         try {
@@ -269,6 +270,8 @@ router.post('/auth/register', async (req, res) => {
             });
         } catch(e) { console.error("Email failed", e); }
     }
+=======
+>>>>>>> parent of 982ba4b (Add files via upload)
     res.status(201).json(safeUser);
   } catch (error) { res.status(500).json({ message: 'Registration failed. ' + error.message }); }
 });
