@@ -1,8 +1,12 @@
 import { User, Announcement, Payment } from '../types';
 
-// API Configuration for Netlify Functions
-// We use a relative path '/api' which Netlify redirects to the function
-const API_URL = '/api'; 
+// API Configuration
+// For Netlify production, we point directly to the function path to avoid redirect issues.
+// For local development, we point to the local express server port (5000) or let Vite proxy if configured.
+const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+// If local, assume server runs on 5000. If prod, use the Netlify function path.
+const API_URL = isLocal ? 'http://localhost:5000/api' : '/.netlify/functions/api';
 
 const handleResponse = async (res: Response) => {
     if (!res.ok) {
@@ -15,7 +19,7 @@ const handleResponse = async (res: Response) => {
             const text = await res.text();
             console.error("API Error (Non-JSON):", text);
             if (res.status === 404) {
-                 throw new Error(`Endpoint not found (404). Please ensure the backend is deployed.`);
+                 throw new Error(`Endpoint not found (404). The backend function is not reachable at ${API_URL}.`);
             }
             throw new Error(`Server Error: ${res.status} ${res.statusText}. The backend might be starting up or unreachable.`);
         }
