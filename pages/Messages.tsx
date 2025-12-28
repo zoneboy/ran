@@ -95,7 +95,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
     try {
       const data = await api.getChatHistory(currentUser.id, contactId);
       
-      // Strict sorting by timestamp to ensure chronological order regardless of sender
+      // Strict sorting by timestamp: Oldest first
       const sorted = Array.isArray(data) ? [...data].sort((a, b) => {
           const tA = new Date(a.timestamp).getTime();
           const tB = new Date(b.timestamp).getTime();
@@ -121,7 +121,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
     setNewMessage('');
     setIsSending(true);
 
-    // Optimistic Update: Add message immediately to UI
+    // Optimistic Update: Add message immediately to UI with current time
     const optimisticMsg: Message = {
         id: `temp-${Date.now()}`,
         senderId: currentUser.id,
@@ -135,7 +135,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
 
     try {
       await api.sendMessage(currentUser.id, activeChatId, content);
-      // Fetch latest state to sync IDs and timestamps
+      // Fetch latest state to sync IDs and ensure strict timestamp order from DB
       await fetchMessages(activeChatId, false);
       await fetchConversations(false); 
     } catch (error) {
@@ -261,7 +261,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
                     </div>
 
                     {/* Chat Messages */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat flex flex-col">
                         {isLoadingChat ? (
                              <div className="flex justify-center mt-10"><Loader2 className="animate-spin text-gray-500" /></div>
                         ) : (

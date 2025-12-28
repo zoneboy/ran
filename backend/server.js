@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -101,6 +102,10 @@ const initDb = async () => {
     
     try {
       await pool.query(schema);
+      
+      // SAFETY CHECK: Ensure timestamp column exists (fixes potential migration issues)
+      await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+      
       console.log('Database tables checked/created successfully');
 
       // --- SEED DEFAULT ADMIN ---
@@ -679,10 +684,14 @@ router.post('/messages', async (req, res) => {
     const id = `msg-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     
     try {
-        await pool.query(
-            'INSERT INTO messages (id, sender_id, receiver_id, content) VALUES ($1, $2, $3, $4)',
-            [id, senderId, receiverId, content]
+        // Use CURRENT_TIMESTAMP directly in SQL to ensure DB generates it.
+        // Returning timestamp to ensure frontend gets the exact server time.
+        const result = await pool.query(
+            'INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, is_read) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5) RETURNING timestamp',
+            [id, senderId, receiverId, content, false]
         );
+
+        const savedTimestamp = result.rows[0].timestamp;
 
         // Notify Receiver via Email (if possible)
         const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [receiverId]);
@@ -703,7 +712,7 @@ router.post('/messages', async (req, res) => {
             }
         }
 
-        res.status(201).json({ id, senderId, receiverId, content, timestamp: new Date(), isRead: false });
+        res.status(201).json({ id, senderId, receiverId, content, timestamp: savedTimestamp, isRead: false });
     } catch (error) {
         console.error("Message Error:", error);
         res.status(500).json({ message: 'Failed to send message' });
