@@ -116,9 +116,8 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
             </div>
 
             <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* ... (Existing detail view content unchanged) ... */}
-              {/* For brevity, omitting re-implementation of details, assuming existing is preserved if not modified, 
-                  but since I have to return full content, I will paste the previous implementation here. */}
+              
+              {/* Basic Info */}
               <div>
                 <h3 className="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Member Information</h3>
                 <div className="space-y-4">
@@ -163,6 +162,7 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
                 </div>
               </div>
 
+              {/* Operational Info */}
               <div>
                 <h3 className="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Recycling Activities</h3>
                 <div className="space-y-4">
@@ -217,6 +217,7 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
                   )}
                 </div>
               </div>
+
             </div>
           </div>
         </div>

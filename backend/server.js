@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -159,7 +158,7 @@ const mapUser = (row) => {
         businessCommencement: row.business_commencement,
         businessCategory: row.business_category,
         statesOfOperation: row.states_of_operation,
-        material_types: row.material_types || [],
+        materialTypes: row.material_types || [],
         machineryDeployed: row.machinery_deployed || [],
         monthlyVolume: row.monthly_volume,
         employees: row.employees,
