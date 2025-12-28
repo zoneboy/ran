@@ -19,7 +19,8 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
   const [isSending, setIsSending] = useState(false);
   const [activeContact, setActiveContact] = useState<Conversation | null>(null);
   
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Use ref for the scrollable container instead of a dummy div at the end
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   // Poll for updates
   useEffect(() => {
@@ -75,7 +76,14 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
   }, [messages]);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesContainerRef.current) {
+        const { scrollHeight, clientHeight } = messagesContainerRef.current;
+        // Use scrollTo with top value to avoid affecting parent scroll containers (browser viewport)
+        messagesContainerRef.current.scrollTo({
+            top: scrollHeight - clientHeight,
+            behavior: 'smooth'
+        });
+    }
   };
 
   const fetchConversations = async (showLoading = true) => {
@@ -261,7 +269,10 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
                     </div>
 
                     {/* Chat Messages */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat flex flex-col">
+                    <div 
+                        ref={messagesContainerRef}
+                        className="flex-1 overflow-y-auto p-4 space-y-3 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat flex flex-col"
+                    >
                         {isLoadingChat ? (
                              <div className="flex justify-center mt-10"><Loader2 className="animate-spin text-gray-500" /></div>
                         ) : (
@@ -286,7 +297,6 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
                                 );
                             })
                         )}
-                        <div ref={messagesEndRef} />
                     </div>
 
                     {/* Input Area */}
