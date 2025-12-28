@@ -97,7 +97,8 @@ export const api = {
   // User Management
   getUser: async (id: string): Promise<User | null> => {
      if (USE_MOCK_BACKEND) return null;
-     const res = await fetch(`${API_URL}/users/${id}`);
+     // Encode ID to handle slashes (e.g., RAN/ASO/25/01 -> RAN%2FASO%2F25%2F01)
+     const res = await fetch(`${API_URL}/users/${encodeURIComponent(id)}`);
      if (!res.ok) return null;
      return await res.json();
   },
@@ -110,7 +111,7 @@ export const api = {
 
   updateUser: async (updatedUser: User): Promise<User> => {
     if (USE_MOCK_BACKEND) return updatedUser;
-    const res = await fetch(`${API_URL}/users/${updatedUser.id}`, {
+    const res = await fetch(`${API_URL}/users/${encodeURIComponent(updatedUser.id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updatedUser)
@@ -152,13 +153,14 @@ export const api = {
 
   deleteAnnouncement: async (id: string): Promise<void> => {
     if (USE_MOCK_BACKEND) return;
-    await fetch(`${API_URL}/announcements/${id}`, { method: 'DELETE' });
+    await fetch(`${API_URL}/announcements/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
   // Payments
   getPayments: async (userId: string): Promise<Payment[]> => {
     if (USE_MOCK_BACKEND) return [];
-    const res = await fetch(`${API_URL}/payments/${userId}`);
+    // Encode userId to handle slashes
+    const res = await fetch(`${API_URL}/payments/${encodeURIComponent(userId)}`);
     return await res.json();
   },
 
@@ -181,7 +183,7 @@ export const api = {
 
   updatePaymentStatus: async (paymentId: string, status: 'Successful' | 'Pending' | 'Failed'): Promise<void> => {
     if (USE_MOCK_BACKEND) return;
-    await fetch(`${API_URL}/payments/${paymentId}`, {
+    await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
@@ -190,7 +192,7 @@ export const api = {
 
   deletePayment: async (paymentId: string): Promise<void> => {
     if (USE_MOCK_BACKEND) return;
-    await fetch(`${API_URL}/payments/${paymentId}`, { method: 'DELETE' });
+    await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, { method: 'DELETE' });
   },
 
   // --- MESSAGING API ---
@@ -206,19 +208,21 @@ export const api = {
   },
 
   getConversations: async (userId: string): Promise<Conversation[]> => {
-     const res = await fetch(`${API_URL}/messages/conversations/${userId}`);
+     // Encode userId
+     const res = await fetch(`${API_URL}/messages/conversations/${encodeURIComponent(userId)}`);
      if (!res.ok) return [];
      return await res.json();
   },
 
   getChatHistory: async (userId: string, contactId: string): Promise<Message[]> => {
-     const res = await fetch(`${API_URL}/messages/${userId}/${contactId}`);
+     // Encode both IDs
+     const res = await fetch(`${API_URL}/messages/${encodeURIComponent(userId)}/${encodeURIComponent(contactId)}`);
      if (!res.ok) return [];
      return await res.json();
   },
 
   markAsRead: async (userId: string, contactId: string): Promise<void> => {
-     // userId is reading the messages from contactId
-     await fetch(`${API_URL}/messages/read/${userId}/${contactId}`, { method: 'PUT' });
+     // Encode both IDs
+     await fetch(`${API_URL}/messages/read/${encodeURIComponent(userId)}/${encodeURIComponent(contactId)}`, { method: 'PUT' });
   }
 };
