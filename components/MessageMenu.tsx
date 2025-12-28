@@ -1,4 +1,4 @@
-// src/components/MessageMenu.tsx
+
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 
@@ -34,3 +34,4 @@ const MessageMenu = ({ user }) => {
 };
 
 export default MessageMenu;
+    

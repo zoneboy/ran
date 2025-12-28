@@ -1,4 +1,4 @@
-// src/components/MessageWindow.tsx
+
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 
@@ -25,7 +25,7 @@ const MessageWindow = ({ user, receiverId }) => {
         const { data } = await api.post('/messages', {
           senderId: user.id,
           receiverId,
-          content: message,
+          content: message
         });
         setMessages([...messages, data]);
         setMessage('');
@@ -58,3 +58,4 @@ const MessageWindow = ({ user, receiverId }) => {
 };
 
 export default MessageWindow;
+    
