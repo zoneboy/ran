@@ -96,7 +96,8 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
       const data = await api.getChatHistory(currentUser.id, contactId);
       
       // Force sort by timestamp on client to guarantee order
-      const sorted = data.sort((a, b) => {
+      // Using spread to avoid mutating the original array if it comes from a cached source
+      const sorted = [...data].sort((a, b) => {
           const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
           const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
           return dateA - dateB;
