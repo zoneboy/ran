@@ -94,7 +94,15 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
     if (showLoading) setIsLoadingChat(true);
     try {
       const data = await api.getChatHistory(currentUser.id, contactId);
-      setMessages(data);
+      
+      // Force sort by timestamp on client to guarantee order
+      const sorted = data.sort((a, b) => {
+          const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return dateA - dateB;
+      });
+      
+      setMessages(sorted);
       // Mark as read
       await api.markAsRead(currentUser.id, contactId);
     } catch (error) {
@@ -125,13 +133,24 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
     }
   };
 
-  const formatTime = (dateString: string) => {
+  const formatTime = (dateString?: string) => {
+      if (!dateString) return '';
       const date = new Date(dateString);
+      if (isNaN(date.getTime())) return '';
       return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString?: string) => {
+      if (!dateString) return '';
       const date = new Date(dateString);
+      if (isNaN(date.getTime())) return '';
+      
+      const now = new Date();
+      const diff = now.getTime() - date.getTime();
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+      if (days === 0) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (days === 1) return 'Yesterday';
       return date.toLocaleDateString();
   };
 
