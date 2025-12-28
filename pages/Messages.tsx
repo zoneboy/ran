@@ -21,7 +21,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Poll for updates (live feel without websocket)
+  // Poll for updates
   useEffect(() => {
     const interval = setInterval(() => {
         if (currentUser) {
@@ -30,7 +30,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
                 fetchMessages(activeChatId, false);
             }
         }
-    }, 10000); // Poll every 10 seconds
+    }, 5000); // Poll every 5 seconds for snappier updates
 
     return () => clearInterval(interval);
   }, [currentUser, activeChatId]);
@@ -43,13 +43,11 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
   // Load chat if target provided initially or switched
   useEffect(() => {
     if (activeChatId) {
-      // Find contact info from existing convos or fetch if not present (e.g. coming from directory to new chat)
+      // Find contact info
       const existing = conversations.find(c => c.contactId === activeChatId);
       if (existing) {
           setActiveContact(existing);
       } else if (initialTargetUserId === activeChatId) {
-          // If starting new chat from directory, we might not have it in conversation list yet
-          // Fetch minimal user info for header (optional, or just rely on IDs for now)
           api.getUser(activeChatId).then(u => {
               if(u) {
                 const newConvo: Conversation = {
@@ -66,10 +64,12 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
           });
       }
       fetchMessages(activeChatId);
+    } else {
+        setMessages([]);
     }
   }, [activeChatId]);
 
-  // Scroll to bottom
+  // Scroll to bottom whenever messages change
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
@@ -95,19 +95,19 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
     try {
       const data = await api.getChatHistory(currentUser.id, contactId);
       
-      // Force sort by timestamp on client to guarantee order
-      // Using spread to avoid mutating the original array if it comes from a cached source
-      const sorted = [...data].sort((a, b) => {
-          const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-          const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-          return dateA - dateB;
-      });
+      // Strict sorting by timestamp to ensure chronological order regardless of sender
+      const sorted = Array.isArray(data) ? [...data].sort((a, b) => {
+          const tA = new Date(a.timestamp).getTime();
+          const tB = new Date(b.timestamp).getTime();
+          return (isNaN(tA) ? 0 : tA) - (isNaN(tB) ? 0 : tB);
+      }) : [];
       
       setMessages(sorted);
-      // Mark as read
-      await api.markAsRead(currentUser.id, contactId);
+      
+      // Mark as read in background
+      api.markAsRead(currentUser.id, contactId).catch(() => {});
     } catch (error) {
-      console.error("Failed to load chat");
+      console.error("Failed to load chat", error);
     } finally {
       if (showLoading) setIsLoadingChat(false);
     }
@@ -117,18 +117,32 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
     e.preventDefault();
     if (!newMessage.trim() || !activeChatId) return;
 
-    const tempContent = newMessage;
+    const content = newMessage.trim();
     setNewMessage('');
     setIsSending(true);
 
+    // Optimistic Update: Add message immediately to UI
+    const optimisticMsg: Message = {
+        id: `temp-${Date.now()}`,
+        senderId: currentUser.id,
+        receiverId: activeChatId,
+        content: content,
+        timestamp: new Date().toISOString(),
+        isRead: false
+    };
+
+    setMessages(prev => [...prev, optimisticMsg]);
+
     try {
-      await api.sendMessage(currentUser.id, activeChatId, tempContent);
-      // Refresh chat immediately
+      await api.sendMessage(currentUser.id, activeChatId, content);
+      // Fetch latest state to sync IDs and timestamps
       await fetchMessages(activeChatId, false);
-      await fetchConversations(false); // Update list preview
+      await fetchConversations(false); 
     } catch (error) {
       alert("Failed to send message");
-      setNewMessage(tempContent);
+      // Remove optimistic message on failure
+      setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
+      setNewMessage(content); 
     } finally {
       setIsSending(false);
     }
@@ -255,12 +269,12 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, initialTargetUserId, n
                                 const isMe = msg.senderId === currentUser.id;
                                 return (
                                     <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                        <div className={`max-w-[75%] rounded-lg px-4 py-2 shadow-sm relative ${
+                                        <div className={`max-w-[75%] rounded-lg px-4 py-2 shadow-sm relative text-left ${
                                             isMe ? 'bg-[#d9fdd3] text-gray-900 rounded-tr-none' : 'bg-white text-gray-900 rounded-tl-none'
                                         }`}>
-                                            <p className="text-sm leading-relaxed">{msg.content}</p>
+                                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                                             <div className="flex justify-end mt-1 items-center space-x-1">
-                                                <span className="text-[10px] text-gray-500">{formatTime(msg.timestamp)}</span>
+                                                <span className="text-[10px] text-gray-500 min-w-[50px] text-right">{formatTime(msg.timestamp)}</span>
                                                 {isMe && (
                                                     <span className={`text-[10px] ${msg.isRead ? 'text-blue-500' : 'text-gray-400'}`}>
                                                         {msg.isRead ? '✓✓' : '✓'}
