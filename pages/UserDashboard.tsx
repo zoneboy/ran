@@ -23,31 +23,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   const [receiptFile, setReceiptFile] = useState<string>('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
-  // src/pages/Dashboard.tsx
-import React, { useState } from 'react';
-import MessageMenu from '../components/MessageMenu';
-import MessageWindow from '../components/MessageWindow';
-
-const Dashboard = ({ user }) => {
-  const [selectedMember, setSelectedMember] = useState(null);
-
-  const handleOpenMessageWindow = (memberId) => {
-    setSelectedMember(memberId);
-  };
-
-  return (
-    <div className="dashboard">
-      <MessageMenu user={user} />
-      {selectedMember && (
-        <MessageWindow user={user} receiverId={selectedMember} />
-      )}
-    </div>
-  );
-};
-
-export default Dashboard;
-
-
   useEffect(() => {
     // 1. Set initial data from props
     setDisplayUser(user);
