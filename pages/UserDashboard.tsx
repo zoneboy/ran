@@ -322,16 +322,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                 {announcements.length > 0 && (
                     <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-amber-500">
                         <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-                            <Bell className="h-5 w-5 mr-2 text-amber-500" /> Latest Announcements
+                            <Bell className="h-5 w-5 mr-2 text-amber-500" /> Announcements & News
                         </h2>
-                        <div className="space-y-4">
-                            {announcements.slice(0, 3).map(ann => (
+                        <div className="space-y-4 max-h-80 overflow-y-auto pr-2">
+                            {announcements.map(ann => (
                                 <div key={ann.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
                                     <div className="flex justify-between items-start">
-                                        <h3 className="font-semibold text-gray-800">{ann.title}</h3>
-                                        {ann.isImportant && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full">Important</span>}
+                                        <h3 className="font-semibold text-gray-800 sticky top-0 bg-white z-10">{ann.title}</h3>
+                                        {ann.isImportant && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full shrink-0 ml-2">Important</span>}
                                     </div>
-                                    <p className="text-sm text-gray-600 mt-1">{ann.content}</p>
+                                    <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">{ann.content}</p>
                                     <p className="text-xs text-gray-400 mt-1">{ann.date}</p>
                                 </div>
                             ))}
