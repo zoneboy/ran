@@ -69,22 +69,27 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   useEffect(() => {
     const fetchData = async () => {
         try {
-            const [annData, payData, bankData, colData] = await Promise.all([
-                api.getAnnouncements(),
-                api.getPayments(user.id),
-                api.getBankDetails(),
-                api.getCollections(user.id)
-            ]);
-            setAnnouncements(annData);
+            // Load payments regardless of expiry status so they can see history/make new ones
+            const payData = await api.getPayments(user.id);
             setPayments(payData);
+            const bankData = await api.getBankDetails();
             setBankDetails(bankData);
-            setCollections(colData);
+
+            if (!isExpired) {
+                // Only load other data if not expired
+                const [annData, colData] = await Promise.all([
+                    api.getAnnouncements(),
+                    api.getCollections(user.id)
+                ]);
+                setAnnouncements(annData);
+                setCollections(colData);
+            }
         } catch (e) {
             console.error("Failed to fetch dashboard data", e);
         }
     };
     fetchData();
-  }, [user.id]);
+  }, [user.id, isExpired]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -217,13 +222,15 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                      {displayUser.status === 'Active' ? <Check className="h-4 w-4 mr-2" /> : <AlertTriangle className="h-4 w-4 mr-2" />}
                      Status: {displayUser.status}
                  </div>
-                 <button onClick={() => navigate('messages')} className="flex items-center bg-white border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-50">
-                     <MessageCircle className="h-4 w-4 mr-2 text-gray-600" /> Messages
-                 </button>
+                 {!isExpired && (
+                    <button onClick={() => navigate('messages')} className="flex items-center bg-white border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-50">
+                        <MessageCircle className="h-4 w-4 mr-2 text-gray-600" /> Messages
+                    </button>
+                 )}
             </div>
         </div>
 
-        {/* Renewal Notice */}
+        {/* Renewal/Expired Notice */}
         {(isExpiringSoon || isExpired) && (
             <div className={`rounded-lg p-4 border-l-4 shadow-sm animate-in fade-in slide-in-from-top-2 ${isExpired ? 'bg-red-50 border-red-500' : 'bg-amber-50 border-amber-500'}`}>
                 <div className="flex items-start">
@@ -260,238 +267,13 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
             </div>
         )}
 
-        {/* Announcements */}
-        {announcements.length > 0 && (
-            <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-amber-500">
-                <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-                    <Bell className="h-5 w-5 mr-2 text-amber-500" /> Latest Announcements
-                </h2>
-                <div className="space-y-4">
-                    {announcements.slice(0, 3).map(ann => (
-                        <div key={ann.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                            <div className="flex justify-between items-start">
-                                <h3 className="font-semibold text-gray-800">{ann.title}</h3>
-                                {ann.isImportant && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full">Important</span>}
-                            </div>
-                            <p className="text-sm text-gray-600 mt-1">{ann.content}</p>
-                            <p className="text-xs text-gray-400 mt-1">{ann.date}</p>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            
-            {/* Left Column - Profile */}
-            <div className="lg:col-span-2 space-y-8">
-                <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-                    <div className="bg-green-700 px-6 py-4 flex justify-between items-center">
-                        <h2 className="text-white font-bold flex items-center">
-                            <UserIcon className="h-5 w-5 mr-2" /> Member Profile
-                        </h2>
-                        {!isEditing && (
-                            <button onClick={() => setIsEditing(true)} className="text-sm bg-green-600 text-white px-3 py-1 rounded hover:bg-green-500 transition-colors">
-                                Edit Profile
-                            </button>
-                        )}
-                    </div>
-                    
-                    <div className="p-6">
-                        <div className="flex flex-col md:flex-row gap-6">
-                            <div className="flex flex-col items-center space-y-3">
-                                <div className="h-32 w-32 rounded-full overflow-hidden border-4 border-green-50 relative bg-gray-100">
-                                    {isUploadingProfile ? (
-                                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-75">
-                                            <Loader2 className="h-8 w-8 animate-spin text-green-600" />
-                                        </div>
-                                    ) : (
-                                        <img 
-                                            src={formData.profileImage || "https://via.placeholder.com/150"} 
-                                            alt="Profile" 
-                                            className="h-full w-full object-cover"
-                                        />
-                                    )}
-                                </div>
-                                {isEditing && (
-                                    <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-md text-sm flex items-center transition-colors">
-                                        <Camera className="h-4 w-4 mr-2" /> Change Photo
-                                        <input type="file" className="hidden" accept="image/*" onChange={handleProfileImageChange} />
-                                    </label>
-                                )}
-                            </div>
-
-                            <div className="flex-1 space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-500 uppercase">First Name</label>
-                                        <input 
-                                            type="text" 
-                                            name="firstName" 
-                                            value={formData.firstName} 
-                                            onChange={handleInputChange} 
-                                            disabled={!isEditing}
-                                            className="w-full mt-1 p-2 border rounded bg-gray-50 disabled:bg-white disabled:border-none disabled:p-0 disabled:text-gray-900 disabled:font-medium"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-500 uppercase">Last Name</label>
-                                        <input 
-                                            type="text" 
-                                            name="lastName" 
-                                            value={formData.lastName} 
-                                            onChange={handleInputChange} 
-                                            disabled={!isEditing}
-                                            className="w-full mt-1 p-2 border rounded bg-gray-50 disabled:bg-white disabled:border-none disabled:p-0 disabled:text-gray-900 disabled:font-medium"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-500 uppercase">Business Name</label>
-                                        <input 
-                                            type="text" 
-                                            name="businessName" 
-                                            value={formData.businessName} 
-                                            onChange={handleInputChange} 
-                                            disabled={!isEditing}
-                                            className="w-full mt-1 p-2 border rounded bg-gray-50 disabled:bg-white disabled:border-none disabled:p-0 disabled:text-gray-900 disabled:font-medium"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-500 uppercase">Phone</label>
-                                        <input 
-                                            type="text" 
-                                            name="phone" 
-                                            value={formData.phone} 
-                                            onChange={handleInputChange} 
-                                            disabled={!isEditing}
-                                            className="w-full mt-1 p-2 border rounded bg-gray-50 disabled:bg-white disabled:border-none disabled:p-0 disabled:text-gray-900 disabled:font-medium"
-                                        />
-                                    </div>
-                                    <div className="md:col-span-2">
-                                        <label className="block text-xs font-semibold text-gray-500 uppercase">Address</label>
-                                        <input 
-                                            type="text" 
-                                            name="businessAddress" 
-                                            value={formData.businessAddress} 
-                                            onChange={handleInputChange} 
-                                            disabled={!isEditing}
-                                            className="w-full mt-1 p-2 border rounded bg-gray-50 disabled:bg-white disabled:border-none disabled:p-0 disabled:text-gray-900 disabled:font-medium"
-                                        />
-                                    </div>
-                                </div>
-
-                                {isEditing && (
-                                    <div className="flex justify-end gap-3 pt-4 border-t">
-                                        <button onClick={handleCancelEdit} className="px-4 py-2 text-gray-600 hover:text-gray-800">Cancel</button>
-                                        <button onClick={handleSaveProfile} className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700">Save Changes</button>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Collections Section */}
-                <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-                    <div className="px-6 py-4 border-b flex justify-between items-center">
-                        <h2 className="text-lg font-bold text-gray-900 flex items-center">
-                            <BarChart2 className="h-5 w-5 mr-2 text-green-600" /> Collection Log
-                        </h2>
-                        <button onClick={() => setShowCollectionModal(true)} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 flex items-center">
-                            <Plus className="h-4 w-4 mr-1" /> Log Activity
-                        </button>
-                    </div>
-                    <div className="p-0 overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {collections.length > 0 ? collections.map(col => (
-                                    <tr key={col.id}>
-                                        <td className="px-6 py-4 text-sm text-gray-900">{col.month} {col.year}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-600">{col.material}</td>
-                                        <td className="px-6 py-4 text-sm font-bold text-gray-900">{col.weight}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-500">{new Date(col.createdAt).toLocaleDateString()}</td>
-                                    </tr>
-                                )) : (
-                                    <tr>
-                                        <td colSpan={4} className="px-6 py-8 text-center text-gray-500">No collection data logged yet.</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            {/* Right Column - Payments & Status */}
-            <div className="space-y-8">
-                 {/* Membership Card */}
-                <div className="bg-gradient-to-br from-green-800 to-green-600 rounded-xl shadow-lg p-6 text-white">
-                    <div className="flex justify-between items-start mb-4">
-                        <div>
-                            <p className="text-green-100 text-sm">Membership ID</p>
-                            <p className="text-2xl font-mono font-bold tracking-wider">{displayUser.id}</p>
-                        </div>
-                        <Users className="h-8 w-8 text-green-200 opacity-50" />
-                    </div>
-                    <div className="space-y-2 mb-6">
-                         <div className="flex justify-between text-sm">
-                             <span className="text-green-100">Category</span>
-                             <span className="font-semibold">{displayUser.category}</span>
-                         </div>
-                         <div className="flex justify-between text-sm">
-                             <span className="text-green-100">Expiry</span>
-                             <span className="font-semibold">{displayUser.expiryDate}</span>
-                         </div>
-                    </div>
-                    
-                    <div className="space-y-2">
-                        {displayUser.documents?.membershipIdCard ? (
-                             <a 
-                                href={displayUser.documents.membershipIdCard} 
-                                download="ID_Card"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="w-full bg-white bg-opacity-20 hover:bg-opacity-30 text-white py-2 rounded text-sm font-medium flex items-center justify-center transition-colors"
-                             >
-                                 <CreditCard className="h-4 w-4 mr-2" /> Download ID Card
-                             </a>
-                        ) : (
-                             <div className="w-full bg-black bg-opacity-20 text-white py-2 rounded text-sm text-center italic">
-                                 ID Card Pending
-                             </div>
-                        )}
-
-                        {displayUser.documents?.membershipCertificate ? (
-                            <a 
-                              href={displayUser.documents.membershipCertificate} 
-                              download="Certificate"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="w-full bg-white bg-opacity-20 hover:bg-opacity-30 text-white py-2 rounded text-sm font-medium flex items-center justify-center transition-colors"
-                            >
-                                <FileText className="h-4 w-4 mr-2" /> Download Certificate
-                            </a>
-                        ) : (
-                            <div className="w-full bg-black bg-opacity-20 text-white py-2 rounded text-sm text-center italic">
-                                Certificate Pending
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Payments */}
+        {isExpired ? (
+            /* Restricted View for Expired Members */
+            <div className="max-w-3xl mx-auto">
                 <div className="bg-white rounded-lg shadow-sm p-6">
                     <div className="flex justify-between items-center mb-4">
                         <h2 className="font-bold text-gray-900 flex items-center">
-                            <CreditCard className="h-5 w-5 mr-2 text-gray-600" /> Payments
+                            <CreditCard className="h-5 w-5 mr-2 text-gray-600" /> Payments History & Renewal
                         </h2>
                         <button onClick={() => setShowPaymentModal(true)} className="text-xs text-green-600 hover:text-green-700 font-bold uppercase">
                             New Payment
@@ -499,7 +281,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                     </div>
                     
                     <div className="space-y-4">
-                        {payments.length > 0 ? payments.slice(0, 3).map(pay => (
+                        {payments.length > 0 ? payments.map(pay => (
                             <div key={pay.id} className="flex justify-between items-center border-b border-gray-100 pb-3 last:border-0 last:pb-0">
                                 <div>
                                     <p className="text-sm font-medium text-gray-800">{pay.description}</p>
@@ -530,14 +312,292 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                         )) : (
                             <p className="text-sm text-gray-500 text-center py-4">No payment history.</p>
                         )}
-                        {payments.length > 3 && (
-                            <button className="w-full text-center text-xs text-gray-500 hover:text-green-600 mt-2">View All Transactions</button>
-                        )}
                     </div>
                 </div>
-
             </div>
-        </div>
+        ) : (
+            /* Active View */
+            <>
+                {/* Announcements */}
+                {announcements.length > 0 && (
+                    <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-amber-500">
+                        <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+                            <Bell className="h-5 w-5 mr-2 text-amber-500" /> Latest Announcements
+                        </h2>
+                        <div className="space-y-4">
+                            {announcements.slice(0, 3).map(ann => (
+                                <div key={ann.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+                                    <div className="flex justify-between items-start">
+                                        <h3 className="font-semibold text-gray-800">{ann.title}</h3>
+                                        {ann.isImportant && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full">Important</span>}
+                                    </div>
+                                    <p className="text-sm text-gray-600 mt-1">{ann.content}</p>
+                                    <p className="text-xs text-gray-400 mt-1">{ann.date}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    
+                    {/* Left Column - Profile */}
+                    <div className="lg:col-span-2 space-y-8">
+                        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+                            <div className="bg-green-700 px-6 py-4 flex justify-between items-center">
+                                <h2 className="text-white font-bold flex items-center">
+                                    <UserIcon className="h-5 w-5 mr-2" /> Member Profile
+                                </h2>
+                                {!isEditing && (
+                                    <button onClick={() => setIsEditing(true)} className="text-sm bg-green-600 text-white px-3 py-1 rounded hover:bg-green-500 transition-colors">
+                                        Edit Profile
+                                    </button>
+                                )}
+                            </div>
+                            
+                            <div className="p-6">
+                                <div className="flex flex-col md:flex-row gap-6">
+                                    <div className="flex flex-col items-center space-y-3">
+                                        <div className="h-32 w-32 rounded-full overflow-hidden border-4 border-green-50 relative bg-gray-100">
+                                            {isUploadingProfile ? (
+                                                <div className="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-75">
+                                                    <Loader2 className="h-8 w-8 animate-spin text-green-600" />
+                                                </div>
+                                            ) : (
+                                                <img 
+                                                    src={formData.profileImage || "https://via.placeholder.com/150"} 
+                                                    alt="Profile" 
+                                                    className="h-full w-full object-cover"
+                                                />
+                                            )}
+                                        </div>
+                                        {isEditing && (
+                                            <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-md text-sm flex items-center transition-colors">
+                                                <Camera className="h-4 w-4 mr-2" /> Change Photo
+                                                <input type="file" className="hidden" accept="image/*" onChange={handleProfileImageChange} />
+                                            </label>
+                                        )}
+                                    </div>
+
+                                    <div className="flex-1 space-y-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-xs font-semibold text-gray-500 uppercase">First Name</label>
+                                                <input 
+                                                    type="text" 
+                                                    name="firstName" 
+                                                    value={formData.firstName} 
+                                                    onChange={handleInputChange} 
+                                                    disabled={!isEditing}
+                                                    className="w-full mt-1 p-2 border rounded bg-gray-50 disabled:bg-white disabled:border-none disabled:p-0 disabled:text-gray-900 disabled:font-medium"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-semibold text-gray-500 uppercase">Last Name</label>
+                                                <input 
+                                                    type="text" 
+                                                    name="lastName" 
+                                                    value={formData.lastName} 
+                                                    onChange={handleInputChange} 
+                                                    disabled={!isEditing}
+                                                    className="w-full mt-1 p-2 border rounded bg-gray-50 disabled:bg-white disabled:border-none disabled:p-0 disabled:text-gray-900 disabled:font-medium"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-semibold text-gray-500 uppercase">Business Name</label>
+                                                <input 
+                                                    type="text" 
+                                                    name="businessName" 
+                                                    value={formData.businessName} 
+                                                    onChange={handleInputChange} 
+                                                    disabled={!isEditing}
+                                                    className="w-full mt-1 p-2 border rounded bg-gray-50 disabled:bg-white disabled:border-none disabled:p-0 disabled:text-gray-900 disabled:font-medium"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-semibold text-gray-500 uppercase">Phone</label>
+                                                <input 
+                                                    type="text" 
+                                                    name="phone" 
+                                                    value={formData.phone} 
+                                                    onChange={handleInputChange} 
+                                                    disabled={!isEditing}
+                                                    className="w-full mt-1 p-2 border rounded bg-gray-50 disabled:bg-white disabled:border-none disabled:p-0 disabled:text-gray-900 disabled:font-medium"
+                                                />
+                                            </div>
+                                            <div className="md:col-span-2">
+                                                <label className="block text-xs font-semibold text-gray-500 uppercase">Address</label>
+                                                <input 
+                                                    type="text" 
+                                                    name="businessAddress" 
+                                                    value={formData.businessAddress} 
+                                                    onChange={handleInputChange} 
+                                                    disabled={!isEditing}
+                                                    className="w-full mt-1 p-2 border rounded bg-gray-50 disabled:bg-white disabled:border-none disabled:p-0 disabled:text-gray-900 disabled:font-medium"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {isEditing && (
+                                            <div className="flex justify-end gap-3 pt-4 border-t">
+                                                <button onClick={handleCancelEdit} className="px-4 py-2 text-gray-600 hover:text-gray-800">Cancel</button>
+                                                <button onClick={handleSaveProfile} className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700">Save Changes</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Collections Section */}
+                        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+                            <div className="px-6 py-4 border-b flex justify-between items-center">
+                                <h2 className="text-lg font-bold text-gray-900 flex items-center">
+                                    <BarChart2 className="h-5 w-5 mr-2 text-green-600" /> Collection Log
+                                </h2>
+                                <button onClick={() => setShowCollectionModal(true)} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 flex items-center">
+                                    <Plus className="h-4 w-4 mr-1" /> Log Activity
+                                </button>
+                            </div>
+                            <div className="p-0 overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {collections.length > 0 ? collections.map(col => (
+                                            <tr key={col.id}>
+                                                <td className="px-6 py-4 text-sm text-gray-900">{col.month} {col.year}</td>
+                                                <td className="px-6 py-4 text-sm text-gray-600">{col.material}</td>
+                                                <td className="px-6 py-4 text-sm font-bold text-gray-900">{col.weight}</td>
+                                                <td className="px-6 py-4 text-sm text-gray-500">{new Date(col.createdAt).toLocaleDateString()}</td>
+                                            </tr>
+                                        )) : (
+                                            <tr>
+                                                <td colSpan={4} className="px-6 py-8 text-center text-gray-500">No collection data logged yet.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Right Column - Payments & Status */}
+                    <div className="space-y-8">
+                        {/* Membership Card */}
+                        <div className="bg-gradient-to-br from-green-800 to-green-600 rounded-xl shadow-lg p-6 text-white">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <p className="text-green-100 text-sm">Membership ID</p>
+                                    <p className="text-2xl font-mono font-bold tracking-wider">{displayUser.id}</p>
+                                </div>
+                                <Users className="h-8 w-8 text-green-200 opacity-50" />
+                            </div>
+                            <div className="space-y-2 mb-6">
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-green-100">Category</span>
+                                    <span className="font-semibold">{displayUser.category}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-green-100">Expiry</span>
+                                    <span className="font-semibold">{displayUser.expiryDate}</span>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-2">
+                                {displayUser.documents?.membershipIdCard ? (
+                                    <a 
+                                        href={displayUser.documents.membershipIdCard} 
+                                        download="ID_Card"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="w-full bg-white bg-opacity-20 hover:bg-opacity-30 text-white py-2 rounded text-sm font-medium flex items-center justify-center transition-colors"
+                                    >
+                                        <CreditCard className="h-4 w-4 mr-2" /> Download ID Card
+                                    </a>
+                                ) : (
+                                    <div className="w-full bg-black bg-opacity-20 text-white py-2 rounded text-sm text-center italic">
+                                        ID Card Pending
+                                    </div>
+                                )}
+
+                                {displayUser.documents?.membershipCertificate ? (
+                                    <a 
+                                    href={displayUser.documents.membershipCertificate} 
+                                    download="Certificate"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="w-full bg-white bg-opacity-20 hover:bg-opacity-30 text-white py-2 rounded text-sm font-medium flex items-center justify-center transition-colors"
+                                    >
+                                        <FileText className="h-4 w-4 mr-2" /> Download Certificate
+                                    </a>
+                                ) : (
+                                    <div className="w-full bg-black bg-opacity-20 text-white py-2 rounded text-sm text-center italic">
+                                        Certificate Pending
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Payments */}
+                        <div className="bg-white rounded-lg shadow-sm p-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="font-bold text-gray-900 flex items-center">
+                                    <CreditCard className="h-5 w-5 mr-2 text-gray-600" /> Payments
+                                </h2>
+                                <button onClick={() => setShowPaymentModal(true)} className="text-xs text-green-600 hover:text-green-700 font-bold uppercase">
+                                    New Payment
+                                </button>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                {payments.length > 0 ? payments.slice(0, 3).map(pay => (
+                                    <div key={pay.id} className="flex justify-between items-center border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+                                        <div>
+                                            <p className="text-sm font-medium text-gray-800">{pay.description}</p>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <p className="text-xs text-gray-500">{pay.date}</p>
+                                                {pay.receipt && (
+                                                    <a 
+                                                        href={pay.receipt}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-xs text-green-600 hover:underline flex items-center"
+                                                    >
+                                                        <Download className="h-3 w-3 mr-1" /> Receipt
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-sm font-bold text-gray-900">₦{pay.amount.toLocaleString()}</p>
+                                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                                                pay.status === 'Successful' ? 'bg-green-100 text-green-700' : 
+                                                pay.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
+                                            }`}>
+                                                {pay.status}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <p className="text-sm text-gray-500 text-center py-4">No payment history.</p>
+                                )}
+                                {payments.length > 3 && (
+                                    <button className="w-full text-center text-xs text-gray-500 hover:text-green-600 mt-2">View All Transactions</button>
+                                )}
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </>
+        )}
 
       </div>
 
@@ -591,7 +651,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       )}
 
       {/* Collection Modal */}
-      {showCollectionModal && (
+      {showCollectionModal && !isExpired && (
           <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
               <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
                   <div className="flex justify-between items-center mb-4">
