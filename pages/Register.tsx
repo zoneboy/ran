@@ -710,7 +710,7 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                   className={`bg-green-600 text-white px-8 py-3 rounded-md hover:bg-green-700 font-bold shadow-lg flex items-center ${isSubmitting ? 'opacity-75 cursor-not-allowed' : ''}`}
                 >
                   {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle className="mr-2 h-5 w-5" />}
-                  {isSubmitting ? 'Submit Application'}
+                  {isSubmitting ? 'Submitting...' : 'Submit Application'}
                 </button>
               </div>
             </div>
