@@ -9,6 +9,7 @@ const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 const app = express();
@@ -27,11 +28,12 @@ app.use(helmet.contentSecurityPolicy({
         connectSrc: ["'self'", process.env.API_URL ? process.env.API_URL : "'self'"],
     }
 }));
+app.use(cookieParser());
 
-// CORS: Disable credentials to prevent CSRF (Bearer token only)
+// CORS: Enable credentials for cookies. origin: true reflects request origin.
 app.use(cors({ 
     origin: true, 
-    credentials: false 
+    credentials: true 
 }));
 
 app.use(bodyParser.json({ limit: '50mb' }));
@@ -114,7 +116,8 @@ const initDb = async () => {
         profile_image TEXT,
         reset_token TEXT,
         reset_token_expiry BIGINT,
-        documents JSONB
+        documents JSONB,
+        token_version INTEGER DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS announcements (
           id TEXT PRIMARY KEY,
@@ -145,6 +148,10 @@ const initDb = async () => {
     `;
     try {
       await pool.query(schema);
+      
+      // Migration: Ensure token_version exists for older databases
+      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0');
+      
       console.log('Database tables checked/created successfully');
       
       // Seed Admin using Environment Variables
@@ -160,10 +167,10 @@ const initDb = async () => {
             await pool.query(`
                 INSERT INTO users (
                     id, first_name, last_name, email, phone, password, role, status, 
-                    category, business_name, business_address, business_state, date_joined, expiry_date
+                    category, business_name, business_address, business_state, date_joined, expiry_date, token_version
                 ) VALUES (
                     $1, 'System', 'Admin', $2, '08000000000', $3, 'ADMIN', 'Active',
-                    'HONORARY', 'RAN Headquarters', 'Abuja', 'FCT', $4, $5
+                    'HONORARY', 'RAN Headquarters', 'Abuja', 'FCT', $4, $5, 0
                 )
             `, [id, adminEmail, hashedPassword, new Date().toISOString().split('T')[0], '2099-12-31']);
             console.log(`Admin account seeded: ${adminEmail}`);
@@ -212,6 +219,7 @@ const mapUser = (row) => {
         expiryDate: row.expiry_date,
         profileImage: row.profile_image,
         documents: row.documents || {},
+        token_version: row.token_version,
         password: row.password 
     };
 };
@@ -265,22 +273,49 @@ const checkExpiry = async (user) => {
 
 // --- AUTH MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
-    // Only accept Authorization header
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    // Read token from HttpOnly Cookie
+    const token = req.cookies.token;
     
     if (token == null) return res.status(401).json({ message: 'Unauthorized: No token provided' });
 
-    jwt.verify(token, JWT_SECRET, (err, user) => {
+    jwt.verify(token, JWT_SECRET, async (err, decoded) => {
         if (err) return res.status(403).json({ message: 'Forbidden: Invalid token' });
-        req.user = user; // { id, role, email }
-        next();
+        
+        try {
+            // Verify token version matches database
+            const result = await pool.query('SELECT token_version FROM users WHERE id = $1', [decoded.id]);
+            if (result.rows.length === 0) return res.status(403).json({ message: 'User not found' });
+            
+            const currentVersion = result.rows[0].token_version || 0;
+            const tokenVersion = decoded.token_version || 0;
+
+            if (tokenVersion !== currentVersion) {
+                res.clearCookie('token');
+                return res.status(401).json({ message: 'Session expired (Password changed). Please login again.' });
+            }
+
+            req.user = decoded; // { id, role, email, token_version }
+            next();
+        } catch (e) {
+            console.error("Auth Middleware Error:", e);
+            res.status(500).json({ message: 'Server error during authentication' });
+        }
     });
 };
 
 const requireAdmin = (req, res, next) => {
     if (req.user.role !== 'ADMIN') {
         return res.status(403).json({ message: 'Forbidden: Admin access required' });
+    }
+    next();
+};
+
+const verifyOwnership = (req, res, next) => {
+    // Check common locations for user identifier. senderId is for messages.
+    const resourceUserId = req.body.userId || req.query.userId || req.body.senderId;
+    
+    if (resourceUserId && req.user.role !== 'ADMIN' && req.user.id !== resourceUserId) {
+        return res.status(403).json({ message: 'Forbidden: You can only access your own resources' });
     }
     next();
 };
@@ -301,11 +336,26 @@ router.post('/auth/login', async (req, res) => {
     if (user.status === 'Suspended') return res.status(403).json({ message: 'Account suspended.' });
     const isMatch = await bcrypt.compare(password, user.password);
     if (isMatch) {
-      const token = jwt.sign({ id: user.id, role: user.role, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+      // Include token_version in JWT
+      const token = jwt.sign({ 
+          id: user.id, 
+          role: user.role, 
+          email: user.email, 
+          token_version: user.token_version || 0 
+      }, JWT_SECRET, { expiresIn: '7d' });
+      
       const { password, ...userWithoutPassword } = user;
       
-      // Token is sent only in the body
-      res.json({ ...userWithoutPassword, token });
+      // Set HttpOnly Cookie
+      res.cookie('token', token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax', 
+          maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+
+      // Token removed from response body
+      res.json({ ...userWithoutPassword });
     } else {
       res.status(401).json({ message: 'Invalid credentials' });
     }
@@ -313,6 +363,7 @@ router.post('/auth/login', async (req, res) => {
 });
 
 router.post('/auth/logout', (req, res) => {
+    res.clearCookie('token');
     res.json({ message: 'Logged out successfully' });
 });
 
@@ -374,7 +425,8 @@ router.post('/auth/confirm-reset', async (req, res) => {
       if (!user || user.reset_token !== token || Number(user.reset_token_expiry) < Date.now()) return res.status(400).json({ message: 'Invalid or expired code.' });
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(newPassword, salt);
-      await pool.query('UPDATE users SET password = $1, reset_token = NULL, reset_token_expiry = NULL WHERE email = $2', [hashedPassword, email]);
+      // Update password AND increment token_version to invalidate existing sessions
+      await pool.query('UPDATE users SET password = $1, reset_token = NULL, reset_token_expiry = NULL, token_version = COALESCE(token_version, 0) + 1 WHERE email = $2', [hashedPassword, email]);
       res.status(200).json({ message: 'Password reset successful.' });
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -396,8 +448,8 @@ router.post('/auth/register', async (req, res) => {
         business_commencement, business_category, states_of_operation, material_types,
         machinery_deployed, monthly_volume, employees, areas_of_interest,
         related_association, related_association_name, dob, date_joined, expiry_date,
-        profile_image, documents
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29) RETURNING *
+        profile_image, documents, token_version
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, 0) RETURNING *
     `;
     const values = [
         id, data.firstName, data.lastName, data.email, data.phone, hashedPassword, 'MEMBER', 'Pending',
@@ -421,8 +473,22 @@ router.post('/auth/register', async (req, res) => {
         });
     } catch(e) { console.error("Welcome Email failed", e); }
 
-    const token = jwt.sign({ id: safeUser.id, role: safeUser.role, email: safeUser.email }, JWT_SECRET, { expiresIn: '7d' });
-    res.status(201).json({ ...safeUser, token });
+    const token = jwt.sign({ 
+        id: safeUser.id, 
+        role: safeUser.role, 
+        email: safeUser.email,
+        token_version: 0 
+    }, JWT_SECRET, { expiresIn: '7d' });
+    
+    // Set HttpOnly Cookie
+    res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.status(201).json({ ...safeUser });
   } catch (error) { res.status(500).json({ message: 'Registration failed. ' + error.message }); }
 });
 
@@ -558,7 +624,7 @@ router.post('/users/update-id', authenticateToken, requireAdmin, async (req, res
         const originalEmail = userRes.rows[0].email;
         const tempEmail = `temp_${Date.now()}_${originalEmail}`;
         await client.query('UPDATE users SET email = $1 WHERE id = $2', [tempEmail, currentId]);
-        const columns = ['first_name', 'last_name', 'phone', 'password', 'role', 'status', 'category', 'gender', 'business_name', 'business_address', 'business_state', 'business_city', 'business_commencement', 'business_category', 'states_of_operation', 'material_types', 'machinery_deployed', 'monthly_volume', 'employees', 'areas_of_interest', 'related_association', 'related_association_name', 'dob', 'date_joined', 'expiry_date', 'profile_image', 'reset_token', 'reset_token_expiry', 'documents'];
+        const columns = ['first_name', 'last_name', 'phone', 'password', 'role', 'status', 'category', 'gender', 'business_name', 'business_address', 'business_state', 'business_city', 'business_commencement', 'business_category', 'states_of_operation', 'material_types', 'machinery_deployed', 'monthly_volume', 'employees', 'areas_of_interest', 'related_association', 'related_association_name', 'dob', 'date_joined', 'expiry_date', 'profile_image', 'reset_token', 'reset_token_expiry', 'documents', 'token_version'];
         const colsStr = columns.map(c => `"${c}"`).join(', ');
         const copyQuery = `INSERT INTO users (id, email, ${colsStr}) SELECT $1, $3, ${colsStr} FROM users WHERE id = $2`;
         await client.query(copyQuery, [newId, currentId, originalEmail]);
@@ -591,7 +657,7 @@ router.delete('/announcements/:id', authenticateToken, requireAdmin, async (req,
 });
 
 // --- PAYMENTS (Protected) ---
-router.get('/payments', authenticateToken, async (req, res) => {
+router.get('/payments', authenticateToken, verifyOwnership, async (req, res) => {
     try {
         const { userId } = req.query;
         let query = 'SELECT * FROM payments ORDER BY date DESC';
@@ -615,14 +681,9 @@ router.get('/payments', authenticateToken, async (req, res) => {
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-router.post('/payments', authenticateToken, async (req, res) => {
+router.post('/payments', authenticateToken, verifyOwnership, async (req, res) => {
     const data = req.body;
     
-    // Security: Users can only create payments for themselves
-    if (req.user.role !== 'ADMIN' && data.userId !== req.user.id) {
-         return res.status(403).json({ message: 'Unauthorized payment creation.' });
-    }
-
     const id = `pay-${Date.now()}`;
     const reference = `REF-${Math.floor(Math.random() * 1000000)}`;
     try { await pool.query('INSERT INTO payments (id, user_id, amount, currency, date, description, status, reference, receipt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)', [id, data.userId, data.amount, 'NGN', data.date || new Date().toISOString().split('T')[0], data.description, data.status || 'Pending', reference, data.receipt]); res.status(201).json({ ...data, id, reference, currency: 'NGN' }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
@@ -639,15 +700,10 @@ router.delete('/payments/:id', authenticateToken, requireAdmin, async (req, res)
 // --- MESSAGES (Protected) ---
 
 // 1. Get Chat History
-router.get('/messages/chat', authenticateToken, async (req, res) => {
+router.get('/messages/chat', authenticateToken, verifyOwnership, async (req, res) => {
     const { userId, otherUserId } = req.query;
     if (!userId || !otherUserId) return res.status(400).json({ message: "Missing userId or otherUserId" });
     
-    // Security: Must be participant
-    if (req.user.role !== 'ADMIN' && req.user.id !== userId) {
-        return res.status(403).json({ message: 'Unauthorized.' });
-    }
-
     try {
         const query = `
             SELECT * FROM messages 
@@ -665,14 +721,9 @@ router.get('/messages/chat', authenticateToken, async (req, res) => {
 });
 
 // 2. Get Conversations
-router.get('/messages/conversations', authenticateToken, async (req, res) => {
+router.get('/messages/conversations', authenticateToken, verifyOwnership, async (req, res) => {
     const { userId } = req.query;
     if (!userId) return res.status(400).json({ message: "Missing userId" });
-    
-    // Security
-    if (req.user.role !== 'ADMIN' && req.user.id !== userId) {
-        return res.status(403).json({ message: 'Unauthorized.' });
-    }
     
     try {
         const messagesQuery = `
@@ -722,14 +773,9 @@ router.get('/messages/conversations', authenticateToken, async (req, res) => {
 });
 
 // 3. Mark Read (Uses PUT Body)
-router.put('/messages/read', authenticateToken, async (req, res) => {
+router.put('/messages/read', authenticateToken, verifyOwnership, async (req, res) => {
     const { userId, otherUserId } = req.body;
     
-    // Security
-    if (req.user.role !== 'ADMIN' && req.user.id !== userId) {
-        return res.status(403).json({ message: 'Unauthorized.' });
-    }
-
     try {
         await pool.query(
             'UPDATE messages SET is_read = TRUE WHERE sender_id = $2 AND receiver_id = $1 AND is_read = FALSE',
@@ -740,14 +786,9 @@ router.put('/messages/read', authenticateToken, async (req, res) => {
 });
 
 // 4. Unread Count
-router.get('/messages/unread', authenticateToken, async (req, res) => {
+router.get('/messages/unread', authenticateToken, verifyOwnership, async (req, res) => {
     const { userId } = req.query;
     
-    // Security
-    if (req.user.role !== 'ADMIN' && req.user.id !== userId) {
-        return res.status(403).json({ message: 'Unauthorized.' });
-    }
-
     try {
         const result = await pool.query(
             'SELECT COUNT(*) FROM messages WHERE receiver_id = $1 AND is_read = FALSE',
@@ -758,14 +799,9 @@ router.get('/messages/unread', authenticateToken, async (req, res) => {
 });
 
 // 5. Send Message (Standard POST)
-router.post('/messages', authenticateToken, async (req, res) => {
+router.post('/messages', authenticateToken, verifyOwnership, async (req, res) => {
     const { senderId, receiverId, content } = req.body;
     
-    // Security: Sender must be the logged in user
-    if (req.user.role !== 'ADMIN' && req.user.id !== senderId) {
-        return res.status(403).json({ message: 'Unauthorized.' });
-    }
-
     const id = `msg-${Date.now()}`;
     const timestamp = new Date().toISOString();
     try {
