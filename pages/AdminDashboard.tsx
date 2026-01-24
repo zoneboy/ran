@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -616,6 +617,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     } else {
         const printWindow = window.open('', '_blank');
         if (printWindow) {
+            // HELPER FUNCTIONS FOR XSS PREVENTION
+            const escapeHtml = (unsafe: string | null | undefined): string => {
+                if (!unsafe) return '';
+                return String(unsafe)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            };
+
+            const sanitizeBase64Image = (base64: string | undefined): string => {
+                if (!base64) return '';
+                // Simple regex to validate standard base64 image data URI
+                const validPattern = /^data:image\/(jpeg|png|gif|webp);base64,[A-Za-z0-9+/]+=*$/;
+                if (!validPattern.test(base64)) {
+                    return ''; // Invalid or potentially malicious
+                }
+                return base64;
+            };
+
             printWindow.document.write(`
                 <html>
                 <head>
@@ -642,59 +664,68 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 <body>
                     <div style="text-align:center; margin-bottom: 40px;">
                         <h1 style="color:#166534;">Recyclers Association of Nigeria</h1>
-                        <p>Membership Database Export - Generated: ${new Date().toLocaleDateString()}</p>
+                        <p>Membership Database Export - Generated: ${escapeHtml(new Date().toLocaleDateString())}</p>
                     </div>
 
                     ${exportData.map(u => {
                         const safeUser = u as any;
+                        const region = getRegion(safeUser.businessState);
+                        const cleanProfileImg = sanitizeBase64Image(safeUser.profileImage);
+                        const cleanLogo = sanitizeBase64Image(safeUser.documents?.logo);
+                        
+                        // Sanitize Arrays
+                        const cleanMaterials = (safeUser.materialTypes || []).map((m: string) => escapeHtml(m)).join(', ');
+                        const cleanMachinery = (safeUser.machineryDeployed || []).map((m: string) => escapeHtml(m)).join(', ');
+                        const cleanInterests = (safeUser.areasOfInterest || []).map((m: string) => escapeHtml(m)).join(', ');
+
                         return `
                         <div class="member-card">
                             <div class="header">
                                 <div>
-                                    <h1>${safeUser.businessName}</h1>
-                                    <div style="font-size:14px; color:#555;">${safeUser.category}</div>
+                                    <h1>${escapeHtml(safeUser.businessName)}</h1>
+                                    <div style="font-size:14px; color:#555;">${escapeHtml(safeUser.category)}</div>
                                 </div>
                                 <div class="meta">
-                                    ID: <strong>${safeUser.id}</strong><br/>
-                                    Status: <span class="${safeUser.status === 'Active' ? 'status-active' : 'status-expired'}">${safeUser.status}</span><br/>
-                                    Expires: ${safeUser.expiryDate}
+                                    ID: <strong>${escapeHtml(safeUser.id)}</strong><br/>
+                                    Status: <span class="${safeUser.status === 'Active' ? 'status-active' : 'status-expired'}">${escapeHtml(safeUser.status)}</span><br/>
+                                    Expires: ${escapeHtml(safeUser.expiryDate)}
                                 </div>
                             </div>
 
                             <div class="profile-header">
-                                ${safeUser.profileImage ? `<img src="${safeUser.profileImage}" class="profile-img" />` : '<div class="profile-img" style="display:flex;align-items:center;justify-content:center;color:#999;">No Photo</div>'}
+                                ${cleanProfileImg ? `<img src="${cleanProfileImg}" class="profile-img" />` : '<div class="profile-img" style="display:flex;align-items:center;justify-content:center;color:#999;">No Photo</div>'}
                                 <div style="flex:1; padding-left: 10px;">
                                     <div class="grid">
-                                        <div class="field"><span class="label">Contact Name</span><span class="value">${safeUser.firstName} ${safeUser.lastName}</span></div>
-                                        <div class="field"><span class="label">Gender</span><span class="value">${safeUser.gender || 'N/A'}</span></div>
-                                        <div class="field"><span class="label">Email</span><span class="value">${safeUser.email}</span></div>
-                                        <div class="field"><span class="label">Phone</span><span class="value">${safeUser.phone}</span></div>
-                                        <div class="field"><span class="label">Date of Birth</span><span class="value">${safeUser.dob || 'N/A'}</span></div>
+                                        <div class="field"><span class="label">Contact Name</span><span class="value">${escapeHtml(safeUser.firstName)} ${escapeHtml(safeUser.lastName)}</span></div>
+                                        <div class="field"><span class="label">Gender</span><span class="value">${escapeHtml(safeUser.gender || 'N/A')}</span></div>
+                                        <div class="field"><span class="label">Email</span><span class="value">${escapeHtml(safeUser.email)}</span></div>
+                                        <div class="field"><span class="label">Phone</span><span class="value">${escapeHtml(safeUser.phone)}</span></div>
+                                        <div class="field"><span class="label">Date of Birth</span><span class="value">${escapeHtml(safeUser.dob || 'N/A')}</span></div>
                                     </div>
                                 </div>
-                                ${safeUser.documents?.logo ? `<img src="${safeUser.documents.logo}" class="logo-img" />` : ''}
+                                ${cleanLogo ? `<img src="${cleanLogo}" class="logo-img" />` : ''}
                             </div>
 
                             <div class="section-title">Business Information</div>
                             <div class="grid">
-                                <div class="field"><span class="label">Address</span><span class="value">${safeUser.businessAddress}, ${safeUser.businessCity || ''}</span></div>
-                                <div class="field"><span class="label">State / Region</span><span class="value">${safeUser.businessState} (${getRegion(safeUser.businessState)})</span></div>
-                                <div class="field"><span class="label">Date Commenced</span><span class="value">${safeUser.businessCommencement || 'N/A'}</span></div>
-                                <div class="field"><span class="label">Other States</span><span class="value">${safeUser.statesOfOperation || 'None'}</span></div>
+                                <div class="field"><span class="label">Address</span><span class="value">${escapeHtml(safeUser.businessAddress)}, ${escapeHtml(safeUser.businessCity || '')}</span></div>
+                                <div class="field"><span class="label">State / Region</span><span class="value">${escapeHtml(safeUser.businessState)} (${escapeHtml(region)})</span></div>
+                                <div class="field"><span class="label">Date Commenced</span><span class="value">${escapeHtml(safeUser.businessCommencement || 'N/A')}</span></div>
+                                <div class="field"><span class="label">Other States</span><span class="value">${escapeHtml(safeUser.statesOfOperation || 'None')}</span></div>
                             </div>
 
                             <div class="section-title">Operational Data</div>
                             <div class="grid">
-                                <div class="field"><span class="label">Materials</span><span class="value">${(safeUser.materialTypes || []).join(', ')}</span></div>
-                                <div class="field"><span class="label">Machinery</span><span class="value">${(safeUser.machineryDeployed || []).join(', ')}</span></div>
-                                <div class="field"><span class="label">Monthly Volume</span><span class="value">${safeUser.monthlyVolume} Tons</span></div>
-                                <div class="field"><span class="label">Employees</span><span class="value">${safeUser.employees}</span></div>
+                                <div class="field"><span class="label">Materials</span><span class="value">${cleanMaterials}</span></div>
+                                <div class="field"><span class="label">Machinery</span><span class="value">${cleanMachinery}</span></div>
+                                <div class="field"><span class="label">Monthly Volume</span><span class="value">${escapeHtml(safeUser.monthlyVolume)} Tons</span></div>
+                                <div class="field"><span class="label">Employees</span><span class="value">${escapeHtml(String(safeUser.employees))}</span></div>
                             </div>
                             
                             <div class="section-title">Other Details</div>
                             <div class="grid">
-                                <div class="field"><span class="label">Areas of Interest</span><span class="value">${(safeUser.areasOfInterest || []).join(', ')}</span></div>
-                                <div class="field"><span class="label">Related Association</span><span class="value">${safeUser.relatedAssociation === 'Yes' ? safeUser.relatedAssociationName : 'No'}</span></div>
+                                <div class="field"><span class="label">Areas of Interest</span><span class="value">${cleanInterests}</span></div>
+                                <div class="field"><span class="label">Related Association</span><span class="value">${safeUser.relatedAssociation === 'Yes' ? escapeHtml(safeUser.relatedAssociationName) : 'No'}</span></div>
                                 <div class="field">
                                     <span class="label">Uploaded Documents</span>
                                     <div style="margin-top:2px;">
