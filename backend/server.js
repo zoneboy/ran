@@ -1,17 +1,17 @@
-
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const nodemailer = require('nodemailer');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
 
 // Middleware
-app.use(cors());
-app.use(bodyParser.json({ limit: '50mb' })); // Increased limit for image uploads
+app.use(cors({ origin: '*' }));
+app.use(bodyParser.json({ limit: '50mb' }));
 
 // Database Connection
 const pool = new Pool({
@@ -21,20 +21,21 @@ const pool = new Pool({
   }
 });
 
-// Email Transporter Configuration
+// Email Config
 const transporter = nodemailer.createTransport({
-    service: 'gmail', // Default to gmail, or configure host/port via env
+    service: 'gmail',
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
     }
 });
 
-// Database Initialization Logic
+const JWT_SECRET = process.env.JWT_SECRET || 'ran_secret_key_change_in_production';
+
+// Database Initialization
 let dbInitialized = false;
 const initDb = async () => {
     if (dbInitialized) return;
-    
     const schema = `
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -69,7 +70,6 @@ const initDb = async () => {
         reset_token_expiry BIGINT,
         documents JSONB
       );
-  
       CREATE TABLE IF NOT EXISTS announcements (
           id TEXT PRIMARY KEY,
           title TEXT,
@@ -77,7 +77,6 @@ const initDb = async () => {
           date TEXT,
           is_important BOOLEAN
       );
-  
       CREATE TABLE IF NOT EXISTS payments (
           id TEXT PRIMARY KEY,
           user_id TEXT REFERENCES users(id),
@@ -89,33 +88,24 @@ const initDb = async () => {
           reference TEXT,
           receipt TEXT
       );
-
       CREATE TABLE IF NOT EXISTS messages (
           id TEXT PRIMARY KEY,
           sender_id TEXT REFERENCES users(id),
           receiver_id TEXT REFERENCES users(id),
           content TEXT,
-          timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          timestamp TEXT,
           is_read BOOLEAN DEFAULT FALSE
       );
     `;
-    
     try {
       await pool.query(schema);
-      
-      // SAFETY CHECK: Ensure timestamp column exists (fixes potential migration issues)
-      await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
-      
       console.log('Database tables checked/created successfully');
-
-      // --- SEED DEFAULT ADMIN ---
+      // Seed Admin
       const adminCheck = await pool.query("SELECT * FROM users WHERE email = 'admin@ran.org.ng'");
       if (adminCheck.rows.length === 0) {
-          console.log('Seeding default admin user...');
           const salt = await bcrypt.genSalt(10);
           const hashedPassword = await bcrypt.hash('Admin@123', salt);
           const id = 'admin-seed-001';
-          
           await pool.query(`
               INSERT INTO users (
                   id, first_name, last_name, email, phone, password, role, status, 
@@ -132,18 +122,10 @@ const initDb = async () => {
     }
 };
 
-// Middleware to ensure DB is initialized before handling request
 app.use(async (req, res, next) => {
-    try {
-        await initDb();
-        next();
-    } catch (e) {
-        console.error("DB Init Middleware Error:", e);
-        next(); // Proceed even if init fails
-    }
+    try { await initDb(); next(); } catch (e) { console.error("DB Init Middleware Error:", e); next(); }
 });
 
-// Helper to convert snake_case DB columns to camelCase for frontend
 const mapUser = (row) => {
     if (!row) return null;
     return {
@@ -161,7 +143,8 @@ const mapUser = (row) => {
         businessState: row.business_state,
         businessCity: row.business_city,
         businessCommencement: row.business_commencement,
-        businessCategory: row.business_category,
+        businessCategory: row.business_category, 
+        business_category: row.business_category,
         statesOfOperation: row.states_of_operation,
         materialTypes: row.material_types || [],
         machineryDeployed: row.machinery_deployed || [],
@@ -175,151 +158,109 @@ const mapUser = (row) => {
         expiryDate: row.expiry_date,
         profileImage: row.profile_image,
         documents: row.documents || {},
-        password: row.password // internal use
+        password: row.password 
     };
 };
 
-// Check Expiry Logic Middleware
 const checkExpiry = async (user) => {
     if (user.role === 'ADMIN') return user;
-    
     const today = new Date().toISOString().split('T')[0];
     if (user.expiryDate && user.expiryDate < today && user.status === 'Active') {
-        // Update DB
         await pool.query('UPDATE users SET status = $1 WHERE id = $2', ['Expired', user.id]);
         user.status = 'Expired';
     }
     return user;
 };
 
-// Router Definition
+// --- AUTH MIDDLEWARE ---
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    
+    if (token == null) return res.status(401).json({ message: 'Unauthorized: No token provided' });
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ message: 'Forbidden: Invalid token' });
+        req.user = user; // { id, role, email }
+        next();
+    });
+};
+
+const requireAdmin = (req, res, next) => {
+    if (req.user.role !== 'ADMIN') {
+        return res.status(403).json({ message: 'Forbidden: Admin access required' });
+    }
+    next();
+};
+
 const router = express.Router();
 
-// Health Check Route
-router.get('/', (req, res) => {
-    res.json({ message: "RAN Portal API is running." });
-});
+router.get('/', (req, res) => { res.json({ message: "RAN Portal API is running." }); });
 
-// --- AUTH ROUTER ---
-
-// Login
+// --- AUTH (Public) ---
 router.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
-  
   try {
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     let user = mapUser(result.rows[0]);
-    
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
     user = await checkExpiry(user);
-
-    if (user.status === 'Pending') {
-      return res.status(403).json({ message: 'Your account is currently pending approval.' });
-    }
-    if (user.status === 'Suspended') {
-      return res.status(403).json({ message: 'Your account has been suspended.' });
-    }
-
+    if (user.status === 'Pending') return res.status(403).json({ message: 'Account pending approval.' });
+    if (user.status === 'Suspended') return res.status(403).json({ message: 'Account suspended.' });
     const isMatch = await bcrypt.compare(password, user.password);
-    
     if (isMatch) {
+      const token = jwt.sign({ id: user.id, role: user.role, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
       const { password, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
+      res.json({ ...userWithoutPassword, token });
     } else {
       res.status(401).json({ message: 'Invalid credentials' });
     }
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
+  } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// Request Password Reset
 router.post('/auth/request-reset', async (req, res) => {
   const { email } = req.body;
-  
   try {
       const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
       const user = result.rows[0];
-
-      if (!user) {
-        return res.status(200).json({ message: 'If this email exists, a reset code has been sent.' });
-      }
-
+      if (!user) return res.status(200).json({ message: 'If this email exists, a reset code has been sent.' });
       const token = Math.floor(100000 + Math.random() * 900000).toString();
       const expiry = Date.now() + 3600000;
-
       await pool.query('UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE email = $3', [token, expiry, email]);
-
-      // Check if email credentials are provided. If not, return token in response (DEV MODE)
-      if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-          console.log("Mock Email (No Credentials):", token);
-          return res.status(200).json({ 
-              message: 'Email credentials not configured. Use this code to reset:', 
-              debugToken: token 
-          });
-      }
-
-      // Send Email
-      const mailOptions = {
+      if (!process.env.EMAIL_USER) return res.status(200).json({ message: 'Use code to reset (Dev):', debugToken: token });
+      await transporter.sendMail({
         from: process.env.EMAIL_USER,
         to: email,
-        subject: 'Password Reset - Recyclers Association of Nigeria',
-        text: `Your password reset code is: ${token}. This code expires in 1 hour.`
-      };
-
-      await transporter.sendMail(mailOptions);
-
+        subject: 'Password Reset',
+        text: `Your reset code is: ${token}`
+      });
       res.status(200).json({ message: 'Reset code sent.' });
-  } catch (err) {
-      console.error("Reset Request Error:", err);
-      res.status(500).json({ message: 'Error processing reset request. ' + err.message });
-  }
+  } catch (err) { res.status(500).json({ message: 'Error processing request' }); }
 });
 
-// Confirm Reset
 router.post('/auth/confirm-reset', async (req, res) => {
   const { email, token, newPassword } = req.body;
-  
   try {
       const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
       const user = result.rows[0];
-
-      if (!user) return res.status(400).json({ message: 'Invalid request.' });
-      if (user.reset_token !== token) return res.status(400).json({ message: 'Invalid code.' });
-      if (Number(user.reset_token_expiry) < Date.now()) return res.status(400).json({ message: 'Code expired.' });
-
+      if (!user || user.reset_token !== token || Number(user.reset_token_expiry) < Date.now()) return res.status(400).json({ message: 'Invalid or expired code.' });
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(newPassword, salt);
-
       await pool.query('UPDATE users SET password = $1, reset_token = NULL, reset_token_expiry = NULL WHERE email = $2', [hashedPassword, email]);
-
       res.status(200).json({ message: 'Password reset successful.' });
-  } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// Register
 router.post('/auth/register', async (req, res) => {
   const data = req.body;
-  
   try {
     const existing = await pool.query('SELECT * FROM users WHERE email = $1', [data.email]);
-    if (existing.rows.length > 0) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
-
+    if (existing.rows.length > 0) return res.status(400).json({ message: 'User already exists' });
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(data.password, salt);
     const id = `user-${Date.now()}`;
     const dateJoined = new Date().toISOString().split('T')[0];
     const expiryDate = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0];
-
     const query = `
       INSERT INTO users (
         id, first_name, last_name, email, phone, password, role, status, 
@@ -328,16 +269,8 @@ router.post('/auth/register', async (req, res) => {
         machinery_deployed, monthly_volume, employees, areas_of_interest,
         related_association, related_association_name, dob, date_joined, expiry_date,
         profile_image, documents
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, 
-        $9, $10, $11, $12, $13, $14,
-        $15, $16, $17, $18, 
-        $19, $20, $21, $22,
-        $23, $24, $25, $26, $27,
-        $28, $29
-      ) RETURNING *
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29) RETURNING *
     `;
-
     const values = [
         id, data.firstName, data.lastName, data.email, data.phone, hashedPassword, 'MEMBER', 'Pending',
         data.category, data.gender, data.businessName, data.businessAddress, data.businessState, data.businessCity,
@@ -346,126 +279,109 @@ router.post('/auth/register', async (req, res) => {
         data.relatedAssociation, data.relatedAssociationName, data.dob, dateJoined, expiryDate,
         data.profileImage, JSON.stringify(data.documents)
     ];
-
     const newUser = await pool.query(query, values);
     const mappedUser = mapUser(newUser.rows[0]);
     const { password, ...safeUser } = mappedUser;
     
-    // --- SEND WELCOME EMAIL ---
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    // Welcome Email (Optional)
+    if (process.env.EMAIL_USER) {
         try {
-            const mailOptions = {
+            await transporter.sendMail({
                 from: process.env.EMAIL_USER,
                 to: data.email,
-                subject: 'Registration Received - Recyclers Association of Nigeria',
-                html: `
-                    <div style="font-family: Arial, sans-serif; color: #333;">
-                        <h2 style="color: #166534;">Welcome to the Recyclers Association of Nigeria</h2>
-                        <p>Dear ${data.firstName} ${data.lastName},</p>
-                        <p>Thank you for submitting your membership registration application.</p>
-                        <p><strong>Your Current Status: <span style="color: #eab308;">Pending Approval</span></strong></p>
-                        <p>Our administrative team has received your business details and documents. We will review your application shortly to ensure all requirements are met.</p>
-                        <p>Once your documents are verified and your application is approved, you will receive another email notifying you that your account is Active, and you will be able to log in to the portal.</p>
-                        <br/>
-                        <p>Best Regards,<br/><strong>RAN Secretariat</strong></p>
-                    </div>
-                `
-            };
-            await transporter.sendMail(mailOptions);
-            console.log(`Registration email sent to ${data.email}`);
-        } catch (emailErr) {
-            console.error("Failed to send registration email:", emailErr);
-            // We do not fail the request here; the user is still registered.
-        }
-    } else {
-        console.log("Email credentials missing, skipping welcome email.");
+                subject: 'Welcome to RAN',
+                text: `Welcome ${data.firstName}, your registration is pending approval.`
+            });
+        } catch(e) { console.error("Email failed", e); }
     }
-    // ---------------------------
-
     res.status(201).json(safeUser);
-
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ message: 'Registration failed. ' + error.message });
-  }
+  } catch (error) { res.status(500).json({ message: 'Registration failed. ' + error.message }); }
 });
 
-// --- USER MANAGEMENT ---
+// --- USER MANAGEMENT (Protected) ---
 
-router.get('/users', async (req, res) => {
+router.get('/users', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM users');
-    const users = result.rows.map(mapUser).map(u => {
-        const { password, ...safe } = u; 
-        return safe;
-    });
-    res.json(users);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-router.get('/users/:id', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE id = $1', [req.params.id]);
-    if (result.rows.length === 0) return res.status(404).json({ message: 'User not found' });
+    let query = 'SELECT * FROM users';
     
+    // Members only see active users in directory
+    if (req.user.role !== 'ADMIN') {
+        query += " WHERE status = 'Active'";
+    }
+    
+    const result = await pool.query(query);
+    const users = result.rows.map(mapUser).map(u => { const { password, ...safe } = u; return safe; });
+    res.json(users);
+  } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// GET /user?id=... (Safe for slashed IDs)
+router.get('/user', authenticateToken, async (req, res) => {
+  const { id } = req.query;
+  if (!id) return res.status(400).json({ message: "Missing id query parameter" });
+  
+  // Basic security: You can see your own profile, or if you are admin you can see anyone.
+  // Exception: Members can view directory profiles (active users)
+  
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    if (result.rows.length === 0) return res.status(404).json({ message: 'User not found' });
     let user = mapUser(result.rows[0]);
     user = await checkExpiry(user);
+    
+    // Privacy check for non-admins looking at other users
+    if (req.user.role !== 'ADMIN' && req.user.id !== user.id) {
+        if (user.status !== 'Active') {
+             return res.status(403).json({ message: 'Cannot view inactive member profile.' });
+        }
+    }
 
     const { password, ...safeUser } = user;
     res.json(safeUser);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
+  } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
-router.put('/users/:id', async (req, res) => {
+router.put('/users/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const data = req.body;
   
+  // Security: Only Admin or the User themselves can update
+  if (req.user.role !== 'ADMIN' && req.user.id !== id) {
+      return res.status(403).json({ message: 'Unauthorized to update this profile' });
+  }
+
+  const data = req.body;
   try {
-    // Construct dynamic update query
+    // Basic fields everyone can update
     const fields = [
-        'first_name', 'last_name', 'phone', 'category', 'status', 'business_name',
+        'first_name', 'last_name', 'phone', 'business_name',
         'business_address', 'business_state', 'business_city', 'business_commencement',
         'business_category', 'states_of_operation', 'material_types', 'machinery_deployed',
         'monthly_volume', 'employees', 'areas_of_interest', 'related_association', 
-        'related_association_name', 'dob', 'profile_image', 'documents', 'expiry_date'
+        'related_association_name', 'dob', 'profile_image', 'documents'
     ];
     
-    // Map camelCase body to snake_case db columns
+    // Admin only fields
+    if (req.user.role === 'ADMIN') {
+        fields.push('category', 'status', 'expiry_date');
+    }
+
     const mappedData = {
-        first_name: data.firstName,
-        last_name: data.lastName,
-        phone: data.phone,
-        category: data.category,
-        status: data.status,
-        business_name: data.businessName,
-        business_address: data.businessAddress,
-        business_state: data.businessState,
-        business_city: data.businessCity,
-        business_commencement: data.businessCommencement,
-        business_category: data.businessCategory,
-        states_of_operation: data.statesOfOperation,
-        material_types: data.materialTypes,
-        machinery_deployed: data.machineryDeployed,
-        monthly_volume: data.monthlyVolume,
-        employees: data.employees,
-        areas_of_interest: data.areasOfInterest,
-        related_association: data.relatedAssociation,
-        related_association_name: data.relatedAssociationName,
-        dob: data.dob,
-        profile_image: data.profileImage,
-        documents: JSON.stringify(data.documents),
+        first_name: data.firstName, last_name: data.lastName, phone: data.phone,
+        category: data.category, status: data.status, business_name: data.businessName,
+        business_address: data.businessAddress, business_state: data.businessState,
+        business_city: data.businessCity, business_commencement: data.businessCommencement,
+        business_category: data.businessCategory, states_of_operation: data.statesOfOperation,
+        material_types: data.materialTypes, machinery_deployed: data.machineryDeployed,
+        monthly_volume: data.monthlyVolume, employees: data.employees,
+        areas_of_interest: data.areasOfInterest, related_association: data.relatedAssociation,
+        related_association_name: data.related_associationName, dob: data.dob,
+        profile_image: data.profileImage, documents: JSON.stringify(data.documents),
         expiry_date: data.expiryDate
     };
-
+    
     let setClause = [];
     let values = [];
     let idx = 1;
-
     for (const field of fields) {
         if (mappedData[field] !== undefined) {
             setClause.push(`${field} = $${idx}`);
@@ -473,309 +389,118 @@ router.put('/users/:id', async (req, res) => {
             idx++;
         }
     }
-
-    if (setClause.length === 0) return res.json(data); // Nothing to update
-
+    if (setClause.length === 0) return res.json(data);
     values.push(id);
     const query = `UPDATE users SET ${setClause.join(', ')} WHERE id = $${idx} RETURNING *`;
-    
     const result = await pool.query(query, values);
     const updatedUser = mapUser(result.rows[0]);
     const { password, ...safeUser } = updatedUser;
-    
     res.json(safeUser);
-  } catch (error) {
-    console.error("Update error", error);
-    res.status(500).json({ message: 'Update failed' });
-  }
+  } catch (error) { res.status(500).json({ message: 'Update failed' }); }
 });
 
-// Update User ID (Admin Feature)
-router.post('/users/update-id', async (req, res) => {
+router.post('/users/update-id', authenticateToken, requireAdmin, async (req, res) => {
     const { currentId, newId } = req.body;
     const client = await pool.connect();
-    
     try {
         await client.query('BEGIN');
-
-        // 1. Check if new ID exists
         const check = await client.query('SELECT id FROM users WHERE id = $1', [newId]);
-        if (check.rows.length > 0) {
-            throw new Error('ID already taken');
-        }
-        
-        // 2. Fetch original user to get email and ensure existence
+        if (check.rows.length > 0) throw new Error('ID already taken');
         const userRes = await client.query('SELECT email FROM users WHERE id = $1', [currentId]);
         if (userRes.rows.length === 0) throw new Error('User not found');
         const originalEmail = userRes.rows[0].email;
-
-        // 3. Rename old user's email to temporary to free up the UNIQUE constraint
-        // (Since we are essentially copying the user, the new copy needs the original email)
         const tempEmail = `temp_${Date.now()}_${originalEmail}`;
         await client.query('UPDATE users SET email = $1 WHERE id = $2', [tempEmail, currentId]);
-
-        // 4. Copy User to New ID
-        // We explicitly list columns to avoid issues with ID and ensure email is set correctly
-        const columns = [
-          'first_name', 'last_name', 'phone', 'password', 'role', 'status', 
-          'category', 'gender', 'business_name', 'business_address', 'business_state', 
-          'business_city', 'business_commencement', 'business_category', 'states_of_operation', 
-          'material_types', 'machinery_deployed', 'monthly_volume', 'employees', 
-          'areas_of_interest', 'related_association', 'related_association_name', 'dob', 
-          'date_joined', 'expiry_date', 'profile_image', 'reset_token', 'reset_token_expiry', 
-          'documents'
-        ];
-        
+        const columns = ['first_name', 'last_name', 'phone', 'password', 'role', 'status', 'category', 'gender', 'business_name', 'business_address', 'business_state', 'business_city', 'business_commencement', 'business_category', 'states_of_operation', 'material_types', 'machinery_deployed', 'monthly_volume', 'employees', 'areas_of_interest', 'related_association', 'related_association_name', 'dob', 'date_joined', 'expiry_date', 'profile_image', 'reset_token', 'reset_token_expiry', 'documents'];
         const colsStr = columns.map(c => `"${c}"`).join(', ');
-        
-        // Query: INSERT INTO users (id, email, ...cols) SELECT $1, $3, ...cols FROM users WHERE id = $2
-        // $1 = newId, $2 = currentId (which now has temp email), $3 = originalEmail
-        const copyQuery = `
-            INSERT INTO users (id, email, ${colsStr}) 
-            SELECT $1, $3, ${colsStr} 
-            FROM users WHERE id = $2
-        `;
-        
+        const copyQuery = `INSERT INTO users (id, email, ${colsStr}) SELECT $1, $3, ${colsStr} FROM users WHERE id = $2`;
         await client.query(copyQuery, [newId, currentId, originalEmail]);
-
-        // 5. Update foreign keys (Payments, Messages)
         await client.query('UPDATE payments SET user_id = $1 WHERE user_id = $2', [newId, currentId]);
         await client.query('UPDATE messages SET sender_id = $1 WHERE sender_id = $2', [newId, currentId]);
         await client.query('UPDATE messages SET receiver_id = $1 WHERE receiver_id = $2', [newId, currentId]);
-
-        // 6. Delete old user (which has the temp email now)
         await client.query('DELETE FROM users WHERE id = $1', [currentId]);
-
         await client.query('COMMIT');
         res.json({ message: 'ID Updated successfully' });
-    } catch (e) {
-        await client.query('ROLLBACK');
-        console.error("Update ID Error:", e);
-        res.status(500).json({ message: 'Failed to update ID: ' + e.message });
-    } finally {
-        client.release();
-    }
+    } catch (e) { await client.query('ROLLBACK'); res.status(500).json({ message: 'Failed: ' + e.message }); } finally { client.release(); }
 });
-
 
 // --- ANNOUNCEMENTS ---
-
 router.get('/announcements', async (req, res) => {
+  // Public route for now, as it serves news
   try {
     const result = await pool.query('SELECT * FROM announcements ORDER BY date DESC');
-    const announcements = result.rows.map(row => ({
-        id: row.id,
-        title: row.title,
-        content: row.content,
-        date: row.date,
-        isImportant: row.is_important
-    }));
-    res.json(announcements);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
+    res.json(result.rows.map(row => ({ id: row.id, title: row.title, content: row.content, date: row.date, isImportant: row.is_important })));
+  } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
-router.post('/announcements', async (req, res) => {
+router.post('/announcements', authenticateToken, requireAdmin, async (req, res) => {
   const { title, content, date, isImportant } = req.body;
   const id = `ann-${Date.now()}`;
-  try {
-    await pool.query(
-        'INSERT INTO announcements (id, title, content, date, is_important) VALUES ($1, $2, $3, $4, $5)',
-        [id, title, content, date, isImportant]
-    );
-    res.status(201).json({ id, title, content, date, isImportant });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
+  try { await pool.query('INSERT INTO announcements (id, title, content, date, is_important) VALUES ($1, $2, $3, $4, $5)', [id, title, content, date, isImportant]); res.status(201).json({ id, title, content, date, isImportant }); } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
-router.delete('/announcements/:id', async (req, res) => {
-    try {
-        await pool.query('DELETE FROM announcements WHERE id = $1', [req.params.id]);
-        res.json({ message: 'Deleted' });
-    } catch (e) {
-        res.status(500).json({ message: 'Server error' });
-    }
+router.delete('/announcements/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try { await pool.query('DELETE FROM announcements WHERE id = $1', [req.params.id]); res.json({ message: 'Deleted' }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// --- PAYMENTS ---
-
-router.get('/payments', async (req, res) => {
+// --- PAYMENTS (Protected) ---
+router.get('/payments', authenticateToken, async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM payments ORDER BY date DESC');
-        const payments = result.rows.map(row => ({
-            id: row.id,
-            userId: row.user_id,
-            amount: Number(row.amount),
-            currency: row.currency,
-            date: row.date,
-            description: row.description,
-            status: row.status,
-            reference: row.reference,
-            receipt: row.receipt
-        }));
-        res.json(payments);
-    } catch (e) {
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-router.get('/payments/:userId', async (req, res) => {
-    try {
-        const result = await pool.query('SELECT * FROM payments WHERE user_id = $1 ORDER BY date DESC', [req.params.userId]);
-        const payments = result.rows.map(row => ({
-            id: row.id,
-            userId: row.user_id,
-            amount: Number(row.amount),
-            currency: row.currency,
-            date: row.date,
-            description: row.description,
-            status: row.status,
-            reference: row.reference,
-            receipt: row.receipt
-        }));
-        res.json(payments);
-    } catch (e) {
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-router.post('/payments', async (req, res) => {
-    const data = req.body;
-    const id = `pay-${Date.now()}`;
-    const reference = `REF-${Math.floor(Math.random() * 1000000)}`;
-    
-    try {
-        await pool.query(
-            'INSERT INTO payments (id, user_id, amount, currency, date, description, status, reference, receipt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-            [id, data.userId, data.amount, 'NGN', data.date || new Date().toISOString().split('T')[0], data.description, data.status || 'Pending', reference, data.receipt]
-        );
-        res.status(201).json({ ...data, id, reference, currency: 'NGN' });
-    } catch (e) {
-        console.error(e);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-router.put('/payments/:id', async (req, res) => {
-    const { status } = req.body;
-    try {
-        await pool.query('UPDATE payments SET status = $1 WHERE id = $2', [status, req.params.id]);
-        res.json({ message: 'Updated' });
-    } catch (e) {
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-router.delete('/payments/:id', async (req, res) => {
-    try {
-        await pool.query('DELETE FROM payments WHERE id = $1', [req.params.id]);
-        res.json({ message: 'Deleted' });
-    } catch (e) {
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-// --- MESSAGING ---
-
-router.post('/messages', async (req, res) => {
-    const { senderId, receiverId, content } = req.body;
-    const id = `msg-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    
-    try {
-        // Use CURRENT_TIMESTAMP directly in SQL to ensure DB generates it.
-        // Returning timestamp to ensure frontend gets the exact server time.
-        const result = await pool.query(
-            'INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, is_read) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5) RETURNING timestamp',
-            [id, senderId, receiverId, content, false]
-        );
-
-        const savedTimestamp = result.rows[0].timestamp;
-
-        // Notify Receiver via Email (if possible)
-        const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [receiverId]);
-        const senderRes = await pool.query('SELECT * FROM users WHERE id = $1', [senderId]);
+        const { userId } = req.query;
+        let query = 'SELECT * FROM payments ORDER BY date DESC';
+        let params = [];
         
-        if (userRes.rows.length > 0 && senderRes.rows.length > 0) {
-            const receiver = userRes.rows[0];
-            const sender = senderRes.rows[0];
-            
-            if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-                const mailOptions = {
-                    from: process.env.EMAIL_USER,
-                    to: receiver.email,
-                    subject: `New Message from ${sender.business_name || sender.first_name} - RAN Portal`,
-                    text: `You have received a new message from ${sender.business_name || sender.first_name} on the Recyclers Association of Nigeria portal.\n\nMessage Preview: "${content.substring(0, 50)}..."\n\nPlease log in to the portal to reply.`
-                };
-                transporter.sendMail(mailOptions).catch(console.error);
-            }
+        // Members can only see their own payments
+        if (req.user.role !== 'ADMIN') {
+            query = 'SELECT * FROM payments WHERE user_id = $1 ORDER BY date DESC';
+            params = [req.user.id];
+        } else if (userId) {
+            // Admin can filter by specific user
+            query = 'SELECT * FROM payments WHERE user_id = $1 ORDER BY date DESC';
+            params = [userId];
         }
 
-        res.status(201).json({ id, senderId, receiverId, content, timestamp: savedTimestamp, isRead: false });
-    } catch (error) {
-        console.error("Message Error:", error);
-        res.status(500).json({ message: 'Failed to send message' });
-    }
+        const result = await pool.query(query, params);
+        res.json(result.rows.map(row => ({
+            id: row.id, userId: row.user_id, amount: Number(row.amount), currency: row.currency,
+            date: row.date, description: row.description, status: row.status, reference: row.reference, receipt: row.receipt
+        })));
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-router.get('/messages/conversations/:userId', async (req, res) => {
-    const { userId } = req.params;
-    try {
-        // Get all unique contacts and latest message
-        // Complex query to get last message per contact
-        const query = `
-            SELECT DISTINCT ON (contact_id)
-                m.id,
-                m.content,
-                m.timestamp,
-                m.is_read,
-                m.sender_id,
-                m.receiver_id,
-                u.first_name,
-                u.last_name,
-                u.business_name,
-                u.profile_image,
-                CASE 
-                    WHEN m.sender_id = $1 THEN m.receiver_id 
-                    ELSE m.sender_id 
-                END as contact_id,
-                (
-                    SELECT COUNT(*) FROM messages m2 
-                    WHERE m2.receiver_id = $1 
-                    AND m2.sender_id = (CASE WHEN m.sender_id = $1 THEN m.receiver_id ELSE m.sender_id END)
-                    AND m2.is_read = FALSE
-                ) as unread_count
-            FROM messages m
-            JOIN users u ON u.id = (CASE WHEN m.sender_id = $1 THEN m.receiver_id ELSE m.sender_id END)
-            WHERE m.sender_id = $1 OR m.receiver_id = $1
-            ORDER BY contact_id, m.timestamp DESC
-        `;
-        
-        const result = await pool.query(query, [userId]);
-        
-        // Sort manually by timestamp desc since DISTINCT ON requires sorting by distinct key first
-        const sorted = result.rows.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-        const conversations = sorted.map(row => ({
-            contactId: row.contact_id,
-            contactName: `${row.first_name} ${row.last_name}`,
-            contactBusiness: row.business_name,
-            contactImage: row.profile_image,
-            lastMessage: row.content,
-            lastMessageDate: row.timestamp,
-            unreadCount: parseInt(row.unread_count || '0')
-        }));
-        
-        res.json(conversations);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+router.post('/payments', authenticateToken, async (req, res) => {
+    const data = req.body;
+    
+    // Security: Users can only create payments for themselves
+    if (req.user.role !== 'ADMIN' && data.userId !== req.user.id) {
+         return res.status(403).json({ message: 'Unauthorized payment creation.' });
     }
+
+    const id = `pay-${Date.now()}`;
+    const reference = `REF-${Math.floor(Math.random() * 1000000)}`;
+    try { await pool.query('INSERT INTO payments (id, user_id, amount, currency, date, description, status, reference, receipt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)', [id, data.userId, data.amount, 'NGN', data.date || new Date().toISOString().split('T')[0], data.description, data.status || 'Pending', reference, data.receipt]); res.status(201).json({ ...data, id, reference, currency: 'NGN' }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-router.get('/messages/:userId/:contactId', async (req, res) => {
-    const { userId, contactId } = req.params;
+router.put('/payments/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try { await pool.query('UPDATE payments SET status = $1 WHERE id = $2', [req.body.status, req.params.id]); res.json({ message: 'Updated' }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+router.delete('/payments/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try { await pool.query('DELETE FROM payments WHERE id = $1', [req.params.id]); res.json({ message: 'Deleted' }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// --- MESSAGES (Protected) ---
+
+// 1. Get Chat History
+router.get('/messages/chat', authenticateToken, async (req, res) => {
+    const { userId, otherUserId } = req.query;
+    if (!userId || !otherUserId) return res.status(400).json({ message: "Missing userId or otherUserId" });
+    
+    // Security: Must be participant
+    if (req.user.role !== 'ADMIN' && req.user.id !== userId) {
+        return res.status(403).json({ message: 'Unauthorized.' });
+    }
+
     try {
         const query = `
             SELECT * FROM messages 
@@ -783,46 +508,129 @@ router.get('/messages/:userId/:contactId', async (req, res) => {
                OR (sender_id = $2 AND receiver_id = $1)
             ORDER BY timestamp ASC
         `;
-        const result = await pool.query(query, [userId, contactId]);
-        
+        const result = await pool.query(query, [userId, otherUserId]);
         const messages = result.rows.map(row => ({
-            id: row.id,
-            senderId: row.sender_id,
-            receiverId: row.receiver_id,
-            content: row.content,
-            timestamp: row.timestamp,
-            isRead: row.is_read
+            id: row.id, senderId: row.sender_id, receiverId: row.receiver_id,
+            content: row.content, timestamp: row.timestamp, isRead: row.is_read
         }));
-        
         res.json(messages);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error' });
+    } catch (e) { console.error(e); res.status(500).json({ message: 'Server error' }); }
+});
+
+// 2. Get Conversations
+router.get('/messages/conversations', authenticateToken, async (req, res) => {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ message: "Missing userId" });
+    
+    // Security
+    if (req.user.role !== 'ADMIN' && req.user.id !== userId) {
+        return res.status(403).json({ message: 'Unauthorized.' });
+    }
+    
+    console.log(`Getting conversations for user: ${userId}`);
+    try {
+        const messagesQuery = `
+            SELECT sender_id, receiver_id, timestamp 
+            FROM messages 
+            WHERE sender_id = $1 OR receiver_id = $1
+            ORDER BY timestamp DESC
+        `;
+        const messagesResult = await pool.query(messagesQuery, [userId]);
+        const rows = messagesResult.rows;
+
+        if (rows.length === 0) return res.json([]);
+
+        const contactIds = new Set();
+        rows.forEach(msg => {
+            const otherId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id;
+            if (otherId && otherId !== userId) contactIds.add(otherId);
+        });
+        
+        const uniqueIds = Array.from(contactIds);
+        if (uniqueIds.length === 0) return res.json([]);
+
+        const placeholders = uniqueIds.map((_, i) => `$${i + 1}`).join(',');
+        const usersQuery = `SELECT * FROM users WHERE id IN (${placeholders})`;
+        const usersResult = await pool.query(usersQuery, uniqueIds);
+        
+        const usersMap = new Map();
+        usersResult.rows.forEach(row => {
+            const mapped = mapUser(row);
+            if (mapped) {
+                const { password, ...safe } = mapped;
+                usersMap.set(safe.id, safe);
+            }
+        });
+        
+        const sortedUsers = uniqueIds.map(id => usersMap.get(id)).filter(u => u !== undefined);
+        res.json(sortedUsers);
+    } catch (e) {
+        console.error("Conversation Fetch Error:", e);
+        res.status(500).json({ message: 'Server error: ' + e.message });
     }
 });
 
-router.put('/messages/read/:userId/:contactId', async (req, res) => {
-    const { userId, contactId } = req.params;
-    // userId is the one reading (receiver), contactId is sender
+// 3. Mark Read (Uses PUT Body)
+router.put('/messages/read', authenticateToken, async (req, res) => {
+    const { userId, otherUserId } = req.body;
+    
+    // Security
+    if (req.user.role !== 'ADMIN' && req.user.id !== userId) {
+        return res.status(403).json({ message: 'Unauthorized.' });
+    }
+
     try {
         await pool.query(
-            'UPDATE messages SET is_read = TRUE WHERE receiver_id = $1 AND sender_id = $2',
-            [userId, contactId]
+            'UPDATE messages SET is_read = TRUE WHERE sender_id = $2 AND receiver_id = $1 AND is_read = FALSE',
+            [userId, otherUserId]
         );
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error' });
-    }
+        res.json({ message: 'Marked read' });
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// MOUNT ROUTER for Serverless and Local
-// Netlify Functions often use the /.netlify/functions/api path
-app.use('/.netlify/functions/api', router);
-app.use('/api', router); // Local development fallback
+// 4. Unread Count
+router.get('/messages/unread', authenticateToken, async (req, res) => {
+    const { userId } = req.query;
+    
+    // Security
+    if (req.user.role !== 'ADMIN' && req.user.id !== userId) {
+        return res.status(403).json({ message: 'Unauthorized.' });
+    }
 
-// Export app for Netlify Functions (serverless-http)
+    try {
+        const result = await pool.query(
+            'SELECT COUNT(*) FROM messages WHERE receiver_id = $1 AND is_read = FALSE',
+            [userId]
+        );
+        res.json({ count: parseInt(result.rows[0].count) });
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// 5. Send Message (Standard POST)
+router.post('/messages', authenticateToken, async (req, res) => {
+    const { senderId, receiverId, content } = req.body;
+    
+    // Security: Sender must be the logged in user
+    if (req.user.role !== 'ADMIN' && req.user.id !== senderId) {
+        return res.status(403).json({ message: 'Unauthorized.' });
+    }
+
+    const id = `msg-${Date.now()}`;
+    const timestamp = new Date().toISOString();
+    try {
+        await pool.query(
+            'INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, is_read) VALUES ($1, $2, $3, $4, $5, $6)',
+            [id, senderId, receiverId, content, timestamp, false]
+        );
+        res.status(201).json({ id, senderId, receiverId, content, timestamp, isRead: false });
+    } catch (e) { console.error("Send Message Error:", e); res.status(500).json({ message: 'Server error' }); }
+});
+
+app.use('/.netlify/functions/api', router);
+app.use('/api', router);
+
 module.exports = app;
 
-// Local Server Start
 if (require.main === module) {
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

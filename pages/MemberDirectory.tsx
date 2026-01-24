@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Briefcase, Tag, ArrowLeft, Users, Layers, Factory, Loader2, Phone, Mail, BarChart, Settings, ShieldAlert, User as UserIcon, MessageCircle } from 'lucide-react';
+import { Search, MapPin, Briefcase, Tag, ArrowLeft, Users, Layers, Factory, Loader2, Phone, Mail, BarChart, Settings, ShieldAlert, User as UserIcon, MessageSquare } from 'lucide-react';
 import { BusinessCategory, User, UserRole } from '../types';
 import { api } from '../services/api';
 
@@ -22,8 +22,7 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
     const fetchMembers = async () => {
       try {
         const data = await api.getUsers();
-        // Remove self from list
-        setMembers(data.filter(u => u.id !== currentUser.id));
+        setMembers(data);
       } catch (error) {
         console.error('Failed to fetch members', error);
       } finally {
@@ -31,15 +30,18 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
       }
     };
     fetchMembers();
-  }, [currentUser.id]);
+  }, []);
 
   // Filter Logic
   const filteredMembers = members.filter(user => {
-    // Exclude Admin from list if user is not admin (optional preference)
-    // but users might want to message admin. Let's keep Admin visible but maybe visually distinct if needed.
+    // Exclude Admin from list, and only show Active members to general members
+    if (user.role === 'ADMIN') return false;
     
-    // Members only see Active
-    if (!isAdmin && user.status !== 'Active' && user.role !== 'ADMIN') return false;
+    // Admins can see everyone, Members only see Active
+    if (!isAdmin && user.status !== 'Active') return false;
+
+    // Filter out self
+    if (user.id === currentUser.id) return false;
 
     const safeBusiness = (user.businessName || '').toLowerCase();
     const safeMaterials = user.materialTypes || [];
@@ -58,9 +60,12 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
 
   const uniqueStates = Array.from(new Set(members.filter(u => u.role !== 'ADMIN').map(u => u.businessState || 'Unknown')));
 
-  const handleMessageUser = (e: React.MouseEvent, userId: string) => {
-    e.stopPropagation(); // Prevent opening modal details
-    navigate('messages', { targetUserId: userId });
+  const handleMessageUser = () => {
+      if (!selectedMember) return;
+      // In App.tsx, we need to handle passing parameters to pages
+      // But for simple SPA, we can just pass the target user ID via a global state or simple prop drilling workaround
+      // For now, let's assume navigate can take params or we pass it via App state
+      navigate('messages', { targetUserId: selectedMember.id });
   };
 
   if (isLoading) {
@@ -101,14 +106,14 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
                     </p>
                   </div>
                 </div>
-                <div className="mt-4 md:mt-0 flex flex-col items-end gap-3">
+                <div className="mt-4 md:mt-0 flex flex-col items-end gap-2">
                   <button 
-                    onClick={(e) => handleMessageUser(e, selectedMember.id)}
-                    className="flex items-center bg-white text-green-700 px-4 py-2 rounded-full font-bold hover:bg-green-50 shadow-md transition-colors"
+                    onClick={handleMessageUser}
+                    className="px-6 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-md font-bold shadow-sm flex items-center transition-colors"
                   >
-                     <MessageCircle className="h-4 w-4 mr-2" /> Message
+                     <MessageSquare className="h-4 w-4 mr-2" /> Message Member
                   </button>
-                  <span className="px-4 py-2 bg-green-600 rounded-full text-sm font-semibold border border-green-500">
+                  <span className="px-4 py-1 bg-green-800 bg-opacity-50 rounded-full text-xs font-semibold border border-green-600 mt-2">
                     Since {new Date(selectedMember.dateJoined).getFullYear()}
                   </span>
                 </div>
@@ -129,6 +134,7 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
                     </div>
                   </div>
                   
+                  {/* Contact details restricted to Admins */}
                   {isAdmin ? (
                     <>
                         <div className="flex items-start">
@@ -156,7 +162,7 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
                   ) : (
                     <div className="p-3 bg-gray-50 rounded border border-gray-100 text-xs text-gray-500 italic flex items-center">
                         <ShieldAlert className="h-4 w-4 mr-2" />
-                        Contact details are private. Use the message button to contact.
+                        Direct contact details are private. Use the Message button above.
                     </div>
                   )}
                 </div>
@@ -182,6 +188,7 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
                     </div>
                   </div>
 
+                  {/* Operational metrics restricted to Admins */}
                   {isAdmin ? (
                     <>
                          <div className="flex items-start">
@@ -321,18 +328,12 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
                     )}
                   </div>
                 </div>
-                <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-between items-center">
+                <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-center items-center">
                   <button 
                     onClick={() => setSelectedMember(member)}
-                    className="text-sm text-gray-600 hover:text-green-700 font-medium focus:outline-none"
+                    className="text-sm text-green-700 font-medium hover:underline focus:outline-none"
                   >
                     View Details
-                  </button>
-                  <button 
-                    onClick={(e) => handleMessageUser(e, member.id)}
-                    className="text-sm text-green-700 font-bold hover:underline focus:outline-none flex items-center"
-                  >
-                    <MessageCircle className="h-4 w-4 mr-1" /> Message
                   </button>
                 </div>
               </div>

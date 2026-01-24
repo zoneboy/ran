@@ -59,6 +59,7 @@ export interface User {
   // Security fields
   resetToken?: string;
   resetTokenExpiry?: number; // Timestamp
+  token?: string; // JWT Token
   documents?: {
     cac?: string;
     logo?: string;
@@ -93,17 +94,13 @@ export interface Message {
   senderId: string;
   receiverId: string;
   content: string;
-  timestamp: string;
+  timestamp: string; // ISO String
   isRead: boolean;
 }
 
 export interface Conversation {
-  contactId: string;
-  contactName: string;
-  contactBusiness: string;
-  contactImage?: string;
-  lastMessage: string;
-  lastMessageDate: string;
+  otherUser: User;
+  lastMessage: Message;
   unreadCount: number;
 }
 
