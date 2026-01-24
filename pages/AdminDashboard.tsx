@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment } from '../types';
+import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment, Collection } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File as FileIcon } from 'lucide-react';
+import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File as FileIcon, BarChart2 } from 'lucide-react';
 import { api } from '../services/api';
 import { uploadToCloudinary } from '../services/cloudinary';
 
@@ -26,8 +26,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [pendingPayments, setPendingPayments] = useState<Payment[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('');
+  const [collectionFilter, setCollectionFilter] = useState('');
   
   const [showExportModal, setShowExportModal] = useState(false);
   const [showAnnounceModal, setShowAnnounceModal] = useState(false);
@@ -83,14 +85,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
   const refreshData = async () => {
     try {
-      const [usersData, announcementsData, allPayments] = await Promise.all([
+      const [usersData, announcementsData, allPayments, allCollections] = await Promise.all([
         api.getUsers(),
         api.getAnnouncements(),
-        api.getAllPayments()
+        api.getAllPayments(),
+        api.getCollections() // Fetch all collections
       ]);
       setUsers(usersData);
       setAnnouncements(announcementsData);
       setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
+      setCollections(allCollections);
     } catch (error) {
       console.error('Failed to load data', error);
     } finally {
@@ -517,6 +521,28 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     }
   };
 
+  const handleExportCollections = () => {
+    const headers = ['Date Logged', 'Member ID', 'Business Name', 'Period', 'Material', 'Weight (KG)'];
+    const rows = filteredCollections.map(c => [
+       new Date(c.createdAt).toLocaleDateString(),
+       c.userId,
+       `"${c.businessName}"`, // Escape commas in business name
+       `${c.month} ${c.year}`,
+       c.material,
+       c.weight
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `ran_collections_export_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const filteredUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN) return false;
     const searchTerm = filter.toLowerCase();
@@ -538,6 +564,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       safeRegion.includes(searchTerm) ||
       safeMaterials.some(m => (m || '').toLowerCase().includes(searchTerm)) ||
       safeId.includes(searchTerm)
+    );
+  });
+
+  const filteredCollections = collections.filter(c => {
+    const search = collectionFilter.toLowerCase();
+    return (
+        (c.businessName || '').toLowerCase().includes(search) ||
+        (c.material || '').toLowerCase().includes(search) ||
+        (c.month || '').toLowerCase().includes(search)
     );
   });
 
@@ -992,6 +1027,62 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        {/* Collection Logs Section */}
+        <div className="bg-white rounded-lg shadow-sm overflow-hidden mt-8">
+          <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
+            <h2 className="text-xl font-bold text-gray-900 flex items-center">
+                <BarChart2 className="h-5 w-5 mr-2 text-green-600" /> Collection Activity Logs
+            </h2>
+            <div className="flex gap-4 w-full md:w-auto">
+                <div className="relative w-full md:w-64">
+                    <input
+                        type="text"
+                        placeholder="Filter collections..."
+                        value={collectionFilter}
+                        onChange={(e) => setCollectionFilter(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500"
+                    />
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                </div>
+                <button 
+                onClick={handleExportCollections}
+                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors text-sm"
+                >
+                    <Download className="h-4 w-4 mr-2" /> Export CSV
+                </button>
+            </div>
+          </div>
+          
+          <div className="overflow-x-auto max-h-[500px]">
+             <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member ID</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Business Name</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
+                    </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredCollections.length > 0 ? filteredCollections.map(col => (
+                        <tr key={col.id}>
+                            <td className="px-6 py-4 text-sm text-gray-500">{new Date(col.createdAt).toLocaleDateString()}</td>
+                            <td className="px-6 py-4 text-sm font-mono text-gray-500">{col.userId}</td>
+                            <td className="px-6 py-4 text-sm font-medium text-gray-900">{col.businessName || 'N/A'}</td>
+                            <td className="px-6 py-4 text-sm text-gray-600">{col.month} {col.year}</td>
+                            <td className="px-6 py-4 text-sm text-gray-600">{col.material}</td>
+                            <td className="px-6 py-4 text-sm font-bold text-gray-900">{col.weight}</td>
+                        </tr>
+                    )) : (
+                        <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">No collection records found.</td></tr>
+                    )}
+                </tbody>
+             </table>
           </div>
         </div>
       </div>
