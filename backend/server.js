@@ -50,7 +50,11 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'ran_secret_key_change_in_production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET not set');
+  process.exit(1);
+}
 
 // Helper: Parse Cookies from Header
 const getCookie = (req, name) => {
