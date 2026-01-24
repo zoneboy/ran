@@ -1,6 +1,6 @@
 
 
-import { User, Announcement, Payment, Message, BankDetails } from '../types';
+import { User, Announcement, Payment, Message, BankDetails, Collection } from '../types';
 
 // Determine API URL based on environment
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -226,6 +226,30 @@ export const api = {
         method: 'DELETE',
         credentials: 'include'
     });
+  },
+
+  // Collections
+  getCollections: async (userId?: string): Promise<Collection[]> => {
+    let url = `${API_URL}/collections`;
+    if (userId) {
+        url += `?userId=${encodeURIComponent(userId)}`;
+    }
+    const res = await fetch(url, {
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  createCollection: async (data: Partial<Collection>): Promise<Collection> => {
+    const res = await fetch(`${API_URL}/collections`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data),
+        credentials: 'include'
+    });
+    return await handleResponse(res);
   },
 
   // Configuration

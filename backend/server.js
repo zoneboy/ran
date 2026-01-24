@@ -145,6 +145,16 @@ const initDb = async () => {
           timestamp TEXT,
           is_read BOOLEAN DEFAULT FALSE
       );
+      CREATE TABLE IF NOT EXISTS collections (
+          id TEXT PRIMARY KEY,
+          user_id TEXT REFERENCES users(id),
+          month TEXT,
+          year TEXT,
+          material TEXT,
+          weight NUMERIC,
+          images TEXT[],
+          created_at TEXT
+      );
     `;
     try {
       await pool.query(schema);
@@ -704,6 +714,58 @@ router.put('/payments/:id', authenticateToken, requireAdmin, async (req, res) =>
 router.delete('/payments/:id', authenticateToken, requireAdmin, async (req, res) => {
     try { await pool.query('DELETE FROM payments WHERE id = $1', [req.params.id]); res.json({ message: 'Deleted' }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
+
+// --- COLLECTIONS (Protected) ---
+router.get('/collections', authenticateToken, verifyOwnership, async (req, res) => {
+    try {
+        const { userId } = req.query;
+        let query = `
+          SELECT c.*, u.business_name, u.first_name, u.last_name 
+          FROM collections c
+          JOIN users u ON c.user_id = u.id
+        `;
+        let params = [];
+        
+        if (req.user.role !== 'ADMIN') {
+             query += ` WHERE c.user_id = $1`;
+             params.push(req.user.id);
+        } else if (userId) {
+             query += ` WHERE c.user_id = $1`;
+             params.push(userId);
+        }
+        
+        query += ` ORDER BY c.created_at DESC`;
+
+        const result = await pool.query(query, params);
+        res.json(result.rows.map(row => ({
+            id: row.id,
+            userId: row.user_id,
+            userName: `${row.first_name} ${row.last_name}`,
+            businessName: row.business_name,
+            month: row.month,
+            year: row.year,
+            material: row.material,
+            weight: Number(row.weight),
+            images: row.images || [],
+            createdAt: row.created_at
+        })));
+    } catch (e) { console.error(e); res.status(500).json({ message: 'Server error' }); }
+});
+
+router.post('/collections', authenticateToken, verifyOwnership, async (req, res) => {
+    const data = req.body;
+    const id = `col-${Date.now()}`;
+    const createdAt = new Date().toISOString();
+    
+    try {
+        await pool.query(
+            'INSERT INTO collections (id, user_id, month, year, material, weight, images, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+            [id, data.userId, data.month, data.year, data.material, data.weight, data.images, createdAt]
+        );
+        res.status(201).json({ ...data, id, createdAt });
+    } catch (e) { console.error(e); res.status(500).json({ message: 'Server error' }); }
+});
+
 
 // --- MESSAGES (Protected) ---
 

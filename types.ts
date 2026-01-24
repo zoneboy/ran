@@ -114,3 +114,16 @@ export interface BankDetails {
   accountNumber: string;
   accountName: string;
 }
+
+export interface Collection {
+  id: string;
+  userId: string;
+  userName?: string; 
+  businessName?: string;
+  month: string;
+  year: string;
+  material: string;
+  weight: number;
+  images: string[];
+  createdAt: string;
+}
