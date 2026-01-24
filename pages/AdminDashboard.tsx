@@ -572,7 +572,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     return (
         (c.businessName || '').toLowerCase().includes(search) ||
         (c.material || '').toLowerCase().includes(search) ||
-        (c.month || '').toLowerCase().includes(search)
+        (c.month || '').toLowerCase().includes(search) ||
+        (c.userId || '').toLowerCase().includes(search)
     );
   });
 
