@@ -237,7 +237,16 @@ router.post('/auth/request-reset', async (req, res) => {
       const token = Math.floor(100000 + Math.random() * 900000).toString();
       const expiry = Date.now() + 3600000;
       await pool.query('UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE email = $3', [token, expiry, email]);
-      if (!process.env.EMAIL_USER) return res.status(200).json({ message: 'Use code to reset (Dev):', debugToken: token });
+      
+      if (!process.env.EMAIL_USER) {
+          if (process.env.NODE_ENV === 'production') {
+             console.error('Email service not configured. Cannot send reset token.');
+             return res.status(200).json({ message: 'If this email exists, a reset code has been sent.' });
+          }
+          console.log(`[DEV ONLY] Reset token for ${email}: ${token}`);
+          return res.status(200).json({ message: 'Check server logs for token (Dev mode).' });
+      }
+
       await transporter.sendMail({
         from: process.env.EMAIL_USER,
         to: email,
