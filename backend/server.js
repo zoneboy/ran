@@ -50,6 +50,16 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+// Verify Email Configuration on Startup
+transporter.verify(function (error, success) {
+    if (error) {
+        console.error("Email Service Error:", error);
+        console.warn("Emails (Magic Links) will NOT work until EMAIL_USER and EMAIL_PASS are set correctly in Netlify.");
+    } else {
+        console.log("Email Service is ready to take messages. Connected as:", process.env.EMAIL_USER);
+    }
+});
+
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   console.error('FATAL: JWT_SECRET not set');
@@ -68,10 +78,10 @@ const getCookie = (req, name) => {
 // Rate Limiter for Password Reset
 const resetLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hour
-    max: 3, // Limit each IP to 3 reset requests per windowMs
+    max: 5, // Increased limit slightly for production usability
     message: { message: 'Too many reset attempts. Please try again after an hour.' },
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    standardHeaders: true, 
+    legacyHeaders: false, 
 });
 
 // Database Initialization
@@ -164,8 +174,6 @@ const initDb = async () => {
             `, [id, adminEmail, hashedPassword, new Date().toISOString().split('T')[0], '2099-12-31']);
             console.log(`Admin account seeded: ${adminEmail}`);
         }
-      } else {
-        console.log("Admin seeding skipped: ADMIN_EMAIL or ADMIN_INITIAL_PASSWORD not configured.");
       }
 
       dbInitialized = true;
@@ -309,7 +317,6 @@ router.post('/auth/login', async (req, res) => {
         maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
       });
 
-      // Send user data back (Frontend will handle not storing the token)
       res.json({ ...userWithoutPassword, token });
     } else {
       res.status(401).json({ message: 'Invalid credentials' });
@@ -327,9 +334,11 @@ router.post('/auth/request-reset', resetLimiter, async (req, res) => {
   try {
       const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
       const user = result.rows[0];
+      
+      // Generic response for security
       if (!user) return res.status(200).json({ message: 'If this email exists, a reset code has been sent.' });
       
-      const token = crypto.randomBytes(32).toString('hex'); // 256-bit token
+      const token = crypto.randomBytes(32).toString('hex');
       const expiry = Date.now() + 900000; // 15 minutes
       
       await pool.query('UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE email = $3', [token, expiry, email]);
@@ -337,35 +346,37 @@ router.post('/auth/request-reset', resetLimiter, async (req, res) => {
       const clientUrl = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:3000';
       const resetLink = `${clientUrl}/?page=reset-password&token=${token}&email=${encodeURIComponent(email)}`;
 
-      if (!process.env.EMAIL_USER) {
-          if (process.env.NODE_ENV === 'production') {
-             console.error('Email service not configured. Cannot send reset token.');
-             return res.status(200).json({ message: 'If this email exists, a reset link has been sent.' });
-          }
-          console.log(`[DEV ONLY] Reset Link for ${email}: ${resetLink}`);
-          return res.status(200).json({ message: 'Check server logs for token/link (Dev mode).' });
+      // Strictly attempt to send email
+      try {
+        await transporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to: email,
+            subject: 'Password Reset Request',
+            html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #166534;">Password Reset Request</h2>
+                <p>You requested a password reset for your RAN Portal account.</p>
+                <p>Click the button below to reset your password. This link is valid for 15 minutes.</p>
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="${resetLink}" style="background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password</a>
+                </div>
+                <p>Or manually enter this code: <strong style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${token}</strong></p>
+                <p style="color: #666; font-size: 14px; margin-top: 30px;">If the button doesn't work, copy and paste this link:</p>
+                <p style="font-size: 12px; color: #16a34a; word-break: break-all;">${resetLink}</p>
+            </div>
+            `
+        });
+        console.log(`Reset email sent successfully to ${email}`);
+        res.status(200).json({ message: 'Reset link sent to your email.' });
+      } catch (emailError) {
+          console.error("Failed to send email via Nodemailer:", emailError);
+          res.status(500).json({ message: 'Failed to send email. Please contact support.' });
       }
 
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: email,
-        subject: 'Password Reset Request',
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #166534;">Password Reset Request</h2>
-            <p>You requested a password reset for your RAN Portal account.</p>
-            <p>Click the button below to reset your password. This link is valid for 15 minutes.</p>
-            <div style="text-align: center; margin: 30px 0;">
-                <a href="${resetLink}" style="background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password</a>
-            </div>
-            <p>Or manually enter this code: <strong style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${token}</strong></p>
-            <p style="color: #666; font-size: 14px; margin-top: 30px;">If the button doesn't work, copy and paste this link:</p>
-            <p style="font-size: 12px; color: #16a34a; word-break: break-all;">${resetLink}</p>
-          </div>
-        `
-      });
-      res.status(200).json({ message: 'Reset link sent.' });
-  } catch (err) { res.status(500).json({ message: 'Error processing request' }); }
+  } catch (err) { 
+      console.error("Reset Error:", err);
+      res.status(500).json({ message: 'Error processing request' }); 
+  }
 });
 
 router.post('/auth/confirm-reset', async (req, res) => {
@@ -413,19 +424,16 @@ router.post('/auth/register', async (req, res) => {
     const mappedUser = mapUser(newUser.rows[0]);
     const { password, ...safeUser } = mappedUser;
     
-    // Welcome Email (Optional)
-    if (process.env.EMAIL_USER) {
-        try {
-            await transporter.sendMail({
-                from: process.env.EMAIL_USER,
-                to: data.email,
-                subject: 'Welcome to RAN',
-                text: `Welcome ${data.firstName}, your registration is pending approval.`
-            });
-        } catch(e) { console.error("Email failed", e); }
-    }
+    // Welcome Email
+    try {
+        await transporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to: data.email,
+            subject: 'Welcome to RAN',
+            text: `Welcome ${data.firstName}, your registration is pending approval.`
+        });
+    } catch(e) { console.error("Welcome Email failed", e); }
 
-    // Auto-login: Set Cookie
     const token = jwt.sign({ id: safeUser.id, role: safeUser.role, email: safeUser.email }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('token', token, {
         httpOnly: true,
@@ -686,7 +694,6 @@ router.get('/messages/conversations', authenticateToken, async (req, res) => {
         return res.status(403).json({ message: 'Unauthorized.' });
     }
     
-    console.log(`Getting conversations for user: ${userId}`);
     try {
         const messagesQuery = `
             SELECT sender_id, receiver_id, timestamp 

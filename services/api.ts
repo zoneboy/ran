@@ -1,12 +1,6 @@
 
 import { User, Announcement, Payment, Message, BankDetails } from '../types';
 
-// CONFIGURATION
-// FALSE = Live (Real Backend)
-// TRUE = Mock (Local Storage)
-// Live mode forced by user request.
-const USE_MOCK_BACKEND = false; 
-
 // Determine API URL based on environment
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_URL = isLocal 
