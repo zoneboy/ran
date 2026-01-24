@@ -28,7 +28,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [pendingPayments, setPendingPayments] = useState<Payment[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Member Filters
   const [filter, setFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+
   const [collectionFilter, setCollectionFilter] = useState('');
   
   const [showExportModal, setShowExportModal] = useState(false);
@@ -545,6 +550,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
   const filteredUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN) return false;
+    
+    // Status Filter
+    if (statusFilter && u.status !== statusFilter) return false;
+
+    // Category Filter
+    if (categoryFilter && u.category !== categoryFilter) return false;
+
+    // Text Search
+    if (!filter) return true;
+
     const searchTerm = filter.toLowerCase();
     const safeFirstName = (u.firstName || '').toLowerCase();
     const safeLastName = (u.lastName || '').toLowerCase();
@@ -894,24 +909,50 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
 
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
-            <h2 className="text-xl font-bold text-gray-900">Member Management</h2>
-            <div className="relative w-full md:w-96">
-              <input
-                type="text"
-                placeholder="Search name, ID, business..."
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500"
-              />
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+          <div className="p-6 border-b border-gray-200 flex flex-col items-center gap-4">
+            <div className="w-full flex flex-col md:flex-row justify-between items-center gap-4">
+                <h2 className="text-xl font-bold text-gray-900">Member Management</h2>
+                <button
+                onClick={() => setShowExportModal(true)}
+                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors"
+                >
+                <FileText className="h-4 w-4 mr-2" /> Export Data
+                </button>
             </div>
-            <button 
-              onClick={() => setShowExportModal(true)}
-              className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors"
-            >
-              <FileText className="h-4 w-4 mr-2" /> Export Data
-            </button>
+
+            <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Text Search */}
+                <div className="relative">
+                <input
+                    type="text"
+                    placeholder="Search name, ID, business..."
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500"
+                />
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                </div>
+
+                {/* Status Filter */}
+                <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
+                >
+                    <option value="">All Statuses</option>
+                    {Object.values(MembershipStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+
+                {/* Category Filter */}
+                <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
+                >
+                    <option value="">All Categories</option>
+                    {Object.values(MembershipCategory).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
