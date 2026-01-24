@@ -24,7 +24,13 @@ app.use(helmet.contentSecurityPolicy({
         connectSrc: ["'self'", process.env.API_URL ? process.env.API_URL : "'self'"],
     }
 }));
-app.use(cors({ origin: '*' }));
+
+// CORS: Allow credentials and reflect origin for Cookie support
+app.use(cors({ 
+    origin: true, 
+    credentials: true 
+}));
+
 app.use(bodyParser.json({ limit: '50mb' }));
 
 // Database Connection
@@ -45,6 +51,15 @@ const transporter = nodemailer.createTransport({
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ran_secret_key_change_in_production';
+
+// Helper: Parse Cookies from Header
+const getCookie = (req, name) => {
+    const header = req.headers.cookie;
+    if (!header) return null;
+    const match = header.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    if (match) return match[2];
+    return null;
+};
 
 // Rate Limiter for Password Reset
 const resetLimiter = rateLimit({
@@ -244,8 +259,8 @@ const checkExpiry = async (user) => {
 
 // --- AUTH MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    // Priority: Cookie -> Header
+    const token = getCookie(req, 'token') || (req.headers['authorization'] && req.headers['authorization'].split(' ')[1]);
     
     if (token == null) return res.status(401).json({ message: 'Unauthorized: No token provided' });
 
@@ -281,11 +296,26 @@ router.post('/auth/login', async (req, res) => {
     if (isMatch) {
       const token = jwt.sign({ id: user.id, role: user.role, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
       const { password, ...userWithoutPassword } = user;
+      
+      // Set HttpOnly Cookie
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+
+      // Send user data back (Frontend will handle not storing the token)
       res.json({ ...userWithoutPassword, token });
     } else {
       res.status(401).json({ message: 'Invalid credentials' });
     }
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+
+router.post('/auth/logout', (req, res) => {
+    res.clearCookie('token');
+    res.json({ message: 'Logged out successfully' });
 });
 
 router.post('/auth/request-reset', resetLimiter, async (req, res) => {
@@ -375,7 +405,17 @@ router.post('/auth/register', async (req, res) => {
             });
         } catch(e) { console.error("Email failed", e); }
     }
-    res.status(201).json(safeUser);
+
+    // Auto-login: Set Cookie
+    const token = jwt.sign({ id: safeUser.id, role: safeUser.role, email: safeUser.email }, JWT_SECRET, { expiresIn: '7d' });
+    res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.status(201).json({ ...safeUser, token });
   } catch (error) { res.status(500).json({ message: 'Registration failed. ' + error.message }); }
 });
 
