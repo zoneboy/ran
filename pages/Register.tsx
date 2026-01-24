@@ -1,7 +1,9 @@
+
 import React, { useState } from 'react';
 import { MembershipCategory, BusinessCategory } from '../types';
 import { CheckCircle, AlertCircle, Loader2, Eye, EyeOff, User, UploadCloud } from 'lucide-react';
 import { api } from '../services/api';
+import { uploadToCloudinary } from '../services/cloudinary';
 
 interface RegisterProps {
   navigate: (page: string) => void;
@@ -20,6 +22,7 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
+  const [uploadingFields, setUploadingFields] = useState<{[key: string]: boolean}>({});
   
   const [formData, setFormData] = useState({
     firstName: '',
@@ -29,7 +32,7 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     password: '',
     confirmPassword: '',
     dob: '',
-    gender: '', // Added Gender
+    gender: '',
     businessName: '',
     businessCommencement: '',
     businessAddress: '',
@@ -37,12 +40,12 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     businessState: '',
     statesOfOperation: '',
     businessCategory: '',
-    otherBusinessCategory: '', // Temp field for Other Category
+    otherBusinessCategory: '',
     materialTypes: [] as string[],
-    otherMaterialType: '', // Temp field for Other Material
+    otherMaterialType: '',
     monthlyVolume: '',
     machineryDeployed: [] as string[],
-    otherMachinery: '', // Temp field for Other Machinery
+    otherMachinery: '',
     employees: '',
     areasOfInterest: [] as string[],
     membershipCategory: '',
@@ -76,83 +79,96 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     });
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, field: string) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, field: string) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) { 
-         alert("File is too large. Max 5MB allowed.");
-         return;
-      }
+    if (!file) return;
 
-      if (file.type.startsWith('image/')) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const img = new Image();
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const MAX_WIDTH = 800; // Reasonable width for docs
-              const scaleSize = MAX_WIDTH / img.width;
-              if (scaleSize < 1) {
-                  canvas.width = MAX_WIDTH;
-                  canvas.height = img.height * scaleSize;
-              } else {
-                  canvas.width = img.width;
-                  canvas.height = img.height;
-              }
-              const ctx = canvas.getContext('2d');
-              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-              // Aggressive compression: JPEG at 0.5 quality
-              const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.5);
-              // @ts-ignore
-              setFormData(prev => ({ ...prev, [field]: compressedDataUrl }));
-            };
-            img.src = event.target?.result as string;
-          };
-          reader.readAsDataURL(file);
-      } else {
-          // For PDFs or non-images, check size stricter for localStorage
-          if (file.size > 1024 * 1024) {
-             alert("Warning: Large PDF files may fill local storage. Please use compressed files or images if possible.");
-          }
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            // @ts-ignore
-            setFormData(prev => ({ ...prev, [field]: event.target?.result as string }));
-          };
-          reader.readAsDataURL(file);
-      }
+    if (file.size > 5 * 1024 * 1024) { 
+        alert("File is too large. Max 5MB allowed.");
+        return;
+    }
+
+    setUploadingFields(prev => ({ ...prev, [field]: true }));
+
+    try {
+        let uploadPayload: File | string = file;
+
+        // Compress images before upload
+        if (file.type.startsWith('image/')) {
+            uploadPayload = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const MAX_WIDTH = 800;
+                        const scaleSize = MAX_WIDTH / img.width;
+                        if (scaleSize < 1) {
+                            canvas.width = MAX_WIDTH;
+                            canvas.height = img.height * scaleSize;
+                        } else {
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                        }
+                        const ctx = canvas.getContext('2d');
+                        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.7));
+                    };
+                    img.src = event.target?.result as string;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        const url = await uploadToCloudinary(uploadPayload);
+        // @ts-ignore
+        setFormData(prev => ({ ...prev, [field]: url }));
+    } catch (err) {
+        console.error(err);
+        alert("Failed to upload file. Please check your connection and try again.");
+    } finally {
+        setUploadingFields(prev => ({ ...prev, [field]: false }));
     }
   };
 
-  const handlePortraitChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePortraitChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 400; 
-          const scaleSize = MAX_WIDTH / img.width;
-          
-          if (scaleSize < 1) {
-              canvas.width = MAX_WIDTH;
-              canvas.height = img.height * scaleSize;
-          } else {
-              canvas.width = img.width;
-              canvas.height = img.height;
-          }
-          
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-          
-          // Compress to JPEG 0.5 for storage efficiency
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.5);
-          setFormData(prev => ({ ...prev, portraitImage: compressedDataUrl }));
-        };
-        img.src = event.target?.result as string;
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    
+    setUploadingFields(prev => ({ ...prev, portraitImage: true }));
+
+    try {
+        const compressedBase64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 400; 
+                    const scaleSize = MAX_WIDTH / img.width;
+                    if (scaleSize < 1) {
+                        canvas.width = MAX_WIDTH;
+                        canvas.height = img.height * scaleSize;
+                    } else {
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                    }
+                    const ctx = canvas.getContext('2d');
+                    ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    resolve(canvas.toDataURL('image/jpeg', 0.7));
+                };
+                img.src = event.target?.result as string;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        const url = await uploadToCloudinary(compressedBase64);
+        setFormData(prev => ({ ...prev, portraitImage: url }));
+    } catch (err) {
+        console.error(err);
+        alert("Failed to upload profile picture.");
+    } finally {
+        setUploadingFields(prev => ({ ...prev, portraitImage: false }));
     }
   };
 
@@ -206,12 +222,10 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
         newErrors.businessCategory = "Please specify the other category.";
     }
 
-    // Validate Other Material
     if (formData.materialTypes.includes('Other') && !formData.otherMaterialType) {
         newErrors.materialTypes = "Please specify the other material.";
     }
     
-    // Validate Other Machinery
     if (formData.machineryDeployed.includes('Other') && !formData.otherMachinery) {
         newErrors.machineryDeployed = "Please specify the other machinery.";
     }
@@ -241,30 +255,23 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     e.preventDefault();
     setIsSubmitting(true);
     
-    // Logic to handle "Other" text inputs
-    // 1. Materials
     let finalMaterials = [...formData.materialTypes];
     if (finalMaterials.includes('Other') && formData.otherMaterialType) {
-        // Remove the string 'Other' and add the custom text
         finalMaterials = finalMaterials.filter(m => m !== 'Other');
         finalMaterials.push(formData.otherMaterialType);
     }
     
-    // 2. Machinery
     let finalMachinery = [...formData.machineryDeployed];
     if (finalMachinery.includes('Other') && formData.otherMachinery) {
-        // Remove the string 'Other' and add the custom text
         finalMachinery = finalMachinery.filter(m => m !== 'Other');
         finalMachinery.push(formData.otherMachinery);
     }
 
-    // 3. Business Category
     let finalBusinessCategory = formData.businessCategory;
     if (finalBusinessCategory === 'Other' && formData.otherBusinessCategory) {
         finalBusinessCategory = formData.otherBusinessCategory;
     }
 
-    // Structure documents properly
     const registrationPayload = {
       ...formData,
       materialTypes: finalMaterials,
@@ -278,10 +285,6 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
           evidence: formData.businessEvidence
       }
     };
-
-    // Clean up temporary fields before sending if needed, but the spread above captures them.
-    // The backend receives extra fields but likely ignores them unless defined in schema, 
-    // but our Mock backend stores everything, which is fine.
 
     try {
       await api.register(registrationPayload);
@@ -323,7 +326,6 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="p-8">
-          {/* Step 1: Personal Information */}
           {step === 1 && (
             <div className="space-y-6">
               <h3 className="text-xl font-semibold text-gray-800 border-b pb-2">Personal Information & Security</h3>
@@ -425,7 +427,6 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
             </div>
           )}
 
-          {/* Step 2: Business Information */}
           {step === 2 && (
             <div className="space-y-6">
               <h3 className="text-xl font-semibold text-gray-800 border-b pb-2">Business Information</h3>
@@ -467,7 +468,6 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                   <input name="statesOfOperation" value={formData.statesOfOperation} onChange={handleInputChange} placeholder="e.g. Oyo, Edo" type="text" className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-green-500 focus:ring-green-500" />
                 </div>
                 
-                {/* Business Category with Other */}
                 <div>
                    <label className="block text-sm font-medium text-gray-700">Business Category</label>
                     <select name="businessCategory" value={formData.businessCategory} onChange={handleInputChange} className={`mt-1 block w-full rounded-md border ${errors.businessCategory ? 'border-red-500' : 'border-gray-300'} px-3 py-2 focus:border-green-500 focus:ring-green-500`}>
@@ -490,7 +490,6 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                     {errors.businessCategory && <p className="text-red-500 text-xs mt-1">{errors.businessCategory}</p>}
                 </div>
 
-                {/* Materials with Other */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Materials Collected/Processed</label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -530,7 +529,6 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                   </div>
                 </div>
 
-                {/* Machinery with Other */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Machinery Deployed</label>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -564,7 +562,6 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
             </div>
           )}
 
-          {/* Step 3: Membership Category & Uploads */}
           {step === 3 && (
             <div className="space-y-6">
               <h3 className="text-xl font-semibold text-gray-800 border-b pb-2">Membership & Documents</h3>
@@ -611,7 +608,6 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                 <h4 className="font-medium text-gray-900 mb-4">Required Documents & Profile</h4>
                 <div className="space-y-4">
                   
-                  {/* Portrait Upload Section */}
                   <div className="p-4 border-2 border-dashed border-green-200 rounded-lg bg-green-50">
                     <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center">
                       <User className="w-4 h-4 mr-2" /> Portrait Picture (Profile Photo)
@@ -621,37 +617,40 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                         type="file" 
                         accept="image/*"
                         onChange={handlePortraitChange}
-                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700" 
+                        disabled={uploadingFields.portraitImage}
+                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50" 
                        />
-                       {formData.portraitImage && (
+                       {uploadingFields.portraitImage ? (
+                           <Loader2 className="h-6 w-6 animate-spin text-green-600" />
+                       ) : formData.portraitImage ? (
                          <div className="h-12 w-12 rounded-full overflow-hidden border-2 border-green-600 flex-shrink-0">
                            <img src={formData.portraitImage} alt="Preview" className="h-full w-full object-cover" />
                          </div>
-                       )}
+                       ) : null}
                     </div>
                     <p className="text-xs text-gray-500 mt-2">This picture will be used as your profile image when you log in. Max size: 400px width.</p>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 flex justify-between">
+                    <label className="block text-sm font-medium text-gray-700 flex justify-between items-center">
                         <span>CAC Registration Certificate</span>
-                        {formData.cacCertificate && <span className="text-green-600 text-xs font-bold">File Selected</span>}
+                        {uploadingFields.cacCertificate ? <Loader2 className="h-4 w-4 animate-spin text-green-600" /> : formData.cacCertificate && <span className="text-green-600 text-xs font-bold">File Uploaded</span>}
                     </label>
-                    <input type="file" onChange={(e) => handleFileChange(e, 'cacCertificate')} accept="image/*,.pdf" className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
+                    <input type="file" onChange={(e) => handleFileChange(e, 'cacCertificate')} accept="image/*,.pdf" disabled={uploadingFields.cacCertificate} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100 disabled:opacity-50" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 flex justify-between">
+                    <label className="block text-sm font-medium text-gray-700 flex justify-between items-center">
                         <span>Business Logo</span>
-                        {formData.businessLogo && <span className="text-green-600 text-xs font-bold">File Selected</span>}
+                        {uploadingFields.businessLogo ? <Loader2 className="h-4 w-4 animate-spin text-green-600" /> : formData.businessLogo && <span className="text-green-600 text-xs font-bold">File Uploaded</span>}
                     </label>
-                    <input type="file" onChange={(e) => handleFileChange(e, 'businessLogo')} accept="image/*" className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
+                    <input type="file" onChange={(e) => handleFileChange(e, 'businessLogo')} accept="image/*" disabled={uploadingFields.businessLogo} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100 disabled:opacity-50" />
                   </div>
                    <div>
-                    <label className="block text-sm font-medium text-gray-700 flex justify-between">
+                    <label className="block text-sm font-medium text-gray-700 flex justify-between items-center">
                         <span>Evidence of Business Activity (Photo/Doc)</span>
-                        {formData.businessEvidence && <span className="text-green-600 text-xs font-bold">File Selected</span>}
+                        {uploadingFields.businessEvidence ? <Loader2 className="h-4 w-4 animate-spin text-green-600" /> : formData.businessEvidence && <span className="text-green-600 text-xs font-bold">File Uploaded</span>}
                     </label>
-                    <input type="file" onChange={(e) => handleFileChange(e, 'businessEvidence')} accept="image/*,.pdf" className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
+                    <input type="file" onChange={(e) => handleFileChange(e, 'businessEvidence')} accept="image/*,.pdf" disabled={uploadingFields.businessEvidence} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100 disabled:opacity-50" />
                   </div>
                 </div>
               </div>
@@ -663,7 +662,6 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
             </div>
           )}
 
-           {/* Step 4: Review */}
            {step === 4 && (
             <div className="space-y-6">
               <h3 className="text-xl font-semibold text-gray-800 border-b pb-2">Review Application</h3>
@@ -712,7 +710,7 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
                   className={`bg-green-600 text-white px-8 py-3 rounded-md hover:bg-green-700 font-bold shadow-lg flex items-center ${isSubmitting ? 'opacity-75 cursor-not-allowed' : ''}`}
                 >
                   {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle className="mr-2 h-5 w-5" />}
-                  {isSubmitting ? 'Submitting...' : 'Submit Application'}
+                  {isSubmitting ? 'Submit Application'}
                 </button>
               </div>
             </div>

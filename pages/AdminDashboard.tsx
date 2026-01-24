@@ -2,14 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File } from 'lucide-react';
+import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File as FileIcon } from 'lucide-react';
 import { api } from '../services/api';
+import { uploadToCloudinary } from '../services/cloudinary';
 
 interface AdminDashboardProps {
-  // In a real app, this would fetch data
 }
 
-// ... (getRegion function remains unchanged) ...
 const getRegion = (state: string) => {
   if (!state) return 'Other';
   const mapping: { [key: string]: string } = {
@@ -24,20 +23,16 @@ const getRegion = (state: string) => {
 };
 
 const AdminDashboard: React.FC<AdminDashboardProps> = () => {
-  // ... (State and useEffects remain unchanged) ...
   const [users, setUsers] = useState<User[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [pendingPayments, setPendingPayments] = useState<Payment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('');
-  const [reminderSent, setReminderSent] = useState(false);
   
-  // Modal States
   const [showExportModal, setShowExportModal] = useState(false);
   const [showAnnounceModal, setShowAnnounceModal] = useState(false);
   const [showPendingPaymentModal, setShowPendingPaymentModal] = useState(false);
 
-  // Export Config
   const [exportConfig, setExportConfig] = useState({
     state: '',
     region: '',
@@ -46,7 +41,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     format: 'Excel'
   });
 
-  // Announcement Config
   const [newAnnouncement, setNewAnnouncement] = useState({
     title: '',
     content: '',
@@ -54,7 +48,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     date: new Date().toISOString().split('T')[0]
   });
 
-  // Edit Modals
   const [idEditModal, setIdEditModal] = useState<{ isOpen: boolean; userId: string; currentId: string; newId: string; name: string } | null>(null);
   const [expiryEditModal, setExpiryEditModal] = useState<{ isOpen: boolean; userId: string; currentExpiry: string; name: string } | null>(null);
   const [statusEditModal, setStatusEditModal] = useState<{ isOpen: boolean; userId: string; currentStatus: MembershipStatus; name: string } | null>(null);
@@ -62,18 +55,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     isOpen: boolean; 
     userId: string; 
     name: string;
-    // User Uploads
     profileImage?: string;
     cac?: string;
     logo?: string;
     evidence?: string;
-    // Issued Docs
     idCard?: string; 
     certificate?: string 
   } | null>(null);
   const [docFiles, setDocFiles] = useState<{ idCard?: string; certificate?: string }>({});
+  const [uploadingDocs, setUploadingDocs] = useState<{ idCard: boolean; certificate: boolean }>({ idCard: false, certificate: false });
 
-  // Payment Recording Modal State
   const [paymentModal, setPaymentModal] = useState<{
     isOpen: boolean;
     userId: string;
@@ -88,6 +79,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     receipt: ''
   });
   const [showAddPaymentForm, setShowAddPaymentForm] = useState(false);
+  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
 
   const refreshData = async () => {
     try {
@@ -110,29 +102,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     refreshData();
   }, []);
 
-  // Derived Analytics Data
   const statusData = [
     { name: 'Active', value: users.filter(u => u.status === MembershipStatus.ACTIVE).length },
     { name: 'Pending', value: users.filter(u => u.status === MembershipStatus.PENDING).length },
     { name: 'Suspended', value: users.filter(u => u.status === MembershipStatus.SUSPENDED).length },
-    { name: 'Expired', value: users.filter(u => u.status === MembershipStatus.EXPIRED).length },
+    { name: 'Expired', value: users.filter(u => u.status === MembershipStatus.EXPIRED).length }
   ];
 
   const categoryData = [
     { name: 'Corporate', value: users.filter(u => (u.category || '').toString().includes('Corporate')).length },
     { name: 'Patron', value: users.filter(u => (u.category || '').toString().includes('Patron')).length },
     { name: 'Associate', value: users.filter(u => (u.category || '').toString().includes('Associate')).length },
-    { name: 'Other', value: users.filter(u => !(u.category || '').toString().includes('Corporate') && !(u.category || '').toString().includes('Patron') && !(u.category || '').toString().includes('Associate')).length },
+    { name: 'Other', value: users.filter(u => !(u.category || '').toString().includes('Corporate') && !(u.category || '').toString().includes('Patron') && !(u.category || '').toString().includes('Associate')).length }
   ];
 
   const COLORS = ['#16a34a', '#eab308', '#dc2626', '#4b5563'];
 
   const uniqueStates = Array.from(new Set(users.filter(u => u.role !== UserRole.ADMIN).map(u => u.businessState || 'Unknown'))) as string[];
   const uniqueRegions = Array.from(new Set(uniqueStates.map(s => getRegion(s))));
-  const uniqueMachinery = Array.from(new Set(users.flatMap(u => u.machineryDeployed || []).filter((m): m is string => !!m)));
+  const uniqueMachinery = Array.from(new Set(users.flatMap(u => u.machineryDeployed || []).filter(m => !!m)));
 
   const handleStatusChange = async (userId: string, newStatus: MembershipStatus) => {
-    // Optimistic update
     const previousUsers = [...users];
     setUsers(users.map(u => u.id === userId ? { ...u, status: newStatus } : u));
     
@@ -142,7 +132,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         await api.updateUser({ ...userToUpdate, status: newStatus });
       }
     } catch (error) {
-       // Revert on fail
        setUsers(previousUsers);
        alert('Failed to update status');
     }
@@ -188,9 +177,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     
     try {
         await api.updatePaymentStatus(paymentId, 'Successful');
-        // Optimistic update
         setPendingPayments(prev => prev.filter(p => p.id !== paymentId));
-        // Refresh full data
         const allPayments = await api.getAllPayments();
         setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
         alert("Payment approved successfully.");
@@ -208,9 +195,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     
     try {
         await api.deletePayment(paymentId);
-         // Optimistic update
         setPendingPayments(prev => prev.filter(p => p.id !== paymentId));
-        // Refresh full data
         const allPayments = await api.getAllPayments();
         setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
         alert("Payment rejected and removed.");
@@ -313,53 +298,63 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       isOpen: true,
       userId: user.id,
       name: user.businessName,
-      // Load user uploads
       profileImage: user.profileImage,
       cac: user.documents?.cac,
       logo: user.documents?.logo,
       evidence: user.documents?.evidence,
-      // Load issued docs
       idCard: user.documents?.membershipIdCard,
       certificate: user.documents?.membershipCertificate
     });
     setDocFiles({}); 
   };
 
-  const handleDocFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'idCard' | 'certificate') => {
+  const handleDocFileChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'idCard' | 'certificate') => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert("File is too large. Max 5MB allowed.");
-        return;
-      }
-      
-      const reader = new FileReader();
-      reader.onload = (event) => {
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File is too large. Max 5MB allowed.");
+      return;
+    }
+
+    setUploadingDocs(prev => ({ ...prev, [type]: true }));
+
+    try {
+        let uploadPayload: File | string = file;
+        // Compress if image
         if (file.type.startsWith('image/')) {
-            const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const MAX_WIDTH = 800;
-                const scaleSize = MAX_WIDTH / img.width;
-                if (scaleSize < 1) {
-                    canvas.width = MAX_WIDTH;
-                    canvas.height = img.height * scaleSize;
-                } else {
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                }
-                const ctx = canvas.getContext('2d');
-                ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.5); // 0.5 for safe storage
-                setDocFiles(prev => ({ ...prev, [type]: compressedBase64 }));
-            };
-            img.src = event.target?.result as string;
-        } else {
-            const base64 = event.target?.result as string;
-            setDocFiles(prev => ({ ...prev, [type]: base64 }));
+            uploadPayload = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const MAX_WIDTH = 800;
+                        const scaleSize = MAX_WIDTH / img.width;
+                        if (scaleSize < 1) {
+                            canvas.width = MAX_WIDTH;
+                            canvas.height = img.height * scaleSize;
+                        } else {
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                        }
+                        const ctx = canvas.getContext('2d');
+                        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.7));
+                    };
+                    img.src = event.target?.result as string;
+                };
+                reader.readAsDataURL(file);
+            });
         }
-      };
-      reader.readAsDataURL(file);
+
+        const url = await uploadToCloudinary(uploadPayload);
+        setDocFiles(prev => ({ ...prev, [type]: url }));
+    } catch (err) {
+        console.error(err);
+        alert(`Failed to upload ${type}.`);
+    } finally {
+        setUploadingDocs(prev => ({ ...prev, [type]: false }));
     }
   };
 
@@ -384,7 +379,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       await refreshData();
       alert("Documents updated successfully");
     } catch (e: any) {
-      alert(e.message || "Failed to save documents. Files might be too large.");
+      alert(e.message || "Failed to save documents.");
     }
   };
 
@@ -413,45 +408,51 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     });
   };
 
-  const handlePaymentFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePaymentFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) { 
-        alert("Receipt file is too large. Max 2MB.");
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) { 
+        alert("Receipt file is too large. Max 5MB.");
         return;
-      }
-      
-      if (file.type.startsWith('image/')) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const img = new Image();
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const MAX_WIDTH = 800; 
-              const scaleSize = MAX_WIDTH / img.width;
-              
-              if (scaleSize < 1) {
-                  canvas.width = MAX_WIDTH;
-                  canvas.height = img.height * scaleSize;
-              } else {
-                  canvas.width = img.width;
-                  canvas.height = img.height;
-              }
-              const ctx = canvas.getContext('2d');
-              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-              // Compressed receipt
-              setPaymentForm(prev => ({ ...prev, receipt: canvas.toDataURL('image/jpeg', 0.5) }));
-            };
-            img.src = event.target?.result as string;
-          };
-          reader.readAsDataURL(file);
-      } else {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-             setPaymentForm(prev => ({ ...prev, receipt: event.target?.result as string }));
-          };
-          reader.readAsDataURL(file);
-      }
+    }
+    
+    setIsUploadingReceipt(true);
+    try {
+        let uploadPayload: File | string = file;
+        if (file.type.startsWith('image/')) {
+            uploadPayload = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const MAX_WIDTH = 800; 
+                        const scaleSize = MAX_WIDTH / img.width;
+                        if (scaleSize < 1) {
+                            canvas.width = MAX_WIDTH;
+                            canvas.height = img.height * scaleSize;
+                        } else {
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                        }
+                        const ctx = canvas.getContext('2d');
+                        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.7));
+                    };
+                    img.src = event.target?.result as string;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        const url = await uploadToCloudinary(uploadPayload);
+        setPaymentForm(prev => ({ ...prev, receipt: url }));
+    } catch (err) {
+        console.error(err);
+        alert("Failed to upload receipt.");
+    } finally {
+        setIsUploadingReceipt(false);
     }
   };
 
@@ -516,7 +517,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  // ... (Filtering and Rendering logic unchanged) ...
   const filteredUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN) return false;
     const searchTerm = filter.toLowerCase();
@@ -552,9 +552,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   });
 
   const handleExport = () => {
-    // ... (Export logic unchanged for now) ...
-    // Note: The export logic might need updating if we want these new columns in the CSV download too, 
-    // but the prompt only asked for the table. I'll stick to the table for now to minimize risk.
     const exportData = users.filter(u => {
       if(u.role === UserRole.ADMIN) return false;
       const matchState = exportConfig.state ? u.businessState === exportConfig.state : true;
@@ -574,37 +571,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             'Interests', 'Related Association'
         ];
         
-        const csvContent = [
-            headers.join(','),
-            ...exportData.map(u => {
-                 const safeUser = u as any; 
-                 return [
-                    `"${safeUser.id}"`,
-                    `"${safeUser.businessName}"`,
-                    `"${safeUser.category}"`,
-                    `"${safeUser.status}"`,
-                    `"${safeUser.expiryDate}"`,
-                    `"${safeUser.firstName}"`,
-                    `"${safeUser.lastName}"`,
-                    `"${safeUser.gender || ''}"`,
-                    `"${safeUser.email}"`,
-                    `"${safeUser.phone}"`,
-                    `"${safeUser.dob || ''}"`,
-                    `"${safeUser.businessAddress}"`,
-                    `"${safeUser.businessCity || ''}"`,
-                    `"${safeUser.businessState}"`,
-                    `"${getRegion(safeUser.businessState)}"`,
-                    `"${safeUser.statesOfOperation || ''}"`,
-                    `"${safeUser.businessCommencement || ''}"`,
-                    `"${safeUser.monthlyVolume}"`,
-                    `"${safeUser.employees}"`,
-                    `"${(safeUser.materialTypes || []).join(' | ')}"`,
-                    `"${(safeUser.machineryDeployed || []).join(' | ')}"`,
-                    `"${(safeUser.areasOfInterest || []).join(' | ')}"`,
-                    `"${safeUser.relatedAssociation === 'Yes' ? safeUser.relatedAssociationName : 'No'}"`
-                ].join(',');
-            })
-        ].join('\n');
+        const rows = exportData.map(u => {
+             const safeUser = u as any; 
+             return [
+                `"${safeUser.id}"`,
+                `"${safeUser.businessName}"`,
+                `"${safeUser.category}"`,
+                `"${safeUser.status}"`,
+                `"${safeUser.expiryDate}"`,
+                `"${safeUser.firstName}"`,
+                `"${safeUser.lastName}"`,
+                `"${safeUser.gender || ''}"`,
+                `"${safeUser.email}"`,
+                `"${safeUser.phone}"`,
+                `"${safeUser.dob || ''}"`,
+                `"${safeUser.businessAddress}"`,
+                `"${safeUser.businessCity || ''}"`,
+                `"${safeUser.businessState}"`,
+                `"${getRegion(safeUser.businessState)}"`,
+                `"${safeUser.statesOfOperation || ''}"`,
+                `"${safeUser.businessCommencement || ''}"`,
+                `"${safeUser.monthlyVolume}"`,
+                `"${safeUser.employees}"`,
+                `"${(safeUser.materialTypes || []).join(' | ')}"`,
+                `"${(safeUser.machineryDeployed || []).join(' | ')}"`,
+                `"${(safeUser.areasOfInterest || []).join(' | ')}"`,
+                `"${safeUser.relatedAssociation === 'Yes' ? safeUser.relatedAssociationName : 'No'}"`
+            ].join(',');
+        });
+
+        const csvContent = [headers.join(','), ...rows].join('\n');
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
@@ -617,7 +613,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     } else {
         const printWindow = window.open('', '_blank');
         if (printWindow) {
-            // HELPER FUNCTIONS FOR XSS PREVENTION
             const escapeHtml = (unsafe: string | null | undefined): string => {
                 if (!unsafe) return '';
                 return String(unsafe)
@@ -626,16 +621,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                     .replace(/>/g, "&gt;")
                     .replace(/"/g, "&quot;")
                     .replace(/'/g, "&#039;");
-            };
-
-            const sanitizeBase64Image = (base64: string | undefined): string => {
-                if (!base64) return '';
-                // Simple regex to validate standard base64 image data URI
-                const validPattern = /^data:image\/(jpeg|png|gif|webp);base64,[A-Za-z0-9+/]+=*$/;
-                if (!validPattern.test(base64)) {
-                    return ''; // Invalid or potentially malicious
-                }
-                return base64;
             };
 
             printWindow.document.write(`
@@ -670,10 +655,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                     ${exportData.map(u => {
                         const safeUser = u as any;
                         const region = getRegion(safeUser.businessState);
-                        const cleanProfileImg = sanitizeBase64Image(safeUser.profileImage);
-                        const cleanLogo = sanitizeBase64Image(safeUser.documents?.logo);
-                        
-                        // Sanitize Arrays
                         const cleanMaterials = (safeUser.materialTypes || []).map((m: string) => escapeHtml(m)).join(', ');
                         const cleanMachinery = (safeUser.machineryDeployed || []).map((m: string) => escapeHtml(m)).join(', ');
                         const cleanInterests = (safeUser.areasOfInterest || []).map((m: string) => escapeHtml(m)).join(', ');
@@ -693,7 +674,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                             </div>
 
                             <div class="profile-header">
-                                ${cleanProfileImg ? `<img src="${cleanProfileImg}" class="profile-img" />` : '<div class="profile-img" style="display:flex;align-items:center;justify-content:center;color:#999;">No Photo</div>'}
+                                ${safeUser.profileImage ? `<img src="${safeUser.profileImage}" class="profile-img" />` : '<div class="profile-img" style="display:flex;align-items:center;justify-content:center;color:#999;">No Photo</div>'}
                                 <div style="flex:1; padding-left: 10px;">
                                     <div class="grid">
                                         <div class="field"><span class="label">Contact Name</span><span class="value">${escapeHtml(safeUser.firstName)} ${escapeHtml(safeUser.lastName)}</span></div>
@@ -703,7 +684,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                                         <div class="field"><span class="label">Date of Birth</span><span class="value">${escapeHtml(safeUser.dob || 'N/A')}</span></div>
                                     </div>
                                 </div>
-                                ${cleanLogo ? `<img src="${cleanLogo}" class="logo-img" />` : ''}
+                                ${safeUser.documents?.logo ? `<img src="${safeUser.documents.logo}" class="logo-img" />` : ''}
                             </div>
 
                             <div class="section-title">Business Information</div>
@@ -759,7 +740,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     <div className="min-h-screen bg-gray-100 p-4 sm:p-6 lg:p-8 relative">
       <div className="max-w-7xl mx-auto space-y-8">
         
-        {/* Header with Notification Count */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
           <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
           
@@ -797,8 +777,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
           </div>
         </div>
 
-        {/* ... (Rest of dashboard components) ... */}
-        {/* Analytics Section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="bg-white p-6 rounded-lg shadow-sm">
             <h2 className="text-lg font-bold text-gray-700 mb-4">Membership Status</h2>
@@ -847,7 +825,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
           </div>
         </div>
 
-        {/* Announcements Section */}
         <div className="bg-white rounded-lg shadow-sm p-6">
            <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
              <Megaphone className="h-5 w-5 mr-2 text-green-600" /> Active Announcements
@@ -880,7 +857,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
            </div>
         </div>
 
-        {/* User Management Section */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
           <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
             <h2 className="text-xl font-bold text-gray-900">Member Management</h2>
@@ -1020,7 +996,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       </div>
 
-      {/* Pending Payments Modal */}
       {showPendingPaymentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
@@ -1097,9 +1072,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* Export Modal, Announcement Modal, Edit Modals ... (Rest remains unchanged) */}
-      {/* ... */}
-      {/* Export Modal */}
+      {/* Export Modal, Announcement Modal, Edit Modals ... */}
+      
       {showExportModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
@@ -1208,7 +1182,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* Make Announcement Modal */}
       {showAnnounceModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
@@ -1279,7 +1252,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* Edit ID Modal */}
       {idEditModal && idEditModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
@@ -1317,7 +1289,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* Edit Expiry Modal */}
       {expiryEditModal && expiryEditModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
@@ -1359,7 +1330,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* Edit Status Modal */}
       {statusEditModal && statusEditModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
@@ -1404,7 +1374,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* Document Upload Modal */}
       {docModal && docModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
@@ -1422,13 +1391,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
              <div className="space-y-6">
                 
-                {/* User Submissions Section */}
                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                     <h3 className="font-bold text-blue-800 mb-3 text-sm uppercase flex items-center">
                         <UserIcon className="h-4 w-4 mr-1"/> Registration Submissions
                     </h3>
                     <div className="grid grid-cols-2 gap-4">
-                        {/* Profile Image */}
                         <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center">
                             <span className="text-xs font-semibold text-gray-500 mb-2">Profile Image</span>
                             {docModal.profileImage ? (
@@ -1439,7 +1406,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                             ) : <span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>}
                         </div>
 
-                        {/* Business Logo */}
                         <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center">
                             <span className="text-xs font-semibold text-gray-500 mb-2">Business Logo</span>
                             {docModal.logo ? (
@@ -1450,7 +1416,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                             ) : <span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>}
                         </div>
 
-                        {/* CAC Cert */}
                         <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center justify-center text-center">
                             <span className="text-xs font-semibold text-gray-500 mb-2">CAC Certificate</span>
                             {docModal.cac ? (
@@ -1461,7 +1426,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                             ) : <span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>}
                         </div>
 
-                        {/* Evidence */}
                         <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center justify-center text-center">
                             <span className="text-xs font-semibold text-gray-500 mb-2">Business Evidence</span>
                             {docModal.evidence ? (
@@ -1478,11 +1442,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
                 <h3 className="font-bold text-gray-800 mb-1 text-sm uppercase">Issue Documents</h3>
 
-                {/* ID Card Section */}
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                    <div className="flex justify-between items-start mb-3">
                       <label className="block text-sm font-bold text-gray-800">Membership ID Card</label>
-                      {docModal.idCard && (
+                      {uploadingDocs.idCard ? (
+                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>
+                      ) : docModal.idCard && (
                          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>
                       )}
                    </div>
@@ -1491,7 +1456,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                          <input 
                            type="file" 
                            onChange={(e) => handleDocFileChange(e, 'idCard')}
-                           className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700"
+                           disabled={uploadingDocs.idCard}
+                           className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50"
                          />
                       </div>
                       {docModal.idCard && (
@@ -1500,14 +1466,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </a>
                       )}
                    </div>
-                   {docFiles.idCard && <p className="text-xs text-amber-600 mt-2">New file selected (unsaved)</p>}
+                   {docFiles.idCard && <p className="text-xs text-amber-600 mt-2">New file uploaded (unsaved)</p>}
                 </div>
 
-                {/* Certificate Section */}
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                    <div className="flex justify-between items-start mb-3">
                       <label className="block text-sm font-bold text-gray-800">Membership Certificate</label>
-                      {docModal.certificate && (
+                      {uploadingDocs.certificate ? (
+                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>
+                      ) : docModal.certificate && (
                          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>
                       )}
                    </div>
@@ -1516,7 +1483,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                          <input 
                            type="file" 
                            onChange={(e) => handleDocFileChange(e, 'certificate')}
-                           className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700"
+                           disabled={uploadingDocs.certificate}
+                           className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50"
                          />
                       </div>
                       {docModal.certificate && (
@@ -1525,7 +1493,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </a>
                       )}
                    </div>
-                   {docFiles.certificate && <p className="text-xs text-amber-600 mt-2">New file selected (unsaved)</p>}
+                   {docFiles.certificate && <p className="text-xs text-amber-600 mt-2">New file uploaded (unsaved)</p>}
                 </div>
              </div>
 
@@ -1538,7 +1506,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 </button>
                 <button 
                   onClick={handleSaveDocs}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
+                  disabled={uploadingDocs.idCard || uploadingDocs.certificate}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center disabled:opacity-50"
                 >
                   <Save className="h-4 w-4 mr-2" /> Save Documents
                 </button>
@@ -1547,7 +1516,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* Payment Recording / Management Modal */}
       {paymentModal && paymentModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
@@ -1564,7 +1532,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 Payments for: <span className="font-semibold">{paymentModal.name}</span>
             </p>
 
-            {/* Payment List */}
             <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0">
@@ -1681,21 +1648,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </div>
                         <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">Receipt</label>
-                            <input 
-                            type="file" 
-                            accept="image/*,application/pdf"
-                            onChange={handlePaymentFileChange}
-                            className="block w-full text-xs text-gray-500"
-                            />
+                            <div className="relative">
+                                {isUploadingReceipt ? (
+                                    <div className="flex items-center space-x-2 text-xs text-gray-500">
+                                        <Loader2 className="h-4 w-4 animate-spin" /> <span>Uploading...</span>
+                                    </div>
+                                ) : (
+                                    <input 
+                                    type="file" 
+                                    accept="image/*,application/pdf"
+                                    onChange={handlePaymentFileChange}
+                                    className="block w-full text-xs text-gray-500"
+                                    />
+                                )}
+                            </div>
                         </div>
                     </div>
 
                     <div className="pt-2 flex justify-end">
                         <button 
                         type="submit"
-                        className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center text-sm"
+                        disabled={isUploadingReceipt}
+                        className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center text-sm disabled:opacity-50"
                         >
-                        Save Payment
+                        {isUploadingReceipt ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Payment'}
                         </button>
                     </div>
                 </form>

@@ -13,10 +13,23 @@ const API_URL = isLocal
     ? 'http://localhost:5000/api'  // Local Backend Server
     : '/.netlify/functions/api';   // Production Backend (Netlify Functions)
 
+// Helper to safely get user from local storage
+const getStoredUser = () => {
+    try {
+        const stored = localStorage.getItem('ran_user');
+        if (!stored) return null;
+        return JSON.parse(stored);
+    } catch (e) {
+        console.error("Corrupted session data found. Clearing...", e);
+        localStorage.removeItem('ran_user');
+        return null;
+    }
+};
+
 // Helper to get Auth Headers
-// Returning empty object as we now rely on HttpOnly cookies
 const getAuthHeaders = () => {
-    return {};
+    const user = getStoredUser();
+    return (user && user.token) ? { 'Authorization': `Bearer ${user.token}` } : {};
 };
 
 const handleResponse = async (res: Response) => {
@@ -55,9 +68,10 @@ export const api = {
     });
     const user = await handleResponse(res);
     // Strip token before storing non-sensitive data in localStorage for UI persistence
-    const { token, ...safeUser } = user;
-    localStorage.setItem('ran_user', JSON.stringify(safeUser));
-    return safeUser;
+    // Note: We might want to keep token if using Bearer Auth from localStorage, 
+    // but the backend also sets a cookie. We store whatever the backend returns.
+    localStorage.setItem('ran_user', JSON.stringify(user));
+    return user;
   },
 
   register: async (userData: any): Promise<User> => {
@@ -68,10 +82,8 @@ export const api = {
         credentials: 'include'
     });
     const user = await handleResponse(res);
-    // Strip token before storing non-sensitive data
-    const { token, ...safeUser } = user;
-    localStorage.setItem('ran_user', JSON.stringify(safeUser));
-    return safeUser;
+    localStorage.setItem('ran_user', JSON.stringify(user));
+    return user;
   },
 
   resetPassword: async (email: string): Promise<void> => {
@@ -107,8 +119,7 @@ export const api = {
   },
 
   getCurrentUser: async (): Promise<User | null> => {
-    const stored = localStorage.getItem('ran_user');
-    return stored ? JSON.parse(stored) : null;
+    return getStoredUser();
   },
 
   // User Management
@@ -144,11 +155,11 @@ export const api = {
     const data = await handleResponse(res);
     
     // Update local storage if updating current user
-    const currentUser = JSON.parse(localStorage.getItem('ran_user') || '{}');
-    if (currentUser.id === data.id) {
-       // Since token is no longer in local storage, we just update the user fields
-       // Ensure we don't accidentally save a token if backend returned one (it shouldn't in updateUser but let's be safe)
-       const { token, ...safeData } = data;
+    const currentUser = getStoredUser();
+    if (currentUser && currentUser.id === data.id) {
+       // Preserve the token if it exists
+       const token = currentUser.token || data.token;
+       const safeData = { ...data, token };
        localStorage.setItem('ran_user', JSON.stringify(safeData));
        return safeData;
     }

@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, MembershipStatus, Announcement, Payment, BankDetails } from '../types';
 import { api } from '../services/api';
+import { uploadToCloudinary } from '../services/cloudinary';
 import { CreditCard, Download, User as UserIcon, Bell, AlertTriangle, Users, Camera, X, Check, Loader2, Clock, UploadCloud, MessageCircle } from 'lucide-react';
 
 interface UserDashboardProps {
@@ -18,19 +19,19 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   const [payments, setPayments] = useState<Payment[]>([]);
   const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
 
-  // Payment Modal State
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDesc, setPaymentDesc] = useState('');
-  const [receiptFile, setReceiptFile] = useState<string>('');
+  const [receiptFileUrl, setReceiptFileUrl] = useState<string>('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  
+  const [isUploadingProfile, setIsUploadingProfile] = useState(false);
+  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
 
   useEffect(() => {
-    // 1. Set initial data from props
     setDisplayUser(user);
     setFormData(user);
     
-    // 2. Refresh full user data (in case session storage stripped docs/images)
     const loadFullUser = async () => {
         try {
             const fullDetails = await api.getUser(user.id);
@@ -43,7 +44,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         }
     };
 
-    // 3. Fetch announcements
     const loadAnnouncements = async () => {
       try {
         const data = await api.getAnnouncements();
@@ -53,7 +53,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       }
     };
 
-    // 4. Fetch Payments
     const loadPayments = async () => {
         try {
             const data = await api.getPayments(user.id);
@@ -63,7 +62,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         }
     };
 
-    // 5. Fetch Bank Details
     const loadBankDetails = async () => {
         try {
             const details = await api.getBankDetails();
@@ -79,7 +77,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
     loadBankDetails();
   }, [user]);
 
-  // Expiry Calculation
   const getDaysUntilExpiry = () => {
     if (!displayUser.expiryDate) return null;
     const today = new Date();
@@ -92,37 +89,44 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   const isExpired = displayUser.status === MembershipStatus.EXPIRED || (daysUntilExpiry !== null && daysUntilExpiry < 0);
   const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          // Create canvas for resizing
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 400; // Constrain width to 400px
-          const scaleSize = MAX_WIDTH / img.width;
-          
-          // If image is smaller than max width, keep original size, else resize
-          if (scaleSize < 1) {
-              canvas.width = MAX_WIDTH;
-              canvas.height = img.height * scaleSize;
-          } else {
-              canvas.width = img.width;
-              canvas.height = img.height;
-          }
-          
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-          
-          // Get compressed base64 string
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.5);
-          setFormData(prev => ({ ...prev, profileImage: compressedDataUrl }));
-        };
-        img.src = event.target?.result as string;
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    setIsUploadingProfile(true);
+
+    try {
+        const compressedBase64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 400; 
+              const scaleSize = MAX_WIDTH / img.width;
+              if (scaleSize < 1) {
+                  canvas.width = MAX_WIDTH;
+                  canvas.height = img.height * scaleSize;
+              } else {
+                  canvas.width = img.width;
+                  canvas.height = img.height;
+              }
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+              resolve(canvas.toDataURL('image/jpeg', 0.7));
+            };
+            img.src = event.target?.result as string;
+          };
+          reader.readAsDataURL(file);
+        });
+
+        const url = await uploadToCloudinary(compressedBase64);
+        setFormData(prev => ({ ...prev, profileImage: url }));
+    } catch (err) {
+        console.error(err);
+        alert("Failed to upload profile image.");
+    } finally {
+        setIsUploadingProfile(false);
     }
   };
 
@@ -134,52 +138,60 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
     setIsEditing(false);
   };
 
-  const handleReceiptChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleReceiptChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-       if (file.size > 2 * 1024 * 1024) { // 2MB Limit
-        alert("Receipt file is too large. Max 2MB.");
-        return;
-      }
+    if (!file) return;
 
-      if (file.type.startsWith('image/')) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const img = new Image();
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const MAX_WIDTH = 800; 
-              const scaleSize = MAX_WIDTH / img.width;
-              
-              if (scaleSize < 1) {
-                  canvas.width = MAX_WIDTH;
-                  canvas.height = img.height * scaleSize;
-              } else {
-                  canvas.width = img.width;
-                  canvas.height = img.height;
-              }
-              const ctx = canvas.getContext('2d');
-              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-              // Compressed receipt
-              setReceiptFile(canvas.toDataURL('image/jpeg', 0.5));
-            };
-            img.src = event.target?.result as string;
-          };
-          reader.readAsDataURL(file);
-      } else {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-             setReceiptFile(event.target?.result as string);
-          };
-          reader.readAsDataURL(file);
-      }
+    if (file.size > 5 * 1024 * 1024) { 
+        alert("File is too large. Max 5MB.");
+        return;
+    }
+
+    setIsUploadingReceipt(true);
+
+    try {
+        let uploadPayload: File | string = file;
+        
+        if (file.type.startsWith('image/')) {
+            uploadPayload = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const MAX_WIDTH = 800; 
+                        const scaleSize = MAX_WIDTH / img.width;
+                        if (scaleSize < 1) {
+                            canvas.width = MAX_WIDTH;
+                            canvas.height = img.height * scaleSize;
+                        } else {
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                        }
+                        const ctx = canvas.getContext('2d');
+                        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.7));
+                    };
+                    img.src = event.target?.result as string;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        const url = await uploadToCloudinary(uploadPayload);
+        setReceiptFileUrl(url);
+    } catch (err) {
+        console.error(err);
+        alert("Failed to upload receipt.");
+    } finally {
+        setIsUploadingReceipt(false);
     }
   };
 
   const handleMakePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!receiptFile) {
+    if (!receiptFileUrl) {
         alert("Please upload the payment receipt.");
         return;
     }
@@ -190,28 +202,20 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
             userId: user.id,
             amount: Number(paymentAmount),
             description: paymentDesc || 'Membership Renewal',
-            status: 'Pending', // User initiated payments are Pending
-            receipt: receiptFile
+            status: 'Pending',
+            receipt: receiptFileUrl
         });
         
-        // Refresh payments list
         const updatedPayments = await api.getPayments(user.id);
         setPayments(updatedPayments);
         
         setShowPaymentModal(false);
         setPaymentAmount('');
         setPaymentDesc('');
-        setReceiptFile('');
+        setReceiptFileUrl('');
         alert("Payment Submitted! Your receipt has been sent to the admin for confirmation.");
     } catch (e: any) {
-        if (e.message.includes('Authentication failed')) {
-            alert("Your session has expired. Please logout and login again to make a payment.");
-        } else if (e.message.includes('File too large')) {
-             alert("File is too large. Please resize your receipt image.");
-        } else {
-             alert(`Payment Upload Failed: ${e.message}`);
-        }
-        console.error(e);
+        alert(`Payment Upload Failed: ${e.message}`);
     } finally {
         setIsProcessingPayment(false);
     }
@@ -242,7 +246,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   return (
     <div className="min-h-screen bg-gray-100 p-4 sm:p-6 lg:p-8 relative">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Alerts Section */}
         {isExpired && (
             <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm animate-in fade-in slide-in-from-top-4 duration-500">
                 <div className="flex items-start justify-between">
@@ -289,7 +292,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
             </div>
         )}
 
-        {/* Header */}
         <div className="bg-white rounded-lg shadow-sm p-6 flex flex-col md:flex-row items-center justify-between">
           <div className="flex items-center space-x-4">
             <div className="relative h-16 w-16">
@@ -322,10 +324,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* Main Content Column */}
           <div className="lg:col-span-2 space-y-6">
-             
-             {/* Quick Actions (Including Directory) */}
              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                {navigate && (
                  <button 
@@ -361,13 +360,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                </a>
              </div>
 
-             {/* ID Card & Certificate */}
              <div className="bg-white rounded-lg shadow-sm p-6">
                 <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
                   <Download className="h-5 w-5 mr-2 text-amber-500" /> Downloads
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Membership ID Card */}
                   {displayUser.documents?.membershipIdCard ? (
                     <a 
                       href={displayUser.documents.membershipIdCard} 
@@ -386,7 +383,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                     </div>
                   )}
 
-                  {/* Membership Certificate */}
                   {displayUser.documents?.membershipCertificate ? (
                     <a 
                       href={displayUser.documents.membershipCertificate} 
@@ -407,7 +403,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                 </div>
              </div>
 
-             {/* Payment History */}
              <div className="bg-white rounded-lg shadow-sm p-6">
                <div className="flex justify-between items-center mb-4">
                  <h2 className="text-lg font-bold text-gray-900 flex items-center">
@@ -465,10 +460,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
              </div>
           </div>
 
-          {/* Sidebar Column */}
           <div className="space-y-6">
-            
-            {/* Profile Summary */}
             <div className="bg-white rounded-lg shadow-sm p-6">
               <h2 className="text-lg font-bold text-gray-900 mb-4">Membership Details</h2>
               <div className="space-y-3 text-sm">
@@ -497,7 +489,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
               </div>
             </div>
 
-            {/* Announcements */}
             <div className="bg-white rounded-lg shadow-sm p-6">
                <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
                  <Bell className="h-5 w-5 mr-2 text-amber-500" /> Announcements
@@ -522,7 +513,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
           </div>
         </div>
 
-        {/* Edit Profile Modal */}
         {isEditing && (
           <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
@@ -533,7 +523,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                 </div>
                 
                 <form onSubmit={handleSaveProfile} className="space-y-6">
-                  {/* Profile Image Upload */}
                   <div className="flex flex-col items-center">
                     <div className="relative group cursor-pointer">
                       <div className="h-24 w-24 rounded-full overflow-hidden border-4 border-gray-100 shadow-md">
@@ -545,9 +534,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                           </div>
                         )}
                       </div>
-                      <label className="absolute bottom-0 right-0 bg-green-600 text-white p-2 rounded-full shadow-lg hover:bg-green-700 transition-colors cursor-pointer">
-                        <Camera className="h-4 w-4" />
-                        <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+                      <label className={`absolute bottom-0 right-0 bg-green-600 text-white p-2 rounded-full shadow-lg hover:bg-green-700 transition-colors cursor-pointer ${isUploadingProfile ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                        {isUploadingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                        <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} disabled={isUploadingProfile} />
                       </label>
                     </div>
                     <p className="mt-2 text-sm text-gray-500">Tap icon to change photo (Max 400px width)</p>
@@ -593,9 +582,10 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                     </button>
                     <button 
                       type="submit" 
-                      className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 shadow-sm font-medium"
+                      disabled={isUploadingProfile}
+                      className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 shadow-sm font-medium disabled:opacity-50"
                     >
-                      Save Changes
+                      {isUploadingProfile ? 'Uploading...' : 'Save Changes'}
                     </button>
                   </div>
                 </form>
@@ -604,7 +594,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
           </div>
         )}
 
-        {/* Payment Modal */}
         {showPaymentModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md animate-in fade-in zoom-in duration-200">
@@ -616,7 +605,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                     <button onClick={() => setShowPaymentModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
                  </div>
 
-                 {/* Bank Details */}
                  <div className="bg-green-50 p-4 rounded-md mb-6 border border-green-200">
                     <p className="font-bold text-green-800 text-sm mb-2 uppercase tracking-wide">Bank Details for Transfer:</p>
                     {bankDetails ? (
@@ -659,18 +647,21 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Upload Receipt</label>
-                      <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md bg-gray-50 hover:bg-gray-100 transition-colors">
+                      <div className={`mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md bg-gray-50 hover:bg-gray-100 transition-colors ${!receiptFileUrl ? 'border-gray-300' : 'border-green-400 bg-green-50'}`}>
                         <div className="space-y-1 text-center">
-                          <UploadCloud className="mx-auto h-12 w-12 text-gray-400" />
-                          <div className="flex text-sm text-gray-600">
-                            <label className="relative cursor-pointer bg-white rounded-md font-medium text-green-600 hover:text-green-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-green-500">
-                              <span>Upload a file</span>
-                              <input type="file" accept="image/*,.pdf" className="sr-only" onChange={handleReceiptChange} required />
+                          {isUploadingReceipt ? (
+                              <Loader2 className="mx-auto h-12 w-12 text-green-500 animate-spin" />
+                          ) : (
+                              <UploadCloud className={`mx-auto h-12 w-12 ${receiptFileUrl ? 'text-green-500' : 'text-gray-400'}`} />
+                          )}
+                          <div className="flex text-sm text-gray-600 justify-center">
+                            <label className="relative cursor-pointer rounded-md font-medium text-green-600 hover:text-green-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-green-500">
+                              <span>{receiptFileUrl ? 'Change file' : 'Upload a file'}</span>
+                              <input type="file" accept="image/*,.pdf" className="sr-only" onChange={handleReceiptChange} disabled={isUploadingReceipt} required={!receiptFileUrl} />
                             </label>
-                            <p className="pl-1">or drag and drop</p>
                           </div>
-                          <p className="text-xs text-gray-500">PNG, JPG, PDF up to 2MB</p>
-                          {receiptFile && <p className="text-xs text-green-600 font-bold mt-2">File Selected!</p>}
+                          <p className="text-xs text-gray-500">PNG, JPG, PDF up to 5MB</p>
+                          {receiptFileUrl && <p className="text-xs text-green-600 font-bold mt-2">File Uploaded Successfully</p>}
                         </div>
                       </div>
                     </div>
@@ -678,8 +669,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                     <div className="pt-4">
                         <button 
                            type="submit" 
-                           disabled={isProcessingPayment}
-                           className="w-full bg-green-600 text-white py-2 rounded-md font-bold hover:bg-green-700 flex justify-center items-center shadow-lg"
+                           disabled={isProcessingPayment || isUploadingReceipt || !receiptFileUrl}
+                           className="w-full bg-green-600 text-white py-2 rounded-md font-bold hover:bg-green-700 flex justify-center items-center shadow-lg disabled:opacity-50"
                         >
                            {isProcessingPayment ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Submit Payment'}
                         </button>
