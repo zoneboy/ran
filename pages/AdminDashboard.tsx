@@ -34,7 +34,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
 
+  // Collection Filters
   const [collectionFilter, setCollectionFilter] = useState('');
+  const [collectionMaterialFilter, setCollectionMaterialFilter] = useState('');
+  const [collectionStartDate, setCollectionStartDate] = useState('');
+  const [collectionEndDate, setCollectionEndDate] = useState('');
+
+  // Announcement Filters
+  const [announcementDateFilter, setAnnouncementDateFilter] = useState('');
+  const [announcementTypeFilter, setAnnouncementTypeFilter] = useState('All');
   
   const [showExportModal, setShowExportModal] = useState(false);
   const [showAnnounceModal, setShowAnnounceModal] = useState(false);
@@ -130,6 +138,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const uniqueStates = Array.from(new Set(users.filter(u => u.role !== UserRole.ADMIN).map(u => u.businessState || 'Unknown'))) as string[];
   const uniqueRegions = Array.from(new Set(uniqueStates.map(s => getRegion(s))));
   const uniqueMachinery = Array.from(new Set(users.flatMap(u => u.machineryDeployed || []).filter(m => !!m)));
+  
+  // Derived Data for Collection Filters
+  const uniqueMaterials = Array.from(new Set(collections.map(c => c.material).filter(Boolean))).sort();
 
   const handleStatusChange = async (userId: string, newStatus: MembershipStatus) => {
     const previousUsers = [...users];
@@ -526,36 +537,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  const handleExportCollections = () => {
-    const headers = ['Date Logged', 'Member ID', 'Business Name', 'Period', 'Material', 'Weight (KG)'];
-    const rows = filteredCollections.map(c => [
-       new Date(c.createdAt).toLocaleDateString(),
-       c.userId,
-       `"${c.businessName}"`, // Escape commas in business name
-       `${c.month} ${c.year}`,
-       c.material,
-       c.weight
-    ]);
-
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `ran_collections_export_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   const filteredUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN) return false;
     
     // Status Filter
     if (statusFilter && u.status !== statusFilter) return false;
 
-    // Category Filter
-    if (categoryFilter && u.category !== categoryFilter) return false;
+    // Category Filter (Case Insensitive)
+    if (categoryFilter && (u.category || '').toLowerCase() !== categoryFilter.toLowerCase()) return false;
 
     // Text Search
     if (!filter) return true;
@@ -583,14 +572,67 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   });
 
   const filteredCollections = collections.filter(c => {
+    // Text Search
     const search = collectionFilter.toLowerCase();
-    return (
+    const matchesSearch = (
         (c.businessName || '').toLowerCase().includes(search) ||
         (c.material || '').toLowerCase().includes(search) ||
         (c.month || '').toLowerCase().includes(search) ||
         (c.userId || '').toLowerCase().includes(search)
     );
+
+    // Material Filter
+    const matchesMaterial = collectionMaterialFilter ? c.material === collectionMaterialFilter : true;
+
+    // Date Range Filter
+    let matchesDate = true;
+    if (collectionStartDate) {
+        matchesDate = matchesDate && new Date(c.createdAt) >= new Date(collectionStartDate);
+    }
+    if (collectionEndDate) {
+        const end = new Date(collectionEndDate);
+        end.setHours(23, 59, 59, 999);
+        matchesDate = matchesDate && new Date(c.createdAt) <= end;
+    }
+
+    return matchesSearch && matchesMaterial && matchesDate;
   });
+
+  const filteredAnnouncements = announcements.filter(ann => {
+    const matchDate = announcementDateFilter ? ann.date === announcementDateFilter : true;
+    const matchType = announcementTypeFilter === 'All' 
+        ? true 
+        : announcementTypeFilter === 'Important' 
+            ? ann.isImportant 
+            : !ann.isImportant;
+    return matchDate && matchType;
+  });
+
+  const handleExportCollections = () => {
+    const headers = ['Date Logged', 'Member ID', 'Business Name', 'Period', 'Material', 'Weight (KG)'];
+    const rows = filteredCollections.map(c => [
+       new Date(c.createdAt).toLocaleDateString(),
+       c.userId,
+       `"${c.businessName}"`, // Escape commas in business name
+       `${c.month} ${c.year}`,
+       c.material,
+       c.weight
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    
+    let filename = `ran_collections_${new Date().toISOString().split('T')[0]}`;
+    if (collectionMaterialFilter) filename += `_${collectionMaterialFilter.replace(/\s+/g, '_')}`;
+    link.setAttribute('download', `${filename}.csv`);
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const today = new Date();
   const expiringUsers = users.filter(u => {
@@ -607,7 +649,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       if(u.role === UserRole.ADMIN) return false;
       const matchState = exportConfig.state ? u.businessState === exportConfig.state : true;
       const matchRegion = exportConfig.region ? getRegion(u.businessState) === exportConfig.region : true;
-      const matchCat = exportConfig.category ? u.category === exportConfig.category : true;
+      // Case Insensitive Category Match
+      const matchCat = exportConfig.category ? (u.category || '').toLowerCase() === exportConfig.category.toLowerCase() : true;
       const matchMach = exportConfig.machinery ? (u.machineryDeployed || []).includes(exportConfig.machinery) : true;
       return matchState && matchRegion && matchCat && matchMach;
     });
@@ -694,7 +737,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         .value { color: #000; }
                         .status-active { color: green; font-weight: bold; }
                         .status-expired { color: red; font-weight: bold; }
-                        .doc-badge { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-right: 5px; border: 1px solid #bae6fd; }
+                        .doc-badge { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-right: 5px; border: 1px solid #bae6fd; text-decoration: none; }
+                        .doc-badge:hover { background: #bae6fd; }
                     </style>
                 </head>
                 <body>
@@ -725,7 +769,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                             </div>
 
                             <div class="profile-header">
-                                ${safeUser.profileImage ? `<img src="${safeUser.profileImage}" class="profile-img" />` : '<div class="profile-img" style="display:flex;align-items:center;justify-content:center;color:#999;">No Photo</div>'}
+                                ${safeUser.profileImage ? `<img src="${safeUser.profileImage}" class="profile-img" crossorigin="anonymous" />` : '<div class="profile-img" style="display:flex;align-items:center;justify-content:center;color:#999;">No Photo</div>'}
                                 <div style="flex:1; padding-left: 10px;">
                                     <div class="grid">
                                         <div class="field"><span class="label">Contact Name</span><span class="value">${escapeHtml(safeUser.firstName)} ${escapeHtml(safeUser.lastName)}</span></div>
@@ -735,7 +779,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                                         <div class="field"><span class="label">Date of Birth</span><span class="value">${escapeHtml(safeUser.dob || 'N/A')}</span></div>
                                     </div>
                                 </div>
-                                ${safeUser.documents?.logo ? `<img src="${safeUser.documents.logo}" class="logo-img" />` : ''}
+                                ${safeUser.documents?.logo ? `<img src="${safeUser.documents.logo}" class="logo-img" crossorigin="anonymous" />` : ''}
                             </div>
 
                             <div class="section-title">Business Information</div>
@@ -761,11 +805,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                                 <div class="field">
                                     <span class="label">Uploaded Documents</span>
                                     <div style="margin-top:2px;">
-                                        ${safeUser.documents?.cac ? '<span class="doc-badge">CAC Cert</span>' : ''}
-                                        ${safeUser.documents?.evidence ? '<span class="doc-badge">Evidence</span>' : ''}
-                                        ${safeUser.documents?.membershipIdCard ? '<span class="doc-badge">ID Card</span>' : ''}
-                                        ${safeUser.documents?.membershipCertificate ? '<span class="doc-badge">RAN Cert</span>' : ''}
-                                        ${(!safeUser.documents?.cac && !safeUser.documents?.evidence) ? '<span style="color:#999;font-style:italic;">None</span>' : ''}
+                                        ${safeUser.documents?.cac ? `<a href="${safeUser.documents.cac}" target="_blank" class="doc-badge">CAC Cert</a>` : ''}
+                                        ${safeUser.documents?.evidence ? `<a href="${safeUser.documents.evidence}" target="_blank" class="doc-badge">Evidence</a>` : ''}
+                                        ${safeUser.documents?.membershipIdCard ? `<a href="${safeUser.documents.membershipIdCard}" target="_blank" class="doc-badge">ID Card</a>` : ''}
+                                        ${safeUser.documents?.membershipCertificate ? `<a href="${safeUser.documents.membershipCertificate}" target="_blank" class="doc-badge">RAN Cert</a>` : ''}
+                                        ${(!safeUser.documents?.cac && !safeUser.documents?.evidence && !safeUser.documents?.membershipIdCard && !safeUser.documents?.membershipCertificate) ? '<span style="color:#999;font-style:italic;">None</span>' : ''}
                                     </div>
                                 </div>
                             </div>
@@ -773,7 +817,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         `
                     }).join('')}
 
-                    <script>window.print();</script>
+                    <script>
+                        window.onload = function() {
+                            setTimeout(function() {
+                                window.print();
+                            }, 500);
+                        };
+                    </script>
                 </body>
                 </html>
             `);
@@ -877,14 +927,42 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
 
         <div className="bg-white rounded-lg shadow-sm p-6">
-           <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-             <Megaphone className="h-5 w-5 mr-2 text-green-600" /> Active Announcements
-           </h2>
+           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+               <h2 className="text-lg font-bold text-gray-900 flex items-center">
+                 <Megaphone className="h-5 w-5 mr-2 text-green-600" /> Active Announcements
+               </h2>
+               <div className="flex flex-wrap items-center gap-2">
+                   <select
+                       value={announcementTypeFilter}
+                       onChange={(e) => setAnnouncementTypeFilter(e.target.value)}
+                       className="text-sm border rounded-md px-2 py-1.5 focus:ring-green-500 focus:border-green-500 bg-white"
+                   >
+                       <option value="All">All Types</option>
+                       <option value="Important">Important</option>
+                       <option value="Regular">Regular</option>
+                   </select>
+                   <input
+                       type="date"
+                       value={announcementDateFilter}
+                       onChange={(e) => setAnnouncementDateFilter(e.target.value)}
+                       className="text-sm border rounded-md px-2 py-1.5 focus:ring-green-500 focus:border-green-500"
+                   />
+                   {(announcementDateFilter || announcementTypeFilter !== 'All') && (
+                       <button
+                           onClick={() => {setAnnouncementDateFilter(''); setAnnouncementTypeFilter('All');}}
+                           className="text-gray-400 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition-colors"
+                           title="Clear Filters"
+                       >
+                           <X className="h-4 w-4" />
+                       </button>
+                   )}
+               </div>
+           </div>
            <div className="space-y-3">
-              {announcements.length === 0 ? (
-                <p className="text-gray-500 text-sm">No active announcements.</p>
+              {filteredAnnouncements.length === 0 ? (
+                <p className="text-gray-500 text-sm">No announcements found matching filters.</p>
               ) : (
-                announcements.map(ann => (
+                filteredAnnouncements.map(ann => (
                   <div key={ann.id} className="flex justify-between items-start p-3 bg-gray-50 rounded border border-gray-100">
                     <div>
                       <h4 className="font-semibold text-gray-800 flex items-center">
@@ -1074,27 +1152,56 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
         {/* Collection Logs Section */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden mt-8">
-          <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
-            <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                <BarChart2 className="h-5 w-5 mr-2 text-green-600" /> Collection Activity Logs
-            </h2>
-            <div className="flex gap-4 w-full md:w-auto">
-                <div className="relative w-full md:w-64">
-                    <input
-                        type="text"
-                        placeholder="Filter collections..."
-                        value={collectionFilter}
-                        onChange={(e) => setCollectionFilter(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500"
-                    />
-                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                </div>
+          <div className="p-6 border-b border-gray-200 space-y-4">
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                <h2 className="text-xl font-bold text-gray-900 flex items-center">
+                    <BarChart2 className="h-5 w-5 mr-2 text-green-600" /> Collection Activity Logs
+                </h2>
                 <button 
-                onClick={handleExportCollections}
-                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors text-sm"
+                    onClick={handleExportCollections}
+                    className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors text-sm"
                 >
                     <Download className="h-4 w-4 mr-2" /> Export CSV
                 </button>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="relative">
+                    <input
+                        type="text"
+                        placeholder="Search collections..."
+                        value={collectionFilter}
+                        onChange={(e) => setCollectionFilter(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500 text-sm"
+                    />
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                </div>
+                <select
+                    value={collectionMaterialFilter}
+                    onChange={(e) => setCollectionMaterialFilter(e.target.value)}
+                    className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                >
+                    <option value="">All Materials</option>
+                    {uniqueMaterials.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <div className="flex items-center">
+                    <span className="text-gray-500 text-xs mr-2">From:</span>
+                    <input
+                        type="date"
+                        value={collectionStartDate}
+                        onChange={(e) => setCollectionStartDate(e.target.value)}
+                        className="w-full border rounded-md px-2 py-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                    />
+                </div>
+                <div className="flex items-center">
+                    <span className="text-gray-500 text-xs mr-2">To:</span>
+                    <input
+                        type="date"
+                        value={collectionEndDate}
+                        onChange={(e) => setCollectionEndDate(e.target.value)}
+                        className="w-full border rounded-md px-2 py-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                    />
+                </div>
             </div>
           </div>
           
@@ -1374,7 +1481,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                   Cancel
                 </button>
                 <button 
-                  type="submit"
+                  type="submit" 
                   className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center"
                 >
                    Post Announcement
