@@ -118,6 +118,14 @@ export const api = {
       const users: any[] = getStoredUsers();
       let user = users.find(u => u.email === email);
       if (!user) throw new Error('Invalid email or password');
+
+      // Security: Enforce bcrypt comparison
+      if (!password) throw new Error('Password is required');
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        throw new Error('Invalid email or password');
+      }
+
       const updatedUser = checkAndExpireUser(user);
       if (updatedUser.status !== user.status) {
          user = updatedUser;
@@ -150,7 +158,25 @@ export const api = {
       await delay(1200);
       const users: any[] = getStoredUsers();
       if (users.some(u => u.email === userData.email)) throw new Error('Email exists');
-      return userData as User; 
+      
+      // Hash password for mock storage
+      const salt = bcrypt.genSaltSync(10);
+      const hashedPassword = bcrypt.hashSync(userData.password, salt);
+      
+      const newUser = {
+          ...userData,
+          id: `user-${Date.now()}`,
+          dateJoined: new Date().toISOString().split('T')[0],
+          expiryDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
+          status: 'Pending',
+          password: hashedPassword
+      };
+      
+      users.push(newUser);
+      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+
+      const { password, ...safeUser } = newUser;
+      return safeUser as User; 
     }
     const res = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
@@ -207,7 +233,10 @@ export const api = {
     if (USE_MOCK_BACKEND) {
       await delay(500);
       const users: any[] = getStoredUsers();
-      return users.map((u: any) => checkAndExpireUser(u));
+      return users.map((u: any) => {
+         const { password, ...safe } = u;
+         return checkAndExpireUser(safe);
+      });
     }
     const res = await fetch(`${API_URL}/users`, {
         headers: getAuthHeaders()
@@ -216,7 +245,23 @@ export const api = {
   },
 
   updateUser: async (updatedUser: User): Promise<User> => {
-    if (USE_MOCK_BACKEND) return updatedUser;
+    if (USE_MOCK_BACKEND) {
+        const users = getStoredUsers();
+        const index = users.findIndex((u: any) => u.id === updatedUser.id);
+        if (index !== -1) {
+            // Keep password from storage, as updatedUser usually doesn't have it
+            const existingPassword = users[index].password;
+            users[index] = { ...updatedUser, password: existingPassword };
+            localStorage.setItem(USERS_KEY, JSON.stringify(users));
+            
+            // Update current user if matches
+            const currentUser = JSON.parse(localStorage.getItem(CURRENT_USER_KEY) || '{}');
+            if (currentUser.id === updatedUser.id) {
+                localStorage.setItem(CURRENT_USER_KEY, JSON.stringify({ ...updatedUser, token: currentUser.token }));
+            }
+        }
+        return updatedUser;
+    }
     // Changed to /user/update?id=... to avoid path param issues with slashes
     const res = await fetch(`${API_URL}/user/update?id=${encodeURIComponent(updatedUser.id)}`, {
         method: 'PUT',
@@ -241,6 +286,15 @@ export const api = {
   },
 
   updateUserId: async (currentId: string, newId: string): Promise<void> => {
+     if (USE_MOCK_BACKEND) {
+         const users = getStoredUsers();
+         const index = users.findIndex((u: any) => u.id === currentId);
+         if (index !== -1) {
+             users[index].id = newId;
+             localStorage.setItem(USERS_KEY, JSON.stringify(users));
+         }
+         return;
+     }
      const res = await fetch(`${API_URL}/users/update-id`, {
         method: 'POST',
         headers: { 
@@ -260,7 +314,13 @@ export const api = {
   },
 
   createAnnouncement: async (announcement: Omit<Announcement, 'id'>): Promise<Announcement> => {
-    if (USE_MOCK_BACKEND) return {} as Announcement;
+    if (USE_MOCK_BACKEND) {
+        const anns = getStoredAnnouncements();
+        const newAnn = { ...announcement, id: Date.now().toString() };
+        anns.unshift(newAnn);
+        localStorage.setItem(ANNOUNCEMENTS_KEY, JSON.stringify(anns));
+        return newAnn as Announcement;
+    }
     const res = await fetch(`${API_URL}/announcements`, {
         method: 'POST',
         headers: { 
@@ -273,7 +333,11 @@ export const api = {
   },
 
   deleteAnnouncement: async (id: string): Promise<void> => {
-    if (USE_MOCK_BACKEND) return;
+    if (USE_MOCK_BACKEND) {
+        const anns = getStoredAnnouncements().filter((a: any) => a.id !== id);
+        localStorage.setItem(ANNOUNCEMENTS_KEY, JSON.stringify(anns));
+        return;
+    }
     await fetch(`${API_URL}/announcements/${encodeURIComponent(id)}`, { 
         method: 'DELETE',
         headers: getAuthHeaders()
@@ -299,7 +363,13 @@ export const api = {
   },
 
   createPayment: async (paymentData: any): Promise<Payment> => {
-    if (USE_MOCK_BACKEND) return {} as Payment;
+    if (USE_MOCK_BACKEND) {
+        const payments = getStoredPayments();
+        const newPayment = { ...paymentData, id: `pay-${Date.now()}`, date: new Date().toISOString().split('T')[0], reference: `REF-${Math.floor(Math.random() * 100000)}` };
+        payments.unshift(newPayment);
+        localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
+        return newPayment;
+    }
     const res = await fetch(`${API_URL}/payments`, {
         method: 'POST',
         headers: { 
@@ -312,7 +382,15 @@ export const api = {
   },
 
   updatePaymentStatus: async (paymentId: string, status: 'Successful' | 'Pending' | 'Failed'): Promise<void> => {
-    if (USE_MOCK_BACKEND) return;
+    if (USE_MOCK_BACKEND) {
+        const payments = getStoredPayments();
+        const p = payments.find((x: any) => x.id === paymentId);
+        if (p) {
+            p.status = status;
+            localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
+        }
+        return;
+    }
     await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, {
         method: 'PUT',
         headers: { 
@@ -324,7 +402,11 @@ export const api = {
   },
 
   deletePayment: async (paymentId: string): Promise<void> => {
-    if (USE_MOCK_BACKEND) return;
+    if (USE_MOCK_BACKEND) {
+        const payments = getStoredPayments().filter((p: any) => p.id !== paymentId);
+        localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
+        return;
+    }
     await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, { 
         method: 'DELETE',
         headers: getAuthHeaders() 
