@@ -24,7 +24,6 @@ const ANNOUNCEMENTS_KEY = 'ran_announcements';
 const PAYMENTS_KEY = 'ran_payments';
 const MESSAGES_KEY = 'ran_messages';
 
-// ... (Rest of helper functions same as before) ...
 // Helper: Check for expiration and update status
 const checkAndExpireUser = (user: any): any => {
   if (user.role === 'ADMIN') return user;
@@ -90,12 +89,15 @@ const handleResponse = async (res: Response) => {
             const text = await res.text();
             console.error("API Error (Non-JSON):", text);
             if (res.status === 404) {
-                 throw new Error(`Endpoint not found (404). Ensure backend is running.`);
+                 throw new Error(`Endpoint not found (404). Backend route may be missing.`);
             }
-            if (res.status === 401 || res.status === 403) {
-                 throw new Error(`Authentication failed (${res.status}). Please login again.`);
+            if (res.status === 401) {
+                 throw new Error(`Authentication failed. Please login again.`);
             }
-            throw new Error(`Server Error: ${res.status} ${res.statusText}. Check backend logs.`);
+            if (res.status === 413) {
+                 throw new Error(`File too large. Please upload a smaller file.`);
+            }
+            throw new Error(`Server Error: ${res.status} ${res.statusText}`);
         }
     }
     return res.json();
@@ -127,7 +129,6 @@ export const api = {
       if (user.status === 'Suspended') throw new Error('Account suspended.');
       
       const { password: _, ...safeUser } = user;
-      // In Mock mode, we simulate a token field
       safeUser.token = "mock-jwt-token";
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(safeUser));
       return safeUser as User;
@@ -149,7 +150,6 @@ export const api = {
       await delay(1200);
       const users: any[] = getStoredUsers();
       if (users.some(u => u.email === userData.email)) throw new Error('Email exists');
-      // ... mock register ...
       return userData as User; 
     }
     const res = await fetch(`${API_URL}/auth/register`, {
@@ -195,6 +195,7 @@ export const api = {
         let found = users.find((u: any) => u.id === id);
         return found ? checkAndExpireUser(found) : null;
     }
+    // Using query param ?id=... to handle IDs with slashes safely
     const res = await fetch(`${API_URL}/user?id=${encodeURIComponent(id)}`, {
         headers: getAuthHeaders()
     });
@@ -216,7 +217,8 @@ export const api = {
 
   updateUser: async (updatedUser: User): Promise<User> => {
     if (USE_MOCK_BACKEND) return updatedUser;
-    const res = await fetch(`${API_URL}/users/${encodeURIComponent(updatedUser.id)}`, {
+    // Changed to /user/update?id=... to avoid path param issues with slashes
+    const res = await fetch(`${API_URL}/user/update?id=${encodeURIComponent(updatedUser.id)}`, {
         method: 'PUT',
         headers: { 
             'Content-Type': 'application/json',
@@ -229,7 +231,7 @@ export const api = {
     // Update local storage if updating current user
     const currentUser = JSON.parse(localStorage.getItem(CURRENT_USER_KEY) || '{}');
     if (currentUser.id === data.id) {
-       // Preserve the token in local storage, as the update response might not include it (depending on backend impl)
+       // Preserve the token
        const token = currentUser.token; 
        const updatedData = { ...data, token }; 
        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updatedData));
@@ -253,7 +255,6 @@ export const api = {
   // Announcements
   getAnnouncements: async (): Promise<Announcement[]> => {
     if (USE_MOCK_BACKEND) return getStoredAnnouncements();
-    // Public route, no auth needed
     const res = await fetch(`${API_URL}/announcements`);
     return await handleResponse(res);
   },
@@ -290,6 +291,7 @@ export const api = {
 
   getPayments: async (userId: string): Promise<Payment[]> => {
     if (USE_MOCK_BACKEND) return getStoredPayments().filter((p: Payment) => p.userId === userId);
+    // Using query param ?userId=... to handle IDs with slashes safely
     const res = await fetch(`${API_URL}/payments?userId=${encodeURIComponent(userId)}`, {
         headers: getAuthHeaders()
     });
@@ -302,7 +304,7 @@ export const api = {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json',
-            ...getAuthHeaders()
+            ...getAuthHeaders() // Added Auth Headers
         },
         body: JSON.stringify(paymentData)
     });
@@ -331,11 +333,9 @@ export const api = {
 
   // Messaging
   getConversations: async (userId: string): Promise<User[]> => {
-    if (USE_MOCK_BACKEND) {
-        // ... mock logic ...
-        return [];
-    }
+    if (USE_MOCK_BACKEND) return [];
     
+    // Using query param ?userId=...
     const res = await fetch(`${API_URL}/messages/conversations?userId=${encodeURIComponent(userId)}&t=${Date.now()}`, {
         headers: getAuthHeaders()
     });
@@ -343,10 +343,8 @@ export const api = {
   },
 
   getMessages: async (userId: string, otherUserId: string): Promise<Message[]> => {
-    if (USE_MOCK_BACKEND) {
-        // ... mock logic ...
-        return [];
-    }
+    if (USE_MOCK_BACKEND) return [];
+    // Using query params to handle IDs with slashes
     const res = await fetch(`${API_URL}/messages/chat?userId=${encodeURIComponent(userId)}&otherUserId=${encodeURIComponent(otherUserId)}`, {
         headers: getAuthHeaders()
     });
@@ -354,10 +352,7 @@ export const api = {
   },
 
   sendMessage: async (senderId: string, receiverId: string, content: string): Promise<Message> => {
-    if (USE_MOCK_BACKEND) {
-        // ... mock logic ...
-        return {} as Message;
-    }
+    if (USE_MOCK_BACKEND) return {} as Message;
     const res = await fetch(`${API_URL}/messages`, {
         method: 'POST',
         headers: { 
@@ -370,10 +365,7 @@ export const api = {
   },
 
   markMessagesRead: async (userId: string, otherUserId: string): Promise<void> => {
-    if (USE_MOCK_BACKEND) {
-        // ... mock logic ...
-        return;
-    }
+    if (USE_MOCK_BACKEND) return;
     await fetch(`${API_URL}/messages/read`, {
         method: 'PUT',
         headers: { 
@@ -385,10 +377,9 @@ export const api = {
   },
   
   getUnreadCount: async (userId: string): Promise<number> => {
-      if (USE_MOCK_BACKEND) {
-          return 0;
-      }
+      if (USE_MOCK_BACKEND) return 0;
       try {
+          // Using query param ?userId=...
           const res = await fetch(`${API_URL}/messages/unread?userId=${encodeURIComponent(userId)}`, {
               headers: getAuthHeaders()
           });

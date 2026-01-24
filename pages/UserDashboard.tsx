@@ -190,8 +190,15 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         setPaymentDesc('');
         setReceiptFile('');
         alert("Payment Submitted! Your receipt has been sent to the admin for confirmation.");
-    } catch (e) {
-        alert("Payment Upload Failed. File might be too large.");
+    } catch (e: any) {
+        if (e.message.includes('Authentication failed')) {
+            alert("Your session has expired. Please logout and login again to make a payment.");
+        } else if (e.message.includes('File too large')) {
+             alert("File is too large. Please resize your receipt image.");
+        } else {
+             alert(`Payment Upload Failed: ${e.message}`);
+        }
+        console.error(e);
     } finally {
         setIsProcessingPayment(false);
     }
@@ -222,7 +229,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   return (
     <div className="min-h-screen bg-gray-100 p-4 sm:p-6 lg:p-8 relative">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* ... (Rest of component matches existing structure) ... */}
         {/* Alerts Section */}
         {isExpired && (
             <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm animate-in fade-in slide-in-from-top-4 duration-500">

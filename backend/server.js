@@ -341,9 +341,13 @@ router.get('/user', authenticateToken, async (req, res) => {
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
-router.put('/users/:id', authenticateToken, async (req, res) => {
-  const { id } = req.params;
+// Changed from /users/:id to /user/update to avoid path parameter issues with slashed IDs (e.g. RAN/ASO/...)
+router.put('/user/update', authenticateToken, async (req, res) => {
+  // Use query param 'id' or body 'id', but verify security
+  const id = req.query.id || req.body.id;
   
+  if (!id) return res.status(400).json({ message: "Missing User ID for update" });
+
   // Security: Only Admin or the User themselves can update
   if (req.user.role !== 'ADMIN' && req.user.id !== id) {
       return res.status(403).json({ message: 'Unauthorized to update this profile' });
