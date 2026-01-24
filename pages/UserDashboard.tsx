@@ -57,6 +57,15 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   });
   const [isUploadingCollection, setIsUploadingCollection] = useState(false);
 
+  // Expiry Logic
+  const today = new Date();
+  const expiryDate = new Date(displayUser.expiryDate);
+  const diffTime = expiryDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  const isExpiringSoon = diffDays > 0 && diffDays <= 30;
+  const isExpired = diffDays <= 0;
+
   useEffect(() => {
     const fetchData = async () => {
         try {
@@ -213,6 +222,43 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                  </button>
             </div>
         </div>
+
+        {/* Renewal Notice */}
+        {(isExpiringSoon || isExpired) && (
+            <div className={`rounded-lg p-4 border-l-4 shadow-sm animate-in fade-in slide-in-from-top-2 ${isExpired ? 'bg-red-50 border-red-500' : 'bg-amber-50 border-amber-500'}`}>
+                <div className="flex items-start">
+                    <div className="flex-shrink-0">
+                        <AlertTriangle className={`h-5 w-5 ${isExpired ? 'text-red-500' : 'text-amber-500'}`} aria-hidden="true" />
+                    </div>
+                    <div className="ml-3 flex-1 md:flex md:justify-between md:items-center">
+                        <div>
+                            <h3 className={`text-sm font-bold ${isExpired ? 'text-red-800' : 'text-amber-800'}`}>
+                                {isExpired ? 'Membership Expired' : 'Membership Renewal Due'}
+                            </h3>
+                            <div className={`mt-1 text-sm ${isExpired ? 'text-red-700' : 'text-amber-700'}`}>
+                                <p>
+                                    {isExpired 
+                                        ? `Your membership expired on ${displayUser.expiryDate}. Please renew immediately to retain full access.` 
+                                        : `Your membership expires in ${diffDays} days (${displayUser.expiryDate}). Please renew to avoid interruption.`}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="mt-4 md:mt-0 md:ml-6">
+                            <button
+                                onClick={() => setShowPaymentModal(true)}
+                                className={`text-sm font-bold px-4 py-2 rounded-md shadow-sm transition-colors ${
+                                    isExpired 
+                                    ? 'bg-red-600 text-white hover:bg-red-700' 
+                                    : 'bg-amber-500 text-white hover:bg-amber-600'
+                                }`}
+                            >
+                                Renew Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
 
         {/* Announcements */}
         {announcements.length > 0 && (
