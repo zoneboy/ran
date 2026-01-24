@@ -97,7 +97,21 @@ function App() {
     return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-green-700">Loading RAN Portal...</div>;
   }
 
+  // Expiry Check Helper
+  const isExpired = () => {
+      if (!user) return false;
+      if (user.status === 'Expired') return true;
+      if (user.role === 'ADMIN') return false;
+      const today = new Date();
+      const expiryDate = new Date(user.expiryDate);
+      const diffTime = expiryDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays <= 0;
+  };
+
   const renderPage = () => {
+    const expired = isExpired();
+
     switch (currentPage) {
       case 'home':
         return <Home navigate={navigate} user={user} />;
@@ -110,8 +124,12 @@ function App() {
       case 'admin-dashboard':
         return user && user.role === 'ADMIN' ? <AdminDashboard /> : <Home navigate={navigate} user={user} />;
       case 'member-directory':
+        // Restrict directory if expired
+        if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
         return user ? <MemberDirectory navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
       case 'messages':
+        // Restrict messages if expired
+        if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
         return user ? <Messages currentUser={user} navigate={navigate} targetUserId={pageParams?.targetUserId} /> : <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
       default:
         return <Home navigate={navigate} user={user} />;

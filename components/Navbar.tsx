@@ -1,180 +1,183 @@
+
 import React, { useState, useEffect } from 'react';
-import { Menu, X, Recycle, User, LogOut, Users, MessageSquare } from 'lucide-react';
-import { User as UserType } from '../types';
-import { api } from '../services/api';
+import Navbar from './components/Navbar';
+import Home from './pages/Home';
+import Register from './pages/Register';
+import Login from './pages/Login';
+import UserDashboard from './pages/UserDashboard';
+import AdminDashboard from './pages/AdminDashboard';
+import MemberDirectory from './pages/MemberDirectory';
+import Messages from './pages/Messages';
+import { User } from './types';
+import { api } from './services/api';
 
-interface NavbarProps {
-  user: UserType | null;
-  onLogout: () => void;
-  navigate: (page: string) => void;
-  currentPage: string;
-}
+function App() {
+  const [currentPage, setCurrentPage] = useState('home');
+  const [pageParams, setPageParams] = useState<any>(null); // State to hold parameters passed during navigation
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-
+  // Initialize Session
   useEffect(() => {
-     if (user) {
-         const checkUnread = async () => {
-             const count = await api.getUnreadCount(user.id);
-             setUnreadCount(count);
-         };
-         checkUnread();
-         // Poll for unread count occasionally
-         const interval = setInterval(checkUnread, 30000);
-         return () => clearInterval(interval);
-     }
-  }, [user]);
+    const initSession = async () => {
+      try {
+        const storedUser = await api.getCurrentUser(); // Gets from Memory
+        
+        if (storedUser) {
+           // Validate against backend to ensure ID exists in Live DB
+           try {
+             const validUser = await api.getUser(storedUser.id);
+             if (validUser) {
+               setUser(validUser);
+             } else {
+               // User exists in memory but not in DB
+               await api.logout();
+               setUser(null);
+             }
+           } catch (e) {
+             console.warn("Backend validation failed (offline?), using stored session.");
+             setUser(storedUser);
+           }
+        }
+      } catch (error) {
+        console.error('Session restore failed', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    initSession();
 
-  const navLinks = [
-    { name: 'Home', value: 'home' },
-    { name: 'Benefits', value: 'benefits' }, // Placeholder link
-    { name: 'News', value: 'news' }, // Placeholder link
-  ];
+    // Check for Magic Link params in URL
+    const params = new URLSearchParams(window.location.search);
+    const page = params.get('page');
+    if (page === 'reset-password') {
+        const token = params.get('token');
+        const email = params.get('email');
+        if (token && email) {
+            setPageParams({ token, email });
+            setCurrentPage('login');
+            // Clean URL to avoid leaking token or re-triggering logic
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }
+  }, []);
 
-  const handleNav = (page: string) => {
-    navigate(page);
-    setIsOpen(false);
+  const navigate = (page: string, params?: any) => {
+    setPageParams(params);
+    setCurrentPage(page);
+    window.scrollTo(0, 0);
+  };
+
+  const handleLogin = (userData: User) => {
+    setUser(userData);
+    if (userData.role === 'ADMIN') {
+      navigate('admin-dashboard');
+    } else {
+      navigate('dashboard');
+    }
+  };
+
+  const handleLogout = async () => {
+    await api.logout();
+    setUser(null);
+    navigate('home');
+  };
+
+  const handleUpdateUser = async (updatedUser: User) => {
+    try {
+      const result = await api.updateUser(updatedUser);
+      setUser(result);
+    } catch (error) {
+      console.error('Update failed', error);
+      alert('Failed to update profile');
+    }
+  };
+
+  if (isLoading) {
+    return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-green-700">Loading RAN Portal...</div>;
+  }
+
+  // Expiry Check Helper
+  const isExpired = () => {
+      if (!user) return false;
+      if (user.status === 'Expired') return true;
+      if (user.role === 'ADMIN') return false;
+      const today = new Date();
+      const expiryDate = new Date(user.expiryDate);
+      const diffTime = expiryDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays <= 0;
+  };
+
+  const renderPage = () => {
+    const expired = isExpired();
+
+    switch (currentPage) {
+      case 'home':
+        return <Home navigate={navigate} user={user} />;
+      case 'register':
+        return <Register navigate={navigate} />;
+      case 'login':
+        return <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
+      case 'dashboard':
+        return user ? <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} /> : <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
+      case 'admin-dashboard':
+        return user && user.role === 'ADMIN' ? <AdminDashboard /> : <Home navigate={navigate} user={user} />;
+      case 'member-directory':
+        // Restrict directory if expired
+        if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
+        return user ? <MemberDirectory navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
+      case 'messages':
+        // Restrict messages if expired
+        if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
+        return user ? <Messages currentUser={user} navigate={navigate} targetUserId={pageParams?.targetUserId} /> : <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
+      default:
+        return <Home navigate={navigate} user={user} />;
+    }
   };
 
   return (
-    <nav className="bg-green-700 text-white shadow-lg sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <div className="flex items-center cursor-pointer" onClick={() => handleNav('home')}>
-            <Recycle className="h-8 w-8 text-amber-400 mr-2" />
-            <span className="font-bold text-xl tracking-tight">RAN Portal</span>
-          </div>
-          
-          <div className="hidden md:block">
-            <div className="ml-10 flex items-baseline space-x-4">
-              {navLinks.map((link) => (
-                <button
-                  key={link.value}
-                  onClick={() => handleNav(link.value)}
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    currentPage === link.value ? 'bg-green-800 text-white' : 'hover:bg-green-600'
-                  }`}
-                >
-                  {link.name}
-                </button>
-              ))}
-
-              {/* Authenticated Links */}
-              {user && (
-                 <>
-                    <button
-                        onClick={() => handleNav('member-directory')}
-                        className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center ${
-                        currentPage === 'member-directory' ? 'bg-green-800 text-white' : 'hover:bg-green-600'
-                        }`}
-                    >
-                        <Users className="h-4 w-4 mr-1" /> Directory
-                    </button>
-                    <button
-                        onClick={() => handleNav('messages')}
-                        className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center relative ${
-                        currentPage === 'messages' ? 'bg-green-800 text-white' : 'hover:bg-green-600'
-                        }`}
-                    >
-                        <MessageSquare className="h-4 w-4 mr-1" /> 
-                        Messages
-                        {unreadCount > 0 && (
-                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-4 w-4 flex items-center justify-center">
-                                {unreadCount > 9 ? '9+' : unreadCount}
-                            </span>
-                        )}
-                    </button>
-                  </>
-              )}
-
-              {!user && (
-                <>
-                  <button onClick={() => handleNav('login')} className="hover:bg-green-600 px-3 py-2 rounded-md text-sm font-medium">Login</button>
-                  <button onClick={() => handleNav('register')} className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">Register</button>
-                </>
-              )}
-
-              {user && (
-                <div className="flex items-center ml-4 space-x-4">
-                  <button 
-                    onClick={() => handleNav(user.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard')}
-                    className="flex items-center space-x-2 hover:bg-green-600 px-3 py-2 rounded-md transition-colors"
-                  >
-                    <User className="h-4 w-4" />
-                    <span>Dashboard</span>
-                  </button>
-                  <button 
-                    onClick={onLogout}
-                    className="flex items-center space-x-1 text-red-200 hover:text-red-100 transition-colors"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    <span className="text-sm">Logout</span>
-                  </button>
-                </div>
-              )}
+    <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+      <Navbar user={user} onLogout={handleLogout} navigate={navigate} currentPage={currentPage} />
+      <main>
+        {renderPage()}
+      </main>
+      
+      {/* Footer */}
+      <footer className="bg-gray-800 text-gray-300 py-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div className="col-span-1 md:col-span-2">
+              <h3 className="text-white text-lg font-bold mb-4">Recyclers Association of Nigeria</h3>
+              <p className="text-sm max-w-md">
+                Connecting recyclers, advocating for policies, and building a sustainable future for waste management in Nigeria.
+              </p>
+            </div>
+            <div>
+              <h4 className="text-white font-semibold mb-4">Quick Links</h4>
+              <ul className="space-y-2 text-sm">
+                <li><button onClick={() => navigate('home')} className="hover:text-white">Home</button></li>
+                {!user && <li><button onClick={() => navigate('register')} className="hover:text-white">Join Us</button></li>}
+                <li><button className="hover:text-white">Contact Support</button></li>
+                <li><button className="hover:text-white">Privacy Policy</button></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-white font-semibold mb-4">Contact</h4>
+              <ul className="space-y-2 text-sm">
+                <li>Lagos, Nigeria</li>
+                <li>info@ran.org.ng</li>
+                <li>+234 800 123 4567</li>
+              </ul>
             </div>
           </div>
-          
-          <div className="-mr-2 flex md:hidden">
-            <button
-              onClick={() => setIsOpen(!isOpen)}
-              className="bg-green-800 inline-flex items-center justify-center p-2 rounded-md text-gray-200 hover:text-white hover:bg-green-600 focus:outline-none"
-            >
-              {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-            </button>
+          <div className="border-t border-gray-700 mt-8 pt-8 text-center text-sm">
+            &copy; {new Date().getFullYear()} Recyclers Association of Nigeria. All rights reserved.
           </div>
         </div>
-      </div>
-
-      {/* Mobile Menu */}
-      {isOpen && (
-        <div className="md:hidden bg-green-700 pb-3">
-          <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
-            {navLinks.map((link) => (
-              <button
-                key={link.value}
-                onClick={() => handleNav(link.value)}
-                className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600"
-              >
-                {link.name}
-              </button>
-            ))}
-             {user && (
-                <>
-                    <button 
-                    onClick={() => handleNav('member-directory')} 
-                    className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600"
-                    >
-                    Member Directory
-                    </button>
-                    <button 
-                    onClick={() => handleNav('messages')} 
-                    className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600 flex items-center justify-between"
-                    >
-                    Messages
-                    {unreadCount > 0 && <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">{unreadCount} new</span>}
-                    </button>
-                </>
-             )}
-            {!user && (
-              <>
-                <button onClick={() => handleNav('login')} className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600">Login</button>
-                <button onClick={() => handleNav('register')} className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-amber-400 hover:text-amber-300">Register</button>
-              </>
-            )}
-            {user && (
-              <>
-                <button onClick={() => handleNav(user.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard')} className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600">Dashboard</button>
-                <button onClick={onLogout} className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-red-300 hover:text-red-200">Logout</button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </nav>
+      </footer>
+    </div>
   );
-};
+}
 
-export default Navbar;
+export default App;
