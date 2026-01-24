@@ -1,6 +1,7 @@
 
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
@@ -13,6 +14,16 @@ require('dotenv').config();
 const app = express();
 
 // Middleware
+app.use(helmet());
+app.use(helmet.contentSecurityPolicy({
+    directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'", process.env.API_URL ? process.env.API_URL : "'self'"],
+    }
+}));
 app.use(cors({ origin: '*' }));
 app.use(bodyParser.json({ limit: '50mb' }));
 
