@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Message } from '../types';
 import { api } from '../services/api';
 import { Send, User as UserIcon, Loader2, ArrowLeft, RefreshCw, MessageSquare } from 'lucide-react';
+import DOMPurify from 'dompurify';
 
 interface MessagesProps {
   currentUser: User;
@@ -19,6 +20,24 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
   const [error, setError] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const sanitizeMessage = (content: string): string => {
+      // Remove any HTML
+      let clean = DOMPurify.sanitize(content, {
+          ALLOWED_TAGS: [], // No HTML allowed
+          ALLOWED_ATTR: []
+      });
+      
+      // Neutralize javascript: URLs
+      clean = clean.replace(/javascript:/gi, 'blocked:');
+      
+      // Limit length
+      if (clean.length > 5000) {
+          clean = clean.substring(0, 5000) + '... [truncated]';
+      }
+      
+      return clean;
+  };
 
   // 1. Fetch Conversations List
   const fetchConversations = async () => {
@@ -246,7 +265,7 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
                         return (
                             <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                 <div className={`max-w-[80%] rounded-lg p-3 shadow-sm ${isMe ? 'bg-green-600 text-white rounded-br-none' : 'bg-white border text-gray-800 rounded-bl-none'}`}>
-                                    <p className="text-sm">{msg.content}</p>
+                                    <p className="text-sm">{sanitizeMessage(msg.content)}</p>
                                     <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-green-200' : 'text-gray-400'}`}>
                                         {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                     </p>
