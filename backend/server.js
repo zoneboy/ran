@@ -183,6 +183,43 @@ const mapUser = (row) => {
     };
 };
 
+const sanitizeUserForPublic = (user) => {
+    return {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        status: user.status,
+        category: user.category,
+        businessName: user.businessName,
+        businessAddress: user.businessAddress,
+        businessState: user.businessState,
+        businessCity: user.businessCity,
+        businessCategory: user.businessCategory,
+        materialTypes: user.materialTypes,
+        dateJoined: user.dateJoined,
+        profileImage: user.profileImage,
+        statesOfOperation: user.statesOfOperation,
+        // Redacted fields
+        gender: null,
+        email: null,
+        phone: null,
+        businessCommencement: null,
+        machineryDeployed: [],
+        monthlyVolume: null,
+        employees: null,
+        areasOfInterest: [],
+        relatedAssociation: null,
+        relatedAssociationName: null,
+        dob: null,
+        expiryDate: null, 
+        documents: {},
+        resetToken: null,
+        resetTokenExpiry: null,
+        token: null
+    };
+};
+
 const checkExpiry = async (user) => {
     if (user.role === 'ADMIN') return user;
     const today = new Date().toISOString().split('T')[0];
@@ -342,7 +379,14 @@ router.get('/users', authenticateToken, async (req, res) => {
     }
     
     const result = await pool.query(query);
-    const users = result.rows.map(mapUser).map(u => { const { password, ...safe } = u; return safe; });
+    const users = result.rows.map(mapUser).map(u => { 
+        const { password, ...safe } = u; 
+        // Security: Sanitize data for non-admins to prevent IDOR/Info Leak
+        if (req.user.role !== 'ADMIN') {
+            return sanitizeUserForPublic(safe);
+        }
+        return safe; 
+    });
     res.json(users);
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -351,9 +395,6 @@ router.get('/users', authenticateToken, async (req, res) => {
 router.get('/user', authenticateToken, async (req, res) => {
   const { id } = req.query;
   if (!id) return res.status(400).json({ message: "Missing id query parameter" });
-  
-  // Basic security: You can see your own profile, or if you are admin you can see anyone.
-  // Exception: Members can view directory profiles (active users)
   
   try {
     const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
@@ -366,6 +407,8 @@ router.get('/user', authenticateToken, async (req, res) => {
         if (user.status !== 'Active') {
              return res.status(403).json({ message: 'Cannot view inactive member profile.' });
         }
+        // Security: Redact sensitive info
+        user = sanitizeUserForPublic(user);
     }
 
     const { password, ...safeUser } = user;
@@ -594,7 +637,12 @@ router.get('/messages/conversations', authenticateToken, async (req, res) => {
             const mapped = mapUser(row);
             if (mapped) {
                 const { password, ...safe } = mapped;
-                usersMap.set(safe.id, safe);
+                // Security: Sanitize if not admin and not self (though self logic handled above)
+                if (req.user.role !== 'ADMIN' && req.user.id !== safe.id) {
+                     usersMap.set(safe.id, sanitizeUserForPublic(safe));
+                } else {
+                     usersMap.set(safe.id, safe);
+                }
             }
         });
         
