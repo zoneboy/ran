@@ -100,22 +100,32 @@ const initDb = async () => {
     try {
       await pool.query(schema);
       console.log('Database tables checked/created successfully');
-      // Seed Admin
-      const adminCheck = await pool.query("SELECT * FROM users WHERE email = 'admin@ran.org.ng'");
-      if (adminCheck.rows.length === 0) {
-          const salt = await bcrypt.genSalt(10);
-          const hashedPassword = await bcrypt.hash('Admin@123', salt);
-          const id = 'admin-seed-001';
-          await pool.query(`
-              INSERT INTO users (
-                  id, first_name, last_name, email, phone, password, role, status, 
-                  category, business_name, business_address, business_state, date_joined, expiry_date
-              ) VALUES (
-                  $1, 'System', 'Admin', 'admin@ran.org.ng', '08000000000', $2, 'ADMIN', 'Active',
-                  'HONORARY', 'RAN Headquarters', 'Abuja', 'FCT', $3, $4
-              )
-          `, [id, hashedPassword, new Date().toISOString().split('T')[0], '2099-12-31']);
+      
+      // Seed Admin using Environment Variables
+      const adminEmail = process.env.ADMIN_EMAIL;
+      const adminPassword = process.env.ADMIN_INITIAL_PASSWORD;
+
+      if (adminEmail && adminPassword) {
+        const adminCheck = await pool.query("SELECT * FROM users WHERE email = $1", [adminEmail]);
+        if (adminCheck.rows.length === 0) {
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(adminPassword, salt);
+            const id = 'admin-seed-001';
+            await pool.query(`
+                INSERT INTO users (
+                    id, first_name, last_name, email, phone, password, role, status, 
+                    category, business_name, business_address, business_state, date_joined, expiry_date
+                ) VALUES (
+                    $1, 'System', 'Admin', $2, '08000000000', $3, 'ADMIN', 'Active',
+                    'HONORARY', 'RAN Headquarters', 'Abuja', 'FCT', $4, $5
+                )
+            `, [id, adminEmail, hashedPassword, new Date().toISOString().split('T')[0], '2099-12-31']);
+            console.log(`Admin account seeded: ${adminEmail}`);
+        }
+      } else {
+        console.log("Admin seeding skipped: ADMIN_EMAIL or ADMIN_INITIAL_PASSWORD not configured.");
       }
+
       dbInitialized = true;
     } catch (e) {
       console.error('Error initializing database tables:', e);
