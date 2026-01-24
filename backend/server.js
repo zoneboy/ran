@@ -5,6 +5,8 @@ const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
@@ -31,6 +33,15 @@ const transporter = nodemailer.createTransport({
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ran_secret_key_change_in_production';
+
+// Rate Limiter for Password Reset
+const resetLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 3, // Limit each IP to 3 reset requests per windowMs
+    message: { message: 'Too many reset attempts. Please try again after an hour.' },
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
 
 // Database Initialization
 let dbInitialized = false;
@@ -228,14 +239,16 @@ router.post('/auth/login', async (req, res) => {
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
-router.post('/auth/request-reset', async (req, res) => {
+router.post('/auth/request-reset', resetLimiter, async (req, res) => {
   const { email } = req.body;
   try {
       const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
       const user = result.rows[0];
       if (!user) return res.status(200).json({ message: 'If this email exists, a reset code has been sent.' });
-      const token = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiry = Date.now() + 3600000;
+      
+      const token = crypto.randomBytes(32).toString('hex'); // 256-bit token
+      const expiry = Date.now() + 900000; // 15 minutes
+      
       await pool.query('UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE email = $3', [token, expiry, email]);
       
       if (!process.env.EMAIL_USER) {

@@ -252,18 +252,17 @@ const Login: React.FC<LoginProps> = ({ onLogin, navigate }) => {
                 <form className="mt-8 space-y-6" onSubmit={handleResetConfirm}>
                     <div className="space-y-4">
                         <div className="bg-amber-50 p-3 rounded text-amber-800 text-xs text-center border border-amber-100 mb-4">
-                            Check your email (or the browser alert) for the 6-digit code.
+                            Check your email (or the browser alert) for the reset code.
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Reset Code (OTP)</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Reset Code</label>
                             <input
                                 type="text"
                                 required
                                 value={otpCode}
                                 onChange={(e) => setOtpCode(e.target.value)}
-                                className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm text-center tracking-widest font-mono text-lg"
-                                placeholder="123456"
-                                maxLength={6}
+                                className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm font-mono text-center"
+                                placeholder="Enter reset token"
                             />
                         </div>
                         <div>
