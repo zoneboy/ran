@@ -24,7 +24,6 @@ const ANNOUNCEMENTS_KEY = 'ran_announcements';
 const PAYMENTS_KEY = 'ran_payments';
 const MESSAGES_KEY = 'ran_messages';
 
-// ... (Rest of helper functions same as before) ...
 // Helper: Check for expiration and update status
 const checkAndExpireUser = (user: any): any => {
   if (user.role === 'ADMIN') return user;
@@ -41,8 +40,6 @@ const getStoredUsers = () => {
   if (typeof window === 'undefined') return [];
   const stored = localStorage.getItem(USERS_KEY);
   if (!stored || JSON.parse(stored).length === 0) {
-    // console.log('Database empty or missing. Restoring Default Mock Data...');
-    // Only restore if we are actually using mock backend to avoid confusion
     if (USE_MOCK_BACKEND) {
         const salt = bcrypt.genSaltSync(10);
         const hash = bcrypt.hashSync('password123', salt);
@@ -73,6 +70,14 @@ const getStoredMessages = () => {
     return stored ? JSON.parse(stored) : [];
 };
 
+// Helper to get Auth Headers
+const getAuthHeaders = () => {
+    const stored = localStorage.getItem(CURRENT_USER_KEY);
+    if (!stored) return {};
+    const user = JSON.parse(stored);
+    return user.token ? { 'Authorization': `Bearer ${user.token}` } : {};
+};
+
 const handleResponse = async (res: Response) => {
     if (!res.ok) {
         const contentType = res.headers.get("content-type");
@@ -84,9 +89,15 @@ const handleResponse = async (res: Response) => {
             const text = await res.text();
             console.error("API Error (Non-JSON):", text);
             if (res.status === 404) {
-                 throw new Error(`Endpoint not found (404). Ensure backend is running.`);
+                 throw new Error(`Endpoint not found (404). Backend route may be missing.`);
             }
-            throw new Error(`Server Error: ${res.status} ${res.statusText}. Check backend logs.`);
+            if (res.status === 401) {
+                 throw new Error(`Authentication failed. Please login again.`);
+            }
+            if (res.status === 413) {
+                 throw new Error(`File too large. Please upload a smaller file.`);
+            }
+            throw new Error(`Server Error: ${res.status} ${res.statusText}`);
         }
     }
     return res.json();
@@ -117,9 +128,8 @@ export const api = {
       if (user.status === 'Pending') throw new Error('Account pending approval.');
       if (user.status === 'Suspended') throw new Error('Account suspended.');
       
-      // Pass check logic...
-      // Return safe user...
       const { password: _, ...safeUser } = user;
+      safeUser.token = "mock-jwt-token";
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(safeUser));
       return safeUser as User;
     } 
@@ -140,12 +150,8 @@ export const api = {
       await delay(1200);
       const users: any[] = getStoredUsers();
       if (users.some(u => u.email === userData.email)) throw new Error('Email exists');
-      // ... mock register logic ...
-      // Return
       return userData as User; 
     }
-    
-    // LIVE MODE
     const res = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -189,7 +195,10 @@ export const api = {
         let found = users.find((u: any) => u.id === id);
         return found ? checkAndExpireUser(found) : null;
     }
-    const res = await fetch(`${API_URL}/users/${encodeURIComponent(id)}`);
+    // Using query param ?id=... to handle IDs with slashes safely
+    const res = await fetch(`${API_URL}/user?id=${encodeURIComponent(id)}`, {
+        headers: getAuthHeaders()
+    });
     if (!res.ok) return null;
     return await res.json();
   },
@@ -200,24 +209,33 @@ export const api = {
       const users: any[] = getStoredUsers();
       return users.map((u: any) => checkAndExpireUser(u));
     }
-    const res = await fetch(`${API_URL}/users`);
+    const res = await fetch(`${API_URL}/users`, {
+        headers: getAuthHeaders()
+    });
     return await handleResponse(res);
   },
 
   updateUser: async (updatedUser: User): Promise<User> => {
-    if (USE_MOCK_BACKEND) {
-      // ... mock update logic ...
-      return updatedUser;
-    }
-    const res = await fetch(`${API_URL}/users/${encodeURIComponent(updatedUser.id)}`, {
+    if (USE_MOCK_BACKEND) return updatedUser;
+    // Changed to /user/update?id=... to avoid path parameter issues with slashes
+    const res = await fetch(`${API_URL}/user/update?id=${encodeURIComponent(updatedUser.id)}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            ...getAuthHeaders() 
+        },
         body: JSON.stringify(updatedUser)
     });
     const data = await handleResponse(res);
+    
+    // Update local storage if updating current user
     const currentUser = JSON.parse(localStorage.getItem(CURRENT_USER_KEY) || '{}');
     if (currentUser.id === data.id) {
-       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(data));
+       // Preserve the token
+       const token = currentUser.token; 
+       const updatedData = { ...data, token }; 
+       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updatedData));
+       return updatedData;
     }
     return data;
   },
@@ -225,7 +243,10 @@ export const api = {
   updateUserId: async (currentId: string, newId: string): Promise<void> => {
      const res = await fetch(`${API_URL}/users/update-id`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
         body: JSON.stringify({ currentId, newId })
     });
     await handleResponse(res);
@@ -239,10 +260,13 @@ export const api = {
   },
 
   createAnnouncement: async (announcement: Omit<Announcement, 'id'>): Promise<Announcement> => {
-    if (USE_MOCK_BACKEND) return {} as Announcement; // Mock simplified
+    if (USE_MOCK_BACKEND) return {} as Announcement;
     const res = await fetch(`${API_URL}/announcements`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
         body: JSON.stringify(announcement)
     });
     return await handleResponse(res);
@@ -250,19 +274,27 @@ export const api = {
 
   deleteAnnouncement: async (id: string): Promise<void> => {
     if (USE_MOCK_BACKEND) return;
-    await fetch(`${API_URL}/announcements/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await fetch(`${API_URL}/announcements/${encodeURIComponent(id)}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders()
+    });
   },
 
   // Payments
   getAllPayments: async (): Promise<Payment[]> => {
     if (USE_MOCK_BACKEND) return getStoredPayments();
-    const res = await fetch(`${API_URL}/payments`);
+    const res = await fetch(`${API_URL}/payments`, {
+        headers: getAuthHeaders()
+    });
     return await handleResponse(res);
   },
 
   getPayments: async (userId: string): Promise<Payment[]> => {
     if (USE_MOCK_BACKEND) return getStoredPayments().filter((p: Payment) => p.userId === userId);
-    const res = await fetch(`${API_URL}/payments/${encodeURIComponent(userId)}`);
+    // Using query param ?userId=... to handle IDs with slashes safely
+    const res = await fetch(`${API_URL}/payments?userId=${encodeURIComponent(userId)}`, {
+        headers: getAuthHeaders()
+    });
     return await handleResponse(res);
   },
 
@@ -270,7 +302,10 @@ export const api = {
     if (USE_MOCK_BACKEND) return {} as Payment;
     const res = await fetch(`${API_URL}/payments`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            ...getAuthHeaders() // Added Auth Headers
+        },
         body: JSON.stringify(paymentData)
     });
     return await handleResponse(res);
@@ -280,98 +315,74 @@ export const api = {
     if (USE_MOCK_BACKEND) return;
     await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
         body: JSON.stringify({ status })
     });
   },
 
   deletePayment: async (paymentId: string): Promise<void> => {
     if (USE_MOCK_BACKEND) return;
-    await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, { method: 'DELETE' });
+    await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders() 
+    });
   },
 
   // Messaging
   getConversations: async (userId: string): Promise<User[]> => {
-    if (USE_MOCK_BACKEND) {
-        // Mock logic for conversations
-        const messages: Message[] = getStoredMessages();
-        const users = getStoredUsers();
-        const interactedUserIds = new Set<string>();
-        messages.forEach(msg => {
-            if (msg.senderId === userId) interactedUserIds.add(msg.receiverId);
-            if (msg.receiverId === userId) interactedUserIds.add(msg.senderId);
-        });
-        return Array.from(interactedUserIds)
-            .map(id => users.find((u: any) => u.id === id))
-            .filter((u): u is User => !!u);
-    }
+    if (USE_MOCK_BACKEND) return [];
     
-    // LIVE MODE - Add Timestamp to prevent caching of empty lists
-    const res = await fetch(`${API_URL}/messages/conversations/${encodeURIComponent(userId)}?t=${Date.now()}`);
+    // Using query param ?userId=...
+    const res = await fetch(`${API_URL}/messages/conversations?userId=${encodeURIComponent(userId)}&t=${Date.now()}`, {
+        headers: getAuthHeaders()
+    });
     return await handleResponse(res);
   },
 
   getMessages: async (userId: string, otherUserId: string): Promise<Message[]> => {
-    if (USE_MOCK_BACKEND) {
-        const messages: Message[] = getStoredMessages();
-        return messages
-            .filter(msg => 
-                (msg.senderId === userId && msg.receiverId === otherUserId) || 
-                (msg.senderId === otherUserId && msg.receiverId === userId)
-            )
-            .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    }
-    const res = await fetch(`${API_URL}/messages/${encodeURIComponent(userId)}/${encodeURIComponent(otherUserId)}`);
+    if (USE_MOCK_BACKEND) return [];
+    // Using query params to handle IDs with slashes
+    const res = await fetch(`${API_URL}/messages/chat?userId=${encodeURIComponent(userId)}&otherUserId=${encodeURIComponent(otherUserId)}`, {
+        headers: getAuthHeaders()
+    });
     return await handleResponse(res);
   },
 
   sendMessage: async (senderId: string, receiverId: string, content: string): Promise<Message> => {
-    if (USE_MOCK_BACKEND) {
-        const messages: Message[] = getStoredMessages();
-        const newMessage: Message = {
-            id: `msg-${Date.now()}`,
-            senderId,
-            receiverId,
-            content,
-            timestamp: new Date().toISOString(),
-            isRead: false
-        };
-        messages.push(newMessage);
-        localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages));
-        return newMessage;
-    }
+    if (USE_MOCK_BACKEND) return {} as Message;
     const res = await fetch(`${API_URL}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            ...getAuthHeaders() // Added Auth Headers
+        },
         body: JSON.stringify({ senderId, receiverId, content })
     });
     return await handleResponse(res);
   },
 
   markMessagesRead: async (userId: string, otherUserId: string): Promise<void> => {
-    if (USE_MOCK_BACKEND) {
-        const messages: Message[] = getStoredMessages();
-        let changed = false;
-        const updated = messages.map(msg => {
-            if (msg.receiverId === userId && msg.senderId === otherUserId && !msg.isRead) {
-                changed = true;
-                return { ...msg, isRead: true };
-            }
-            return msg;
-        });
-        if (changed) localStorage.setItem(MESSAGES_KEY, JSON.stringify(updated));
-        return;
-    }
-    await fetch(`${API_URL}/messages/read/${encodeURIComponent(userId)}/${encodeURIComponent(otherUserId)}`, { method: 'PUT' });
+    if (USE_MOCK_BACKEND) return;
+    await fetch(`${API_URL}/messages/read`, {
+        method: 'PUT',
+        headers: { 
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify({ userId, otherUserId })
+    });
   },
   
   getUnreadCount: async (userId: string): Promise<number> => {
-      if (USE_MOCK_BACKEND) {
-          const messages: Message[] = getStoredMessages();
-          return messages.filter(msg => msg.receiverId === userId && !msg.isRead).length;
-      }
+      if (USE_MOCK_BACKEND) return 0;
       try {
-          const res = await fetch(`${API_URL}/messages/unread/${encodeURIComponent(userId)}`);
+          // Using query param ?userId=...
+          const res = await fetch(`${API_URL}/messages/unread?userId=${encodeURIComponent(userId)}`, {
+              headers: getAuthHeaders()
+          });
           if(!res.ok) return 0;
           const data = await res.json();
           return data.count;
