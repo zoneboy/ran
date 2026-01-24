@@ -7,23 +7,13 @@ const API_URL = isLocal
     ? 'http://localhost:5000/api'  // Local Backend Server
     : '/.netlify/functions/api';   // Production Backend (Netlify Functions)
 
-// Helper to safely get user from local storage
-const getStoredUser = () => {
-    try {
-        const stored = localStorage.getItem('ran_user');
-        if (!stored) return null;
-        return JSON.parse(stored);
-    } catch (e) {
-        console.error("Corrupted session data found. Clearing...", e);
-        localStorage.removeItem('ran_user');
-        return null;
-    }
-};
+// In-memory user store (Replaces LocalStorage for security)
+// Note: This means session is lost on refresh.
+let sessionUser: User | null = null;
 
 // Helper to get Auth Headers
 const getAuthHeaders = () => {
-    const user = getStoredUser();
-    return (user && user.token) ? { 'Authorization': `Bearer ${user.token}` } : {};
+    return (sessionUser && sessionUser.token) ? { 'Authorization': `Bearer ${sessionUser.token}` } : {};
 };
 
 const handleResponse = async (res: Response) => {
@@ -57,14 +47,10 @@ export const api = {
     const res = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        credentials: 'include'
+        body: JSON.stringify({ email, password })
     });
     const user = await handleResponse(res);
-    // Strip token before storing non-sensitive data in localStorage for UI persistence
-    // Note: We might want to keep token if using Bearer Auth from localStorage, 
-    // but the backend also sets a cookie. We store whatever the backend returns.
-    localStorage.setItem('ran_user', JSON.stringify(user));
+    sessionUser = user;
     return user;
   },
 
@@ -72,11 +58,10 @@ export const api = {
     const res = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userData),
-        credentials: 'include'
+        body: JSON.stringify(userData)
     });
     const user = await handleResponse(res);
-    localStorage.setItem('ran_user', JSON.stringify(user));
+    sessionUser = user;
     return user;
   },
 
@@ -84,8 +69,7 @@ export const api = {
     const res = await fetch(`${API_URL}/auth/request-reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-        credentials: 'include'
+        body: JSON.stringify({ email })
     });
     if (!res.ok) throw new Error('Request failed');
   },
@@ -94,8 +78,7 @@ export const api = {
       const res = await fetch(`${API_URL}/auth/confirm-reset`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, token, newPassword }),
-          credentials: 'include'
+          body: JSON.stringify({ email, token, newPassword })
       });
       await handleResponse(res);
   },
@@ -103,25 +86,23 @@ export const api = {
   logout: async () => {
     try {
         await fetch(`${API_URL}/auth/logout`, { 
-            method: 'POST',
-            credentials: 'include'
+            method: 'POST'
         });
     } catch (e) {
         console.error("Logout failed on server", e);
     }
-    localStorage.removeItem('ran_user');
+    sessionUser = null;
   },
 
   getCurrentUser: async (): Promise<User | null> => {
-    return getStoredUser();
+    return sessionUser;
   },
 
   // User Management
   getUser: async (id: string): Promise<User | null> => {
     // Using query param ?id=... to handle IDs with slashes safely
     const res = await fetch(`${API_URL}/user?id=${encodeURIComponent(id)}`, {
-        headers: getAuthHeaders(),
-        credentials: 'include'
+        headers: getAuthHeaders()
     });
     if (!res.ok) return null;
     return await res.json();
@@ -129,8 +110,7 @@ export const api = {
 
   getUsers: async (): Promise<User[]> => {
     const res = await fetch(`${API_URL}/users`, {
-        headers: getAuthHeaders(),
-        credentials: 'include'
+        headers: getAuthHeaders()
     });
     return await handleResponse(res);
   },
@@ -143,18 +123,15 @@ export const api = {
             'Content-Type': 'application/json',
             ...getAuthHeaders() 
         },
-        body: JSON.stringify(updatedUser),
-        credentials: 'include'
+        body: JSON.stringify(updatedUser)
     });
     const data = await handleResponse(res);
     
-    // Update local storage if updating current user
-    const currentUser = getStoredUser();
-    if (currentUser && currentUser.id === data.id) {
-       // Preserve the token if it exists
-       const token = currentUser.token || data.token;
+    // Update memory if updating current user
+    if (sessionUser && sessionUser.id === data.id) {
+       const token = sessionUser.token || data.token;
        const safeData = { ...data, token };
-       localStorage.setItem('ran_user', JSON.stringify(safeData));
+       sessionUser = safeData;
        return safeData;
     }
     return data;
@@ -167,8 +144,7 @@ export const api = {
             'Content-Type': 'application/json',
             ...getAuthHeaders()
         },
-        body: JSON.stringify({ currentId, newId }),
-        credentials: 'include'
+        body: JSON.stringify({ currentId, newId })
     });
     await handleResponse(res);
   },
@@ -186,8 +162,7 @@ export const api = {
             'Content-Type': 'application/json',
             ...getAuthHeaders()
         },
-        body: JSON.stringify(announcement),
-        credentials: 'include'
+        body: JSON.stringify(announcement)
     });
     return await handleResponse(res);
   },
@@ -195,16 +170,14 @@ export const api = {
   deleteAnnouncement: async (id: string): Promise<void> => {
     await fetch(`${API_URL}/announcements/${encodeURIComponent(id)}`, { 
         method: 'DELETE',
-        headers: getAuthHeaders(),
-        credentials: 'include'
+        headers: getAuthHeaders()
     });
   },
 
   // Payments
   getAllPayments: async (): Promise<Payment[]> => {
     const res = await fetch(`${API_URL}/payments`, {
-        headers: getAuthHeaders(),
-        credentials: 'include'
+        headers: getAuthHeaders()
     });
     return await handleResponse(res);
   },
@@ -212,8 +185,7 @@ export const api = {
   getPayments: async (userId: string): Promise<Payment[]> => {
     // Using query param ?userId=... to handle IDs with slashes safely
     const res = await fetch(`${API_URL}/payments?userId=${encodeURIComponent(userId)}`, {
-        headers: getAuthHeaders(),
-        credentials: 'include'
+        headers: getAuthHeaders()
     });
     return await handleResponse(res);
   },
@@ -225,8 +197,7 @@ export const api = {
             'Content-Type': 'application/json',
             ...getAuthHeaders() 
         },
-        body: JSON.stringify(paymentData),
-        credentials: 'include'
+        body: JSON.stringify(paymentData)
     });
     return await handleResponse(res);
   },
@@ -238,24 +209,21 @@ export const api = {
             'Content-Type': 'application/json',
             ...getAuthHeaders()
         },
-        body: JSON.stringify({ status }),
-        credentials: 'include'
+        body: JSON.stringify({ status })
     });
   },
 
   deletePayment: async (paymentId: string): Promise<void> => {
     await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, { 
         method: 'DELETE',
-        headers: getAuthHeaders(),
-        credentials: 'include' 
+        headers: getAuthHeaders() 
     });
   },
 
   // Configuration
   getBankDetails: async (): Promise<BankDetails> => {
     const res = await fetch(`${API_URL}/config/bank-details`, {
-        headers: getAuthHeaders(),
-        credentials: 'include'
+        headers: getAuthHeaders()
     });
     return await handleResponse(res);
   },
@@ -264,8 +232,7 @@ export const api = {
   getConversations: async (userId: string): Promise<User[]> => {
     // Using query param ?userId=...
     const res = await fetch(`${API_URL}/messages/conversations?userId=${encodeURIComponent(userId)}&t=${Date.now()}`, {
-        headers: getAuthHeaders(),
-        credentials: 'include'
+        headers: getAuthHeaders()
     });
     return await handleResponse(res);
   },
@@ -273,8 +240,7 @@ export const api = {
   getMessages: async (userId: string, otherUserId: string): Promise<Message[]> => {
     // Using query params to handle IDs with slashes
     const res = await fetch(`${API_URL}/messages/chat?userId=${encodeURIComponent(userId)}&otherUserId=${encodeURIComponent(otherUserId)}`, {
-        headers: getAuthHeaders(),
-        credentials: 'include'
+        headers: getAuthHeaders()
     });
     return await handleResponse(res);
   },
@@ -286,8 +252,7 @@ export const api = {
             'Content-Type': 'application/json',
             ...getAuthHeaders()
         },
-        body: JSON.stringify({ senderId, receiverId, content }),
-        credentials: 'include'
+        body: JSON.stringify({ senderId, receiverId, content })
     });
     return await handleResponse(res);
   },
@@ -299,8 +264,7 @@ export const api = {
             'Content-Type': 'application/json',
             ...getAuthHeaders()
         },
-        body: JSON.stringify({ userId, otherUserId }),
-        credentials: 'include'
+        body: JSON.stringify({ userId, otherUserId })
     });
   },
   
@@ -308,8 +272,7 @@ export const api = {
       try {
           // Using query param ?userId=...
           const res = await fetch(`${API_URL}/messages/unread?userId=${encodeURIComponent(userId)}`, {
-              headers: getAuthHeaders(),
-              credentials: 'include'
+              headers: getAuthHeaders()
           });
           if(!res.ok) return 0;
           const data = await res.json();

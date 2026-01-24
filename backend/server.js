@@ -28,10 +28,10 @@ app.use(helmet.contentSecurityPolicy({
     }
 }));
 
-// CORS: Allow credentials and reflect origin for Cookie support
+// CORS: Disable credentials to prevent CSRF (Bearer token only)
 app.use(cors({ 
     origin: true, 
-    credentials: true 
+    credentials: false 
 }));
 
 app.use(bodyParser.json({ limit: '50mb' }));
@@ -68,15 +68,6 @@ if (!JWT_SECRET) {
   console.error('FATAL: JWT_SECRET not set');
   process.exit(1);
 }
-
-// Helper: Parse Cookies from Header
-const getCookie = (req, name) => {
-    const header = req.headers.cookie;
-    if (!header) return null;
-    const match = header.match(new RegExp('(^| )' + name + '=([^;]+)'));
-    if (match) return match[2];
-    return null;
-};
 
 // Rate Limiter for Password Reset
 const resetLimiter = rateLimit({
@@ -274,8 +265,9 @@ const checkExpiry = async (user) => {
 
 // --- AUTH MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
-    // Priority: Cookie -> Header
-    const token = getCookie(req, 'token') || (req.headers['authorization'] && req.headers['authorization'].split(' ')[1]);
+    // Only accept Authorization header
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
     
     if (token == null) return res.status(401).json({ message: 'Unauthorized: No token provided' });
 
@@ -312,14 +304,7 @@ router.post('/auth/login', async (req, res) => {
       const token = jwt.sign({ id: user.id, role: user.role, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
       const { password, ...userWithoutPassword } = user;
       
-      // Set HttpOnly Cookie
-      res.cookie('token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-      });
-
+      // Token is sent only in the body
       res.json({ ...userWithoutPassword, token });
     } else {
       res.status(401).json({ message: 'Invalid credentials' });
@@ -328,11 +313,6 @@ router.post('/auth/login', async (req, res) => {
 });
 
 router.post('/auth/logout', (req, res) => {
-    res.clearCookie('token', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    });
     res.json({ message: 'Logged out successfully' });
 });
 
@@ -442,13 +422,6 @@ router.post('/auth/register', async (req, res) => {
     } catch(e) { console.error("Welcome Email failed", e); }
 
     const token = jwt.sign({ id: safeUser.id, role: safeUser.role, email: safeUser.email }, JWT_SECRET, { expiresIn: '7d' });
-    res.cookie('token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000
-    });
-
     res.status(201).json({ ...safeUser, token });
   } catch (error) { res.status(500).json({ message: 'Registration failed. ' + error.message }); }
 });

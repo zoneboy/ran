@@ -21,7 +21,7 @@ function App() {
   useEffect(() => {
     const initSession = async () => {
       try {
-        const storedUser = await api.getCurrentUser(); // Gets from LocalStorage
+        const storedUser = await api.getCurrentUser(); // Gets from Memory
         
         if (storedUser) {
            // Validate against backend to ensure ID exists in Live DB
@@ -29,11 +29,8 @@ function App() {
              const validUser = await api.getUser(storedUser.id);
              if (validUser) {
                setUser(validUser);
-               // Update local storage with fresh data
-               localStorage.setItem('ran_user', JSON.stringify(validUser));
              } else {
-               // User exists in local storage but not in DB (Zombie session)
-               console.warn("User ID not found in backend. Logging out.");
+               // User exists in memory but not in DB
                await api.logout();
                setUser(null);
              }
