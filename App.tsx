@@ -49,6 +49,20 @@ function App() {
       }
     };
     initSession();
+
+    // Check for Magic Link params in URL
+    const params = new URLSearchParams(window.location.search);
+    const page = params.get('page');
+    if (page === 'reset-password') {
+        const token = params.get('token');
+        const email = params.get('email');
+        if (token && email) {
+            setPageParams({ token, email });
+            setCurrentPage('login');
+            // Clean URL to avoid leaking token or re-triggering logic
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }
   }, []);
 
   const navigate = (page: string, params?: any) => {
@@ -93,15 +107,15 @@ function App() {
       case 'register':
         return <Register navigate={navigate} />;
       case 'login':
-        return <Login onLogin={handleLogin} navigate={navigate} />;
+        return <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
       case 'dashboard':
-        return user ? <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} /> : <Login onLogin={handleLogin} navigate={navigate} />;
+        return user ? <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} /> : <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
       case 'admin-dashboard':
         return user && user.role === 'ADMIN' ? <AdminDashboard /> : <Home navigate={navigate} user={user} />;
       case 'member-directory':
-        return user ? <MemberDirectory navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} />;
+        return user ? <MemberDirectory navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
       case 'messages':
-        return user ? <Messages currentUser={user} navigate={navigate} targetUserId={pageParams?.targetUserId} /> : <Login onLogin={handleLogin} navigate={navigate} />;
+        return user ? <Messages currentUser={user} navigate={navigate} targetUserId={pageParams?.targetUserId} /> : <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
       default:
         return <Home navigate={navigate} user={user} />;
     }

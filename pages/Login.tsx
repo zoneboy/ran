@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { api } from '../services/api';
 import { AlertCircle, KeyRound, ArrowLeft, Mail } from 'lucide-react';
@@ -6,9 +7,10 @@ import { AlertCircle, KeyRound, ArrowLeft, Mail } from 'lucide-react';
 interface LoginProps {
   onLogin: (user: User) => void;
   navigate: (page: string) => void;
+  initialParams?: { token?: string, email?: string };
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, navigate }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, navigate, initialParams }) => {
   const [view, setView] = useState<'login' | 'reset'>('login');
   
   // Login State
@@ -26,6 +28,17 @@ const Login: React.FC<LoginProps> = ({ onLogin, navigate }) => {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Auto-switch to Reset view if Magic Link params are present
+  useEffect(() => {
+    if (initialParams?.token && initialParams?.email) {
+      setView('reset');
+      setResetStep(2);
+      setResetEmail(initialParams.email);
+      setOtpCode(initialParams.token);
+      setSuccessMsg("Magic Link Verified. Please create your new password.");
+    }
+  }, [initialParams]);
 
   // Helper: Password Validation
   const validatePassword = (pass: string) => {
@@ -59,8 +72,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, navigate }) => {
 
     try {
       await api.resetPassword(resetEmail);
-      setResetStep(2);
-      setSuccessMsg(`A reset code has been sent to ${resetEmail}. Check your inbox (or alert).`);
+      setSuccessMsg(`A reset link has been sent to ${resetEmail}. Check your inbox.`);
     } catch (err) {
       setError('Failed to process reset request.');
     } finally {
@@ -214,7 +226,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, navigate }) => {
               </button>
               <h2 className="text-center text-3xl font-extrabold text-gray-900">Reset Password</h2>
               <p className="mt-2 text-center text-sm text-gray-600">
-                {resetStep === 1 ? "Enter your email to receive a reset code." : "Enter the code sent to your email."}
+                {resetStep === 1 ? "Enter your email to receive a magic link." : "Create your new password below."}
               </p>
             </div>
 
@@ -245,24 +257,24 @@ const Login: React.FC<LoginProps> = ({ onLogin, navigate }) => {
                         disabled={isLoading}
                         className={`w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${isLoading ? 'bg-green-400' : 'bg-green-700 hover:bg-green-800'}`}
                     >
-                        {isLoading ? 'Sending...' : 'Send Reset Code'}
+                        {isLoading ? 'Sending...' : 'Send Magic Link'}
                     </button>
                 </form>
             ) : (
                 <form className="mt-8 space-y-6" onSubmit={handleResetConfirm}>
                     <div className="space-y-4">
                         <div className="bg-amber-50 p-3 rounded text-amber-800 text-xs text-center border border-amber-100 mb-4">
-                            Check your email (or the browser alert) for the reset code.
+                           Link Verified. Please set a new password.
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Reset Code</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Reset Code (Auto-filled)</label>
                             <input
                                 type="text"
                                 required
+                                readOnly={!!initialParams?.token}
                                 value={otpCode}
                                 onChange={(e) => setOtpCode(e.target.value)}
-                                className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm font-mono text-center"
-                                placeholder="Enter reset token"
+                                className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-100 text-gray-500 sm:text-sm font-mono text-center cursor-not-allowed"
                             />
                         </div>
                         <div>
@@ -300,7 +312,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, navigate }) => {
                         onClick={() => setResetStep(1)}
                         className="w-full text-center text-sm text-gray-500 hover:text-gray-700"
                     >
-                        Resend Code
+                        Start Over
                     </button>
                 </form>
             )}

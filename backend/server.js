@@ -334,22 +334,37 @@ router.post('/auth/request-reset', resetLimiter, async (req, res) => {
       
       await pool.query('UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE email = $3', [token, expiry, email]);
       
+      const clientUrl = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:3000';
+      const resetLink = `${clientUrl}/?page=reset-password&token=${token}&email=${encodeURIComponent(email)}`;
+
       if (!process.env.EMAIL_USER) {
           if (process.env.NODE_ENV === 'production') {
              console.error('Email service not configured. Cannot send reset token.');
-             return res.status(200).json({ message: 'If this email exists, a reset code has been sent.' });
+             return res.status(200).json({ message: 'If this email exists, a reset link has been sent.' });
           }
-          console.log(`[DEV ONLY] Reset token for ${email}: ${token}`);
-          return res.status(200).json({ message: 'Check server logs for token (Dev mode).' });
+          console.log(`[DEV ONLY] Reset Link for ${email}: ${resetLink}`);
+          return res.status(200).json({ message: 'Check server logs for token/link (Dev mode).' });
       }
 
       await transporter.sendMail({
         from: process.env.EMAIL_USER,
         to: email,
-        subject: 'Password Reset',
-        text: `Your reset code is: ${token}`
+        subject: 'Password Reset Request',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #166534;">Password Reset Request</h2>
+            <p>You requested a password reset for your RAN Portal account.</p>
+            <p>Click the button below to reset your password. This link is valid for 15 minutes.</p>
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="${resetLink}" style="background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password</a>
+            </div>
+            <p>Or manually enter this code: <strong style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${token}</strong></p>
+            <p style="color: #666; font-size: 14px; margin-top: 30px;">If the button doesn't work, copy and paste this link:</p>
+            <p style="font-size: 12px; color: #16a34a; word-break: break-all;">${resetLink}</p>
+          </div>
+        `
       });
-      res.status(200).json({ message: 'Reset code sent.' });
+      res.status(200).json({ message: 'Reset link sent.' });
   } catch (err) { res.status(500).json({ message: 'Error processing request' }); }
 });
 
