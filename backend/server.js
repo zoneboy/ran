@@ -159,7 +159,8 @@ const initDb = async () => {
       const adminPassword = process.env.ADMIN_INITIAL_PASSWORD;
 
       if (adminEmail && adminPassword) {
-        const adminCheck = await pool.query("SELECT * FROM users WHERE email = $1", [adminEmail]);
+        // Check case-insensitively
+        const adminCheck = await pool.query("SELECT * FROM users WHERE LOWER(email) = LOWER($1)", [adminEmail]);
         if (adminCheck.rows.length === 0) {
             const salt = await bcrypt.genSalt(10);
             const hashedPassword = await bcrypt.hash(adminPassword, salt);
@@ -172,7 +173,7 @@ const initDb = async () => {
                     $1, 'System', 'Admin', $2, '08000000000', $3, 'ADMIN', 'Active',
                     'HONORARY', 'RAN Headquarters', 'Abuja', 'FCT', $4, $5, 0
                 )
-            `, [id, adminEmail, hashedPassword, new Date().toISOString().split('T')[0], '2099-12-31']);
+            `, [id, adminEmail.toLowerCase(), hashedPassword, new Date().toISOString().split('T')[0], '2099-12-31']);
             console.log(`Admin account seeded: ${adminEmail}`);
         }
       }
@@ -328,7 +329,8 @@ router.get('/', (req, res) => { res.json({ message: "RAN Portal API is running."
 router.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    // Case-insensitive email search
+    const result = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
     let user = mapUser(result.rows[0]);
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
     user = await checkExpiry(user);
@@ -370,7 +372,8 @@ router.post('/auth/logout', (req, res) => {
 router.post('/auth/request-reset', resetLimiter, async (req, res) => {
   const { email } = req.body;
   try {
-      const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+      // Case-insensitive search
+      const result = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
       const user = result.rows[0];
       
       // Generic response for security
@@ -379,7 +382,8 @@ router.post('/auth/request-reset', resetLimiter, async (req, res) => {
       const token = crypto.randomBytes(32).toString('hex');
       const expiry = Date.now() + 900000; // 15 minutes
       
-      await pool.query('UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE email = $3', [token, expiry, email]);
+      // Case-insensitive update
+      await pool.query('UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE LOWER(email) = LOWER($3)', [token, expiry, email]);
       
       const clientUrl = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:3000';
       const resetLink = `${clientUrl}/?page=reset-password&token=${token}&email=${encodeURIComponent(email)}`;
@@ -388,7 +392,7 @@ router.post('/auth/request-reset', resetLimiter, async (req, res) => {
       try {
         await transporter.sendMail({
             from: process.env.EMAIL_USER,
-            to: email,
+            to: email, // Nodemailer will handle case (email protocols are generally case-insensitive or tolerant)
             subject: 'Password Reset Request',
             html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -420,13 +424,15 @@ router.post('/auth/request-reset', resetLimiter, async (req, res) => {
 router.post('/auth/confirm-reset', async (req, res) => {
   const { email, token, newPassword } = req.body;
   try {
-      const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+      // Case-insensitive search
+      const result = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
       const user = result.rows[0];
       if (!user || user.reset_token !== token || Number(user.reset_token_expiry) < Date.now()) return res.status(400).json({ message: 'Invalid or expired code.' });
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(newPassword, salt);
       // Update password AND increment token_version to invalidate existing sessions
-      await pool.query('UPDATE users SET password = $1, reset_token = NULL, reset_token_expiry = NULL, token_version = COALESCE(token_version, 0) + 1 WHERE email = $2', [hashedPassword, email]);
+      // Case-insensitive update
+      await pool.query('UPDATE users SET password = $1, reset_token = NULL, reset_token_expiry = NULL, token_version = COALESCE(token_version, 0) + 1 WHERE LOWER(email) = LOWER($2)', [hashedPassword, email]);
       res.status(200).json({ message: 'Password reset successful.' });
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -434,7 +440,8 @@ router.post('/auth/confirm-reset', async (req, res) => {
 router.post('/auth/register', async (req, res) => {
   const data = req.body;
   try {
-    const existing = await pool.query('SELECT * FROM users WHERE email = $1', [data.email]);
+    // Check if email exists case-insensitively
+    const existing = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [data.email]);
     if (existing.rows.length > 0) return res.status(400).json({ message: 'User already exists' });
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(data.password, salt);
@@ -451,8 +458,9 @@ router.post('/auth/register', async (req, res) => {
         profile_image, documents, token_version
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, 0) RETURNING *
     `;
+    // Store email in lowercase to normalize future data
     const values = [
-        id, data.firstName, data.lastName, data.email, data.phone, hashedPassword, 'MEMBER', 'Pending',
+        id, data.firstName, data.lastName, data.email.toLowerCase(), data.phone, hashedPassword, 'MEMBER', 'Pending',
         data.category, data.gender, data.businessName, data.businessAddress, data.businessState, data.businessCity,
         data.businessCommencement, data.businessCategory, data.statesOfOperation, data.materialTypes,
         data.machineryDeployed, data.monthlyVolume, data.employees, data.areasOfInterest,
@@ -467,7 +475,7 @@ router.post('/auth/register', async (req, res) => {
     try {
         await transporter.sendMail({
             from: process.env.EMAIL_USER,
-            to: data.email,
+            to: data.email, // Original input for email is fine
             subject: 'Welcome to RAN',
             text: `Welcome ${data.firstName}, your registration is pending approval.`
         });
