@@ -391,19 +391,40 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                              <span className="font-semibold">{displayUser.expiryDate}</span>
                          </div>
                     </div>
-                    {displayUser.documents?.membershipCertificate ? (
-                        <a 
-                          href={displayUser.documents.membershipCertificate} 
-                          download="Certificate"
-                          className="w-full bg-white bg-opacity-20 hover:bg-opacity-30 text-white py-2 rounded text-sm font-medium flex items-center justify-center transition-colors"
-                        >
-                            <Download className="h-4 w-4 mr-2" /> Download Certificate
-                        </a>
-                    ) : (
-                        <div className="w-full bg-black bg-opacity-20 text-white py-2 rounded text-sm text-center italic">
-                            Certificate Pending
-                        </div>
-                    )}
+                    
+                    <div className="space-y-2">
+                        {displayUser.documents?.membershipIdCard ? (
+                             <a 
+                                href={displayUser.documents.membershipIdCard} 
+                                download="ID_Card"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full bg-white bg-opacity-20 hover:bg-opacity-30 text-white py-2 rounded text-sm font-medium flex items-center justify-center transition-colors"
+                             >
+                                 <CreditCard className="h-4 w-4 mr-2" /> Download ID Card
+                             </a>
+                        ) : (
+                             <div className="w-full bg-black bg-opacity-20 text-white py-2 rounded text-sm text-center italic">
+                                 ID Card Pending
+                             </div>
+                        )}
+
+                        {displayUser.documents?.membershipCertificate ? (
+                            <a 
+                              href={displayUser.documents.membershipCertificate} 
+                              download="Certificate"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full bg-white bg-opacity-20 hover:bg-opacity-30 text-white py-2 rounded text-sm font-medium flex items-center justify-center transition-colors"
+                            >
+                                <FileText className="h-4 w-4 mr-2" /> Download Certificate
+                            </a>
+                        ) : (
+                            <div className="w-full bg-black bg-opacity-20 text-white py-2 rounded text-sm text-center italic">
+                                Certificate Pending
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Payments */}
@@ -422,7 +443,19 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                             <div key={pay.id} className="flex justify-between items-center border-b border-gray-100 pb-3 last:border-0 last:pb-0">
                                 <div>
                                     <p className="text-sm font-medium text-gray-800">{pay.description}</p>
-                                    <p className="text-xs text-gray-500">{pay.date}</p>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <p className="text-xs text-gray-500">{pay.date}</p>
+                                        {pay.receipt && (
+                                            <a 
+                                                href={pay.receipt}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-xs text-green-600 hover:underline flex items-center"
+                                            >
+                                                <Download className="h-3 w-3 mr-1" /> Receipt
+                                            </a>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-sm font-bold text-gray-900">₦{pay.amount.toLocaleString()}</p>
