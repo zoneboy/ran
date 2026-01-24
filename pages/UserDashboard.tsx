@@ -14,6 +14,20 @@ interface UserDashboardProps {
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const YEARS = [new Date().getFullYear(), new Date().getFullYear() - 1];
 
+const LOG_MATERIALS = [
+  'PET Plastics',
+  'Other Plastics',
+  'Paper/Cartons',
+  'UBC',
+  'Metals',
+  'Glass',
+  'E-waste',
+  'Nylon',
+  'Organic',
+  'PVC',
+  'Organics'
+];
+
 const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateUser }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [displayUser, setDisplayUser] = useState<User>(user);
@@ -347,7 +361,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (Tons)</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
                                 </tr>
                             </thead>
@@ -557,12 +571,12 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                           <label className="block text-sm font-medium text-gray-700">Material Type</label>
                           <select className="w-full border rounded px-3 py-2 mt-1" required value={collectionForm.material} onChange={e => setCollectionForm({...collectionForm, material: e.target.value})}>
                               <option value="">Select Material</option>
-                              {user.materialTypes?.map(m => <option key={m} value={m}>{m}</option>)}
+                              {LOG_MATERIALS.map(m => <option key={m} value={m}>{m}</option>)}
                               <option value="Other">Other</option>
                           </select>
                       </div>
                       <div>
-                          <label className="block text-sm font-medium text-gray-700">Weight (Tons)</label>
+                          <label className="block text-sm font-medium text-gray-700">Weight (KG)</label>
                           <input type="number" step="0.01" required value={collectionForm.weight} onChange={e => setCollectionForm({...collectionForm, weight: e.target.value})} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" />
                       </div>
                       <button type="submit" disabled={isProcessingPayment} className="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700 disabled:opacity-50">
