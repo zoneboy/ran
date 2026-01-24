@@ -1,4 +1,4 @@
-import { User, Announcement, Payment, Message } from '../types';
+import { User, Announcement, Payment, Message, BankDetails } from '../types';
 
 // CONFIGURATION
 // FALSE = Live (Real Backend)
@@ -216,6 +216,14 @@ export const api = {
         method: 'DELETE',
         headers: getAuthHeaders() 
     });
+  },
+
+  // Configuration
+  getBankDetails: async (): Promise<BankDetails> => {
+    const res = await fetch(`${API_URL}/config/bank-details`, {
+        headers: getAuthHeaders()
+    });
+    return await handleResponse(res);
   },
 
   // Messaging

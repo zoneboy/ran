@@ -108,3 +108,9 @@ export interface StatData {
   name: string;
   value: number;
 }
+
+export interface BankDetails {
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+}

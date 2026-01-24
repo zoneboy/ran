@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { User, MembershipStatus, Announcement, Payment } from '../types';
+import { User, MembershipStatus, Announcement, Payment, BankDetails } from '../types';
 import { api } from '../services/api';
 import { CreditCard, Download, User as UserIcon, Bell, AlertTriangle, Users, Camera, X, Check, Loader2, Clock, UploadCloud, MessageCircle } from 'lucide-react';
 
@@ -15,6 +16,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   const [formData, setFormData] = useState<User>(user);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
 
   // Payment Modal State
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -61,9 +63,20 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         }
     };
 
+    // 5. Fetch Bank Details
+    const loadBankDetails = async () => {
+        try {
+            const details = await api.getBankDetails();
+            setBankDetails(details);
+        } catch (error) {
+            console.error("Failed to load bank details");
+        }
+    };
+
     loadFullUser();
     loadAnnouncements();
     loadPayments();
+    loadBankDetails();
   }, [user]);
 
   // Expiry Calculation
@@ -606,11 +619,17 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                  {/* Bank Details */}
                  <div className="bg-green-50 p-4 rounded-md mb-6 border border-green-200">
                     <p className="font-bold text-green-800 text-sm mb-2 uppercase tracking-wide">Bank Details for Transfer:</p>
-                    <div className="space-y-1 text-sm text-green-900">
-                        <p className="flex justify-between"><span>Bank:</span> <span className="font-semibold">Access Bank PLC</span></p>
-                        <p className="flex justify-between"><span>Account Number:</span> <span className="font-mono font-bold text-lg">0785293332</span></p>
-                        <p className="flex justify-between"><span>Account Name:</span> <span className="font-semibold text-right">Recyclers Association of Nigeria</span></p>
-                    </div>
+                    {bankDetails ? (
+                        <div className="space-y-1 text-sm text-green-900">
+                            <p className="flex justify-between"><span>Bank:</span> <span className="font-semibold">{bankDetails.bankName}</span></p>
+                            <p className="flex justify-between"><span>Account Number:</span> <span className="font-mono font-bold text-lg">{bankDetails.accountNumber}</span></p>
+                            <p className="flex justify-between"><span>Account Name:</span> <span className="font-semibold text-right">{bankDetails.accountName}</span></p>
+                        </div>
+                    ) : (
+                        <div className="flex justify-center p-4">
+                            <Loader2 className="h-5 w-5 animate-spin text-green-600" />
+                        </div>
+                    )}
                  </div>
                  
                  <form onSubmit={handleMakePayment} className="space-y-4">

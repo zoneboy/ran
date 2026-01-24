@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -365,6 +366,15 @@ router.post('/auth/register', async (req, res) => {
     }
     res.status(201).json(safeUser);
   } catch (error) { res.status(500).json({ message: 'Registration failed. ' + error.message }); }
+});
+
+// --- CONFIGURATION ---
+router.get('/config/bank-details', authenticateToken, (req, res) => {
+    res.json({
+        bankName: process.env.BANK_NAME || 'Access Bank PLC',
+        accountNumber: process.env.BANK_ACCOUNT_NUMBER || '0785293332',
+        accountName: process.env.BANK_ACCOUNT_NAME || 'Recyclers Association of Nigeria'
+    });
 });
 
 // --- USER MANAGEMENT (Protected) ---
