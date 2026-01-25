@@ -10,6 +10,8 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
 require('dotenv').config();
 
 const app = express();
@@ -117,7 +119,9 @@ const initDb = async () => {
         reset_token TEXT,
         reset_token_expiry BIGINT,
         documents JSONB,
-        token_version INTEGER DEFAULT 0
+        token_version INTEGER DEFAULT 0,
+        mfa_secret TEXT,
+        mfa_enabled BOOLEAN DEFAULT FALSE
       );
       CREATE TABLE IF NOT EXISTS announcements (
           id TEXT PRIMARY KEY,
@@ -159,8 +163,10 @@ const initDb = async () => {
     try {
       await pool.query(schema);
       
-      // Migration: Ensure token_version exists for older databases
+      // Migration: Ensure new columns exist for older databases
       await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0');
+      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret TEXT');
+      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE');
       
       console.log('Database tables checked/created successfully');
       
@@ -231,7 +237,8 @@ const mapUser = (row) => {
         profileImage: row.profile_image,
         documents: row.documents || {},
         token_version: row.token_version,
-        password: row.password 
+        password: row.password,
+        mfa_enabled: row.mfa_enabled
     };
 };
 
@@ -268,7 +275,8 @@ const sanitizeUserForPublic = (user) => {
         documents: {},
         resetToken: null,
         resetTokenExpiry: null,
-        token: null
+        token: null,
+        mfa_secret: null
     };
 };
 
@@ -305,7 +313,20 @@ const authenticateToken = (req, res, next) => {
                 return res.status(401).json({ message: 'Session expired (Password changed). Please login again.' });
             }
 
-            req.user = decoded; // { id, role, email, token_version }
+            // Handle MFA Partial Sessions
+            if (decoded.partial) {
+                // If user has a partial token, they can strictly only access MFA-related endpoints
+                const allowedEndpoints = ['/auth/mfa/setup', '/auth/mfa/confirm', '/auth/mfa/login', '/auth/logout'];
+                // Check if current URL path (relative to router) is allowed
+                // req.url in express router context includes path
+                const isAllowed = allowedEndpoints.some(path => req.url.includes(path));
+                
+                if (!isAllowed) {
+                    return res.status(403).json({ message: 'MFA verification required. Please complete 2FA.' });
+                }
+            }
+
+            req.user = decoded; // { id, role, email, token_version, partial }
             next();
         } catch (e) {
             console.error("Auth Middleware Error:", e);
@@ -346,17 +367,48 @@ router.post('/auth/login', async (req, res) => {
     user = await checkExpiry(user);
     if (user.status === 'Pending') return res.status(403).json({ message: 'Account pending approval.' });
     if (user.status === 'Suspended') return res.status(403).json({ message: 'Account suspended.' });
+    
     const isMatch = await bcrypt.compare(password, user.password);
+    
     if (isMatch) {
-      // Include token_version in JWT
+      
+      // ADMIN MFA CHECK
+      if (user.role === 'ADMIN') {
+          const isMfaEnabled = user.mfa_enabled;
+          
+          // Issue Partial Token
+          const tempToken = jwt.sign({ 
+              id: user.id, 
+              role: user.role, 
+              email: user.email, 
+              token_version: user.token_version || 0,
+              partial: true 
+          }, JWT_SECRET, { expiresIn: '15m' }); // Short expiry for partial
+
+          res.cookie('token', tempToken, {
+              httpOnly: true,
+              secure: process.env.NODE_ENV === 'production',
+              sameSite: 'lax', 
+              maxAge: 15 * 60 * 1000 // 15 mins
+          });
+
+          if (isMfaEnabled) {
+              return res.json({ mfaRequired: true });
+          } else {
+              return res.json({ mfaSetupRequired: true });
+          }
+      }
+
+      // STANDARD LOGIN (Non-Admin)
       const token = jwt.sign({ 
           id: user.id, 
           role: user.role, 
           email: user.email, 
-          token_version: user.token_version || 0 
+          token_version: user.token_version || 0,
+          partial: false
       }, JWT_SECRET, { expiresIn: '7d' });
       
-      const { password, ...userWithoutPassword } = user;
+      const { password, mfa_secret, ...userWithoutPassword } = user;
       
       // Set HttpOnly Cookie
       res.cookie('token', token, {
@@ -371,8 +423,114 @@ router.post('/auth/login', async (req, res) => {
     } else {
       res.status(401).json({ message: 'Invalid credentials' });
     }
-  } catch (error) { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { res.status(500).json({ message: 'Server error: ' + error.message }); }
 });
+
+// --- MFA ENDPOINTS ---
+
+// 1. Setup MFA (Generate Secret & QR)
+router.post('/auth/mfa/setup', authenticateToken, async (req, res) => {
+    try {
+        const secret = speakeasy.generateSecret({
+            name: `RAN Portal (${req.user.email})`
+        });
+        
+        QRCode.toDataURL(secret.otpauth_url, (err, data_url) => {
+            if (err) return res.status(500).json({ message: 'Error generating QR code' });
+            res.json({ secret: secret.base32, qrCode: data_url });
+        });
+    } catch (e) {
+        res.status(500).json({ message: 'MFA setup error' });
+    }
+});
+
+// 2. Confirm MFA (Verify first code & Enable)
+router.post('/auth/mfa/confirm', authenticateToken, async (req, res) => {
+    const { token, secret } = req.body;
+    
+    try {
+        const verified = speakeasy.totp.verify({
+            secret: secret,
+            encoding: 'base32',
+            token: token,
+            window: 1 // Allow 30s leeway
+        });
+
+        if (verified) {
+            // Update User
+            await pool.query('UPDATE users SET mfa_secret = $1, mfa_enabled = TRUE WHERE id = $2', [secret, req.user.id]);
+            
+            // Issue Full Token
+            const fullToken = jwt.sign({ 
+                id: req.user.id, 
+                role: req.user.role, 
+                email: req.user.email, 
+                token_version: req.user.token_version,
+                partial: false 
+            }, JWT_SECRET, { expiresIn: '7d' });
+
+            res.cookie('token', fullToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax', 
+                maxAge: 7 * 24 * 60 * 60 * 1000
+            });
+
+            // Return User
+            const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+            const user = mapUser(userRes.rows[0]);
+            const { password, mfa_secret, ...safeUser } = user;
+            res.json(safeUser);
+        } else {
+            res.status(400).json({ message: 'Invalid code. Please try again.' });
+        }
+    } catch(e) {
+        res.status(500).json({ message: 'Verification error' });
+    }
+});
+
+// 3. Login MFA (Verify code for existing MFA)
+router.post('/auth/mfa/login', authenticateToken, async (req, res) => {
+    const { token } = req.body;
+    
+    try {
+        const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+        const user = mapUser(userRes.rows[0]);
+        
+        const verified = speakeasy.totp.verify({
+            secret: user.mfa_secret, // Retrieved strictly from DB
+            encoding: 'base32',
+            token: token,
+            window: 1
+        });
+
+        if (verified) {
+            // Issue Full Token
+             const fullToken = jwt.sign({ 
+                id: user.id, 
+                role: user.role, 
+                email: user.email, 
+                token_version: user.token_version,
+                partial: false 
+            }, JWT_SECRET, { expiresIn: '7d' });
+
+            res.cookie('token', fullToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax', 
+                maxAge: 7 * 24 * 60 * 60 * 1000
+            });
+
+            const { password, mfa_secret, ...safeUser } = user;
+            res.json(safeUser);
+        } else {
+            res.status(400).json({ message: 'Invalid code. Please try again.' });
+        }
+    } catch (e) {
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
 
 router.post('/auth/logout', (req, res) => {
     res.clearCookie('token');
@@ -478,7 +636,7 @@ router.post('/auth/register', async (req, res) => {
     ];
     const newUser = await pool.query(query, values);
     const mappedUser = mapUser(newUser.rows[0]);
-    const { password, ...safeUser } = mappedUser;
+    const { password, mfa_secret, ...safeUser } = mappedUser;
     
     // Welcome Email
     try {
@@ -494,7 +652,8 @@ router.post('/auth/register', async (req, res) => {
         id: safeUser.id, 
         role: safeUser.role, 
         email: safeUser.email, 
-        token_version: 0 
+        token_version: 0,
+        partial: false
     }, JWT_SECRET, { expiresIn: '7d' });
     
     // Set HttpOnly Cookie
@@ -531,7 +690,7 @@ router.get('/users', authenticateToken, async (req, res) => {
     
     const result = await pool.query(query);
     const users = result.rows.map(mapUser).map(u => { 
-        const { password, ...safe } = u; 
+        const { password, mfa_secret, ...safe } = u; 
         // Security: Sanitize data for non-admins to prevent IDOR/Info Leak
         if (req.user.role !== 'ADMIN') {
             return sanitizeUserForPublic(safe);
@@ -562,7 +721,7 @@ router.get('/user', authenticateToken, async (req, res) => {
         user = sanitizeUserForPublic(user);
     }
 
-    const { password, ...safeUser } = user;
+    const { password, mfa_secret, ...safeUser } = user;
     res.json(safeUser);
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -624,7 +783,7 @@ router.put('/user/update', authenticateToken, async (req, res) => {
     const query = `UPDATE users SET ${setClause.join(', ')} WHERE id = $${idx} RETURNING *`;
     const result = await pool.query(query, values);
     const updatedUser = mapUser(result.rows[0]);
-    const { password, ...safeUser } = updatedUser;
+    const { password, mfa_secret, ...safeUser } = updatedUser;
     res.json(safeUser);
   } catch (error) { res.status(500).json({ message: 'Update failed' }); }
 });
@@ -641,7 +800,7 @@ router.post('/users/update-id', authenticateToken, requireAdmin, async (req, res
         const originalEmail = userRes.rows[0].email;
         const tempEmail = `temp_${Date.now()}_${originalEmail}`;
         await client.query('UPDATE users SET email = $1 WHERE id = $2', [tempEmail, currentId]);
-        const columns = ['first_name', 'last_name', 'phone', 'password', 'role', 'status', 'category', 'gender', 'business_name', 'business_address', 'business_state', 'business_city', 'business_commencement', 'business_category', 'states_of_operation', 'material_types', 'machinery_deployed', 'monthly_volume', 'employees', 'areas_of_interest', 'related_association', 'related_association_name', 'dob', 'date_joined', 'expiry_date', 'profile_image', 'reset_token', 'reset_token_expiry', 'documents', 'token_version'];
+        const columns = ['first_name', 'last_name', 'phone', 'password', 'role', 'status', 'category', 'gender', 'business_name', 'business_address', 'business_state', 'business_city', 'business_commencement', 'business_category', 'states_of_operation', 'material_types', 'machinery_deployed', 'monthly_volume', 'employees', 'areas_of_interest', 'related_association', 'related_association_name', 'dob', 'date_joined', 'expiry_date', 'profile_image', 'reset_token', 'reset_token_expiry', 'documents', 'token_version', 'mfa_secret', 'mfa_enabled'];
         const colsStr = columns.map(c => `"${c}"`).join(', ');
         const copyQuery = `INSERT INTO users (id, email, ${colsStr}) SELECT $1, $3, ${colsStr} FROM users WHERE id = $2`;
         await client.query(copyQuery, [newId, currentId, originalEmail]);
@@ -823,7 +982,7 @@ router.get('/messages/conversations', authenticateToken, verifyOwnership, async 
         usersResult.rows.forEach(row => {
             const mapped = mapUser(row);
             if (mapped) {
-                const { password, ...safe } = mapped;
+                const { password, mfa_secret, ...safe } = mapped;
                 // Security: Sanitize if not admin and not self (though self logic handled above)
                 if (req.user.role !== 'ADMIN' && req.user.id !== safe.id) {
                      usersMap.set(safe.id, sanitizeUserForPublic(safe));

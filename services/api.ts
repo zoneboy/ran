@@ -1,5 +1,6 @@
 
 
+
 import { User, Announcement, Payment, Message, BankDetails, Collection } from '../types';
 
 // Determine API URL based on environment
@@ -39,18 +40,58 @@ const handleResponse = async (res: Response) => {
 
 export const api = {
   // Authentication
-  login: async (email: string, password?: string): Promise<User> => {
+  login: async (email: string, password?: string): Promise<User | { mfaRequired?: boolean, mfaSetupRequired?: boolean }> => {
     const res = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
         credentials: 'include'
     });
-    const user = await handleResponse(res);
-    // Store non-sensitive user data in localStorage (no token)
-    localStorage.setItem('ran_user', JSON.stringify(user));
-    sessionUser = user;
-    return user;
+    const data = await handleResponse(res);
+    
+    // Check for MFA instructions
+    if (data.mfaRequired || data.mfaSetupRequired) {
+        return data;
+    }
+
+    // Normal Login Success
+    localStorage.setItem('ran_user', JSON.stringify(data));
+    sessionUser = data;
+    return data;
+  },
+
+  setupMfa: async (): Promise<{ secret: string, qrCode: string }> => {
+      const res = await fetch(`${API_URL}/auth/mfa/setup`, {
+          method: 'POST',
+          credentials: 'include'
+      });
+      return await handleResponse(res);
+  },
+
+  confirmMfa: async (token: string, secret: string): Promise<User> => {
+      const res = await fetch(`${API_URL}/auth/mfa/confirm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, secret }),
+          credentials: 'include'
+      });
+      const user = await handleResponse(res);
+      localStorage.setItem('ran_user', JSON.stringify(user));
+      sessionUser = user;
+      return user;
+  },
+
+  loginMfa: async (token: string): Promise<User> => {
+      const res = await fetch(`${API_URL}/auth/mfa/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+          credentials: 'include'
+      });
+      const user = await handleResponse(res);
+      localStorage.setItem('ran_user', JSON.stringify(user));
+      sessionUser = user;
+      return user;
   },
 
   register: async (userData: any): Promise<User> => {
