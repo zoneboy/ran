@@ -46,20 +46,14 @@ function App() {
       }
     };
     initSession();
-
-    // Check for Magic Link params in URL
+    
+    // Legacy support: if URL has page param but no sensitive token
     const params = new URLSearchParams(window.location.search);
     const page = params.get('page');
-    if (page === 'reset-password') {
-        const token = params.get('token');
-        const email = params.get('email');
-        if (token && email) {
-            setPageParams({ token, email });
-            setCurrentPage('login');
-            // Clean URL to avoid leaking token or re-triggering logic
-            window.history.replaceState({}, document.title, window.location.pathname);
-        }
+    if (page) {
+        setCurrentPage(page);
     }
+
   }, []);
 
   const navigate = (page: string, params?: any) => {
@@ -118,19 +112,19 @@ function App() {
       case 'register':
         return <Register navigate={navigate} />;
       case 'login':
-        return <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
+        return <Login onLogin={handleLogin} navigate={navigate} />;
       case 'dashboard':
-        return user ? <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} /> : <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
+        return user ? <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       case 'admin-dashboard':
         return user && user.role === 'ADMIN' ? <AdminDashboard /> : <Home navigate={navigate} user={user} />;
       case 'member-directory':
         // Restrict directory if expired
         if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
-        return user ? <MemberDirectory navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
+        return user ? <MemberDirectory navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       case 'messages':
         // Restrict messages if expired
         if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
-        return user ? <Messages currentUser={user} navigate={navigate} targetUserId={pageParams?.targetUserId} /> : <Login onLogin={handleLogin} navigate={navigate} initialParams={pageParams} />;
+        return user ? <Messages currentUser={user} navigate={navigate} targetUserId={pageParams?.targetUserId} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       default:
         return <Home navigate={navigate} user={user} />;
     }

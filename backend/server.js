@@ -389,37 +389,36 @@ router.post('/auth/request-reset', resetLimiter, async (req, res) => {
       // Generic response for security
       if (!user) return res.status(200).json({ message: 'If this email exists, a reset code has been sent.' });
       
-      const token = crypto.randomBytes(32).toString('hex');
+      // Generate 6-digit numeric code
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
       const expiry = Date.now() + 900000; // 15 minutes
       
       // Case-insensitive update
-      await pool.query('UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE LOWER(email) = LOWER($3)', [token, expiry, email]);
+      await pool.query('UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE LOWER(email) = LOWER($3)', [code, expiry, email]);
       
-      const clientUrl = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:3000';
-      const resetLink = `${clientUrl}/?page=reset-password&token=${token}&email=${encodeURIComponent(email)}`;
-
-      // Strictly attempt to send email
+      // Send Email with Code Only
       try {
         await transporter.sendMail({
             from: process.env.EMAIL_USER,
-            to: email, // Nodemailer will handle case (email protocols are generally case-insensitive or tolerant)
-            subject: 'Password Reset Request',
+            to: email, // Nodemailer will handle case
+            subject: 'Password Reset Code - RAN Portal',
             html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #166534;">Password Reset Request</h2>
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
+                <h2 style="color: #166534; text-align: center;">Recyclers Association of Nigeria</h2>
+                <h3 style="color: #333; text-align: center;">Password Reset Request</h3>
+                <p>Hello,</p>
                 <p>You requested a password reset for your RAN Portal account.</p>
-                <p>Click the button below to reset your password. This link is valid for 15 minutes.</p>
+                <p>Please enter the following verification code to reset your password:</p>
                 <div style="text-align: center; margin: 30px 0;">
-                    <a href="${resetLink}" style="background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password</a>
+                    <span style="background-color: #f0fdf4; color: #166534; padding: 15px 30px; font-size: 28px; font-weight: bold; letter-spacing: 4px; border-radius: 8px; border: 1px solid #bbf7d0;">${code}</span>
                 </div>
-                <p>Or manually enter this code: <strong style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${token}</strong></p>
-                <p style="color: #666; font-size: 14px; margin-top: 30px;">If the button doesn't work, copy and paste this link:</p>
-                <p style="font-size: 12px; color: #16a34a; word-break: break-all;">${resetLink}</p>
+                <p>This code will expire in 15 minutes.</p>
+                <p style="color: #666; font-size: 14px; margin-top: 30px;">If you did not request this, please ignore this email.</p>
             </div>
             `
         });
-        console.log(`Reset email sent successfully to ${email}`);
-        res.status(200).json({ message: 'Reset link sent to your email.' });
+        console.log(`Reset code sent successfully to ${email}`);
+        res.status(200).json({ message: 'Reset code sent to your email.' });
       } catch (emailError) {
           console.error("Failed to send email via Nodemailer:", emailError);
           res.status(500).json({ message: 'Failed to send email. Please contact support.' });
@@ -494,7 +493,7 @@ router.post('/auth/register', async (req, res) => {
     const token = jwt.sign({ 
         id: safeUser.id, 
         role: safeUser.role, 
-        email: safeUser.email,
+        email: safeUser.email, 
         token_version: 0 
     }, JWT_SECRET, { expiresIn: '7d' });
     
