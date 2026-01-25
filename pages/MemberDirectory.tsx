@@ -51,7 +51,9 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
       safeBusiness.includes(searchLower) ||
       safeMaterials.some(m => (m || '').toLowerCase().includes(searchLower));
 
-    const matchesCategory = selectedCategory ? user.category === selectedCategory || Object.values(BusinessCategory).some(c => c === selectedCategory) : true;
+    const matchesCategory = selectedCategory 
+      ? (user.category || '').toLowerCase() === selectedCategory.toLowerCase() 
+      : true;
     
     const matchesState = selectedState ? user.businessState === selectedState : true;
 
