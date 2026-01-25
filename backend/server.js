@@ -238,7 +238,8 @@ const mapUser = (row) => {
         documents: row.documents || {},
         token_version: row.token_version,
         password: row.password,
-        mfa_enabled: row.mfa_enabled
+        mfa_enabled: row.mfa_enabled,
+        mfa_secret: row.mfa_secret
     };
 };
 
@@ -497,6 +498,10 @@ router.post('/auth/mfa/login', authenticateToken, async (req, res) => {
         const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
         const user = mapUser(userRes.rows[0]);
         
+        if (!user.mfa_secret) {
+             return res.status(500).json({ message: 'MFA is enabled but secret is missing.' });
+        }
+
         const verified = speakeasy.totp.verify({
             secret: user.mfa_secret, // Retrieved strictly from DB
             encoding: 'base32',
@@ -527,6 +532,7 @@ router.post('/auth/mfa/login', authenticateToken, async (req, res) => {
             res.status(400).json({ message: 'Invalid code. Please try again.' });
         }
     } catch (e) {
+        console.error("MFA Login Error", e);
         res.status(500).json({ message: 'Server error' });
     }
 });
