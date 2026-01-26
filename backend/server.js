@@ -52,7 +52,6 @@ const pool = new Pool({
 });
 
 // --- SMART QUERY WRAPPER WITH RETRY LOGIC ---
-// This ensures 200 users don't crash the app. If DB is full, it waits and retries.
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const query = async (text, params) => {
@@ -64,14 +63,12 @@ const query = async (text, params) => {
       // Error codes: 53300 (too_many_connections), 57P03 (cannot_connect_now), or timeouts
       if (['53300', '57P03', '08006', '08001', 'ECONNREFUSED', 'ETIMEDOUT'].includes(err.code) || err.message.includes('timeout')) {
         retries--;
-        if (retries === 0) throw err; // Throw if no retries left
-        
-        // Wait between 200ms and 700ms (Jitter helps prevent thundering herd)
+        if (retries === 0) throw err; 
         const delay = 200 + Math.random() * 500;
         await sleep(delay);
         continue;
       }
-      throw err; // Throw immediately for other errors (syntax, constraints, etc.)
+      throw err; 
     }
   }
 };
@@ -85,7 +82,7 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Verify Email Configuration on Startup
+// Verify Email Configuration
 transporter.verify(function (error, success) {
     if (error) {
         console.error("Email Service Error:", error);
@@ -100,7 +97,7 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
-// Rate Limiter for Password Reset
+// Rate Limiter
 const resetLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hour
     max: 5, 
@@ -114,10 +111,8 @@ let dbInitialized = false;
 const initDb = async () => {
     if (dbInitialized) return;
     
-    // Attempt to get a client for initialization logic
     let client;
     try {
-       // We use a simplified retry for connection acquisition during init
        let retries = 3;
        while(retries > 0) {
            try {
@@ -131,7 +126,7 @@ const initDb = async () => {
        }
     } catch (e) {
         console.error("Could not acquire client for DB Init (Skipping):", e.message);
-        return; // Skip init if DB is hammered, rely on existing schema
+        return; 
     }
     
     try {
@@ -218,7 +213,6 @@ const initDb = async () => {
       
       await client.query(schema);
       
-      // Migration: Ensure new columns exist for older databases
       await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0');
       await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret TEXT');
       await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE');
@@ -274,7 +268,6 @@ const initDb = async () => {
 };
 
 app.use(async (req, res, next) => {
-    // We catch errors here to ensure the app doesn't crash on init failure (e.g. timeout)
     try { await initDb(); next(); } catch (e) { console.error("DB Init Middleware Error:", e); next(); }
 });
 
@@ -358,7 +351,6 @@ const checkExpiry = async (user) => {
     if (user.role === 'ADMIN') return user;
     const today = new Date().toISOString().split('T')[0];
     if (user.expiryDate && user.expiryDate < today && user.status === 'Active') {
-        // Use retry query
         await query('UPDATE users SET status = $1 WHERE id = $2', ['Expired', user.id]);
         user.status = 'Expired';
     }
@@ -375,7 +367,6 @@ const authenticateToken = (req, res, next) => {
         if (err) return res.status(403).json({ message: 'Forbidden: Invalid token' });
         
         try {
-            // Use retry query
             const result = await query('SELECT token_version FROM users WHERE id = $1', [decoded.id]);
             if (result.rows.length === 0) return res.status(403).json({ message: 'User not found' });
             
@@ -486,59 +477,31 @@ router.post('/auth/login', async (req, res) => {
   } catch (error) { res.status(500).json({ message: 'Server error: ' + error.message }); }
 });
 
-// --- MFA ENDPOINTS ---
+// --- MFA ENDPOINTS (Same as before) ---
 router.post('/auth/mfa/setup', authenticateToken, async (req, res) => {
     try {
-        const secret = speakeasy.generateSecret({
-            name: `RAN Portal (${req.user.email})`
-        });
+        const secret = speakeasy.generateSecret({ name: `RAN Portal (${req.user.email})` });
         QRCode.toDataURL(secret.otpauth_url, (err, data_url) => {
             if (err) return res.status(500).json({ message: 'Error generating QR code' });
             res.json({ secret: secret.base32, qrCode: data_url });
         });
-    } catch (e) {
-        res.status(500).json({ message: 'MFA setup error' });
-    }
+    } catch (e) { res.status(500).json({ message: 'MFA setup error' }); }
 });
 
 router.post('/auth/mfa/confirm', authenticateToken, async (req, res) => {
     const { token, secret } = req.body;
     try {
-        const verified = speakeasy.totp.verify({
-            secret: secret,
-            encoding: 'base32',
-            token: token,
-            window: 1 
-        });
-
+        const verified = speakeasy.totp.verify({ secret: secret, encoding: 'base32', token: token, window: 1 });
         if (verified) {
             await query('UPDATE users SET mfa_secret = $1, mfa_enabled = TRUE WHERE id = $2', [secret, req.user.id]);
-            
-            const fullToken = jwt.sign({ 
-                id: req.user.id, 
-                role: req.user.role, 
-                email: req.user.email, 
-                token_version: req.user.token_version,
-                partial: false 
-            }, JWT_SECRET, { expiresIn: '7d' });
-
-            res.cookie('token', fullToken, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: 'lax', 
-                maxAge: 7 * 24 * 60 * 60 * 1000
-            });
-
+            const fullToken = jwt.sign({ id: req.user.id, role: req.user.role, email: req.user.email, token_version: req.user.token_version, partial: false }, JWT_SECRET, { expiresIn: '7d' });
+            res.cookie('token', fullToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
             const userRes = await query('SELECT * FROM users WHERE id = $1', [req.user.id]);
             const user = mapUser(userRes.rows[0]);
             const { password, mfa_secret, ...safeUser } = user;
             res.json(safeUser);
-        } else {
-            res.status(400).json({ message: 'Invalid code. Please try again.' });
-        }
-    } catch(e) {
-        res.status(500).json({ message: 'Verification error' });
-    }
+        } else { res.status(400).json({ message: 'Invalid code. Please try again.' }); }
+    } catch(e) { res.status(500).json({ message: 'Verification error' }); }
 });
 
 router.post('/auth/mfa/login', authenticateToken, async (req, res) => {
@@ -546,40 +509,15 @@ router.post('/auth/mfa/login', authenticateToken, async (req, res) => {
     try {
         const userRes = await query('SELECT * FROM users WHERE id = $1', [req.user.id]);
         const user = mapUser(userRes.rows[0]);
-        
         if (!user.mfa_secret) return res.status(500).json({ message: 'MFA is enabled but secret is missing.' });
-
-        const verified = speakeasy.totp.verify({
-            secret: user.mfa_secret,
-            encoding: 'base32',
-            token: token,
-            window: 1
-        });
-
+        const verified = speakeasy.totp.verify({ secret: user.mfa_secret, encoding: 'base32', token: token, window: 1 });
         if (verified) {
-             const fullToken = jwt.sign({ 
-                id: user.id, 
-                role: user.role, 
-                email: user.email, 
-                token_version: user.token_version,
-                partial: false 
-            }, JWT_SECRET, { expiresIn: '7d' });
-
-            res.cookie('token', fullToken, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: 'lax', 
-                maxAge: 7 * 24 * 60 * 60 * 1000
-            });
-
+             const fullToken = jwt.sign({ id: user.id, role: user.role, email: user.email, token_version: user.token_version, partial: false }, JWT_SECRET, { expiresIn: '7d' });
+            res.cookie('token', fullToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
             const { password, mfa_secret, ...safeUser } = user;
             res.json(safeUser);
-        } else {
-            res.status(400).json({ message: 'Invalid code. Please try again.' });
-        }
-    } catch (e) {
-        res.status(500).json({ message: 'Server error' });
-    }
+        } else { res.status(400).json({ message: 'Invalid code. Please try again.' }); }
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 router.post('/auth/logout', (req, res) => {
@@ -587,34 +525,21 @@ router.post('/auth/logout', (req, res) => {
     res.json({ message: 'Logged out successfully' });
 });
 
+// --- RESET & REGISTER (Same as before) ---
 router.post('/auth/request-reset', resetLimiter, async (req, res) => {
   const { email } = req.body;
   try {
       const result = await query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
       const user = result.rows[0];
-      
       if (!user) return res.status(200).json({ message: 'If this email exists, a reset code has been sent.' });
-      
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       const expiry = Date.now() + 900000;
-      
       await query('UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE LOWER(email) = LOWER($3)', [code, expiry, email]);
-      
       try {
-        await transporter.sendMail({
-            from: process.env.EMAIL_USER,
-            to: email,
-            subject: 'Password Reset Code - RAN Portal',
-            html: `<p>Your reset code: <b>${code}</b></p>`
-        });
+        await transporter.sendMail({ from: process.env.EMAIL_USER, to: email, subject: 'Password Reset Code - RAN Portal', html: `<p>Your reset code: <b>${code}</b></p>` });
         res.status(200).json({ message: 'Reset code sent to your email.' });
-      } catch (emailError) {
-          res.status(500).json({ message: 'Failed to send email. Please contact support.' });
-      }
-
-  } catch (err) { 
-      res.status(500).json({ message: 'Error processing request' }); 
-  }
+      } catch (emailError) { res.status(500).json({ message: 'Failed to send email. Please contact support.' }); }
+  } catch (err) { res.status(500).json({ message: 'Error processing request' }); }
 });
 
 router.post('/auth/confirm-reset', async (req, res) => {
@@ -640,57 +565,21 @@ router.post('/auth/register', async (req, res) => {
     const id = `user-${Date.now()}`;
     const dateJoined = new Date().toISOString().split('T')[0];
     const expiryDate = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0];
-    const q = `
-      INSERT INTO users (
-        id, first_name, last_name, email, phone, password, role, status, 
-        category, gender, business_name, business_address, business_state, business_city,
-        business_commencement, business_category, states_of_operation, material_types,
-        machinery_deployed, monthly_volume, employees, areas_of_interest,
-        related_association, related_association_name, dob, date_joined, expiry_date,
-        profile_image, documents, token_version
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, 0) RETURNING *
-    `;
-    const values = [
-        id, data.firstName, data.lastName, data.email.toLowerCase(), data.phone, hashedPassword, 'MEMBER', 'Pending',
-        data.category, data.gender, data.businessName, data.businessAddress, data.businessState, data.businessCity,
-        data.businessCommencement, data.businessCategory, data.statesOfOperation, data.materialTypes,
-        data.machineryDeployed, data.monthlyVolume, data.employees, data.areasOfInterest,
-        data.relatedAssociation, data.relatedAssociationName, data.dob, dateJoined, expiryDate,
-        data.profileImage, JSON.stringify(data.documents)
-    ];
+    const q = `INSERT INTO users (id, first_name, last_name, email, phone, password, role, status, category, gender, business_name, business_address, business_state, business_city, business_commencement, business_category, states_of_operation, material_types, machinery_deployed, monthly_volume, employees, areas_of_interest, related_association, related_association_name, dob, date_joined, expiry_date, profile_image, documents, token_version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, 0) RETURNING *`;
+    const values = [id, data.firstName, data.lastName, data.email.toLowerCase(), data.phone, hashedPassword, 'MEMBER', 'Pending', data.category, data.gender, data.businessName, data.businessAddress, data.businessState, data.businessCity, data.businessCommencement, data.businessCategory, data.statesOfOperation, data.materialTypes, data.machineryDeployed, data.monthlyVolume, data.employees, data.areasOfInterest, data.relatedAssociation, data.relatedAssociationName, data.dob, dateJoined, expiryDate, data.profileImage, JSON.stringify(data.documents)];
     const newUser = await query(q, values);
     const mappedUser = mapUser(newUser.rows[0]);
     const { password, mfa_secret, ...safeUser } = mappedUser;
-    
-    try {
-        await transporter.sendMail({
-            from: process.env.EMAIL_USER,
-            to: data.email,
-            subject: 'Welcome to RAN',
-            text: `Welcome ${data.firstName}, your registration is pending approval.`
-        });
-    } catch(e) {}
-
-    const token = jwt.sign({ 
-        id: safeUser.id, 
-        role: safeUser.role, 
-        email: safeUser.email, 
-        token_version: 0,
-        partial: false
-    }, JWT_SECRET, { expiresIn: '7d' });
-    
-    res.cookie('token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000
-    });
-
+    try { await transporter.sendMail({ from: process.env.EMAIL_USER, to: data.email, subject: 'Welcome to RAN', text: `Welcome ${data.firstName}, your registration is pending approval.` }); } catch(e) {}
+    const token = jwt.sign({ id: safeUser.id, role: safeUser.role, email: safeUser.email, token_version: 0, partial: false }, JWT_SECRET, { expiresIn: '7d' });
+    res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
     res.status(201).json({ ...safeUser });
   } catch (error) { res.status(500).json({ message: 'Registration failed. ' + error.message }); }
 });
 
 router.get('/config/bank-details', authenticateToken, (req, res) => {
+    // Cache for 5 minutes
+    res.set('Cache-Control', 'public, max-age=300');
     res.json({
         bankName: process.env.BANK_NAME || 'Access Bank PLC',
         accountNumber: process.env.BANK_ACCOUNT_NUMBER || '0785293332',
@@ -702,17 +591,27 @@ router.get('/config/bank-details', authenticateToken, (req, res) => {
 router.get('/users', authenticateToken, async (req, res) => {
   try {
     let q = 'SELECT * FROM users';
+    
+    // OPTIMIZATION: If not admin, select ONLY public columns to reduce DB load & bandwidth
     if (req.user.role !== 'ADMIN') {
-        q += " WHERE status = 'Active'";
+        q = `
+            SELECT id, first_name, last_name, business_name, business_address, business_state, 
+                   category, material_types, profile_image, date_joined, role, status 
+            FROM users 
+            WHERE status = 'Active'
+        `;
     }
+    
     const result = await query(q);
     const users = result.rows.map(mapUser).map(u => { 
+        if(!u) return null;
         const { password, mfa_secret, ...safe } = u; 
         if (req.user.role !== 'ADMIN') {
             return sanitizeUserForPublic(safe);
         }
         return safe; 
-    });
+    }).filter(Boolean);
+    
     res.json(users);
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -720,20 +619,15 @@ router.get('/users', authenticateToken, async (req, res) => {
 router.get('/user', authenticateToken, async (req, res) => {
   const { id } = req.query;
   if (!id) return res.status(400).json({ message: "Missing id query parameter" });
-  
   try {
     const result = await query('SELECT * FROM users WHERE id = $1', [id]);
     if (result.rows.length === 0) return res.status(404).json({ message: 'User not found' });
     let user = mapUser(result.rows[0]);
     user = await checkExpiry(user);
-    
     if (req.user.role !== 'ADMIN' && req.user.id !== user.id) {
-        if (user.status !== 'Active') {
-             return res.status(403).json({ message: 'Cannot view inactive member profile.' });
-        }
+        if (user.status !== 'Active') return res.status(403).json({ message: 'Cannot view inactive member profile.' });
         user = sanitizeUserForPublic(user);
     }
-
     const { password, mfa_secret, ...safeUser } = user;
     res.json(safeUser);
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
@@ -742,48 +636,14 @@ router.get('/user', authenticateToken, async (req, res) => {
 router.put('/user/update', authenticateToken, async (req, res) => {
   const id = req.query.id || req.body.id;
   if (!id) return res.status(400).json({ message: "Missing User ID for update" });
-
-  if (req.user.role !== 'ADMIN' && req.user.id !== id) {
-      return res.status(403).json({ message: 'Unauthorized to update this profile' });
-  }
-
+  if (req.user.role !== 'ADMIN' && req.user.id !== id) return res.status(403).json({ message: 'Unauthorized to update this profile' });
   const data = req.body;
   try {
-    const fields = [
-        'first_name', 'last_name', 'phone', 'business_name',
-        'business_address', 'business_state', 'business_city', 'business_commencement',
-        'business_category', 'states_of_operation', 'material_types', 'machinery_deployed',
-        'monthly_volume', 'employees', 'areas_of_interest', 'related_association', 
-        'related_association_name', 'dob', 'profile_image', 'documents'
-    ];
-    if (req.user.role === 'ADMIN') {
-        fields.push('category', 'status', 'expiry_date');
-    }
-
-    const mappedData = {
-        first_name: data.firstName, last_name: data.lastName, phone: data.phone,
-        category: data.category, status: data.status, business_name: data.businessName,
-        business_address: data.businessAddress, business_state: data.businessState,
-        business_city: data.businessCity, business_commencement: data.businessCommencement,
-        business_category: data.businessCategory, states_of_operation: data.statesOfOperation,
-        material_types: data.materialTypes, machinery_deployed: data.machineryDeployed,
-        monthly_volume: data.monthlyVolume, employees: data.employees,
-        areas_of_interest: data.areasOfInterest, related_association: data.relatedAssociation,
-        related_association_name: data.related_associationName, dob: data.dob,
-        profile_image: data.profileImage, documents: JSON.stringify(data.documents),
-        expiry_date: data.expiryDate
-    };
-    
-    let setClause = [];
-    let values = [];
-    let idx = 1;
-    for (const field of fields) {
-        if (mappedData[field] !== undefined) {
-            setClause.push(`${field} = $${idx}`);
-            values.push(mappedData[field]);
-            idx++;
-        }
-    }
+    const fields = [ 'first_name', 'last_name', 'phone', 'business_name', 'business_address', 'business_state', 'business_city', 'business_commencement', 'business_category', 'states_of_operation', 'material_types', 'machinery_deployed', 'monthly_volume', 'employees', 'areas_of_interest', 'related_association', 'related_association_name', 'dob', 'profile_image', 'documents' ];
+    if (req.user.role === 'ADMIN') { fields.push('category', 'status', 'expiry_date'); }
+    const mappedData = { first_name: data.firstName, last_name: data.lastName, phone: data.phone, category: data.category, status: data.status, business_name: data.businessName, business_address: data.businessAddress, business_state: data.businessState, business_city: data.businessCity, business_commencement: data.businessCommencement, business_category: data.businessCategory, states_of_operation: data.statesOfOperation, material_types: data.materialTypes, machinery_deployed: data.machineryDeployed, monthly_volume: data.monthlyVolume, employees: data.employees, areas_of_interest: data.areasOfInterest, related_association: data.relatedAssociation, related_association_name: data.related_associationName, dob: data.dob, profile_image: data.profileImage, documents: JSON.stringify(data.documents), expiry_date: data.expiryDate };
+    let setClause = []; let values = []; let idx = 1;
+    for (const field of fields) { if (mappedData[field] !== undefined) { setClause.push(`${field} = $${idx}`); values.push(mappedData[field]); idx++; } }
     if (setClause.length === 0) return res.json(data);
     values.push(id);
     const q = `UPDATE users SET ${setClause.join(', ')} WHERE id = $${idx} RETURNING *`;
@@ -798,13 +658,8 @@ router.post('/users/update-id', authenticateToken, requireAdmin, async (req, res
     const { currentId, newId } = req.body;
     let client;
     try {
-        // Attempt connection for transaction
         let retries = 3;
-        while(retries > 0) {
-            try { client = await pool.connect(); break; }
-            catch(e) { retries--; if(retries === 0) throw e; await sleep(500); }
-        }
-
+        while(retries > 0) { try { client = await pool.connect(); break; } catch(e) { retries--; if(retries === 0) throw e; await sleep(500); } }
         await client.query('BEGIN');
         const check = await client.query('SELECT id FROM users WHERE id = $1', [newId]);
         if (check.rows.length > 0) throw new Error('ID already taken');
@@ -823,17 +678,14 @@ router.post('/users/update-id', authenticateToken, requireAdmin, async (req, res
         await client.query('DELETE FROM users WHERE id = $1', [currentId]);
         await client.query('COMMIT');
         res.json({ message: 'ID Updated successfully' });
-    } catch (e) { 
-        if(client) await client.query('ROLLBACK'); 
-        res.status(500).json({ message: 'Failed: ' + e.message }); 
-    } finally { 
-        if(client) client.release(); 
-    }
+    } catch (e) { if(client) await client.query('ROLLBACK'); res.status(500).json({ message: 'Failed: ' + e.message }); } finally { if(client) client.release(); }
 });
 
 // --- ANNOUNCEMENTS ---
 router.get('/announcements', async (req, res) => {
   try {
+    // Cache for 60 seconds (Short enough to see new posts soon, long enough to save DB)
+    res.set('Cache-Control', 'public, max-age=60');
     const result = await query('SELECT * FROM announcements ORDER BY date DESC');
     res.json(result.rows.map(row => ({ id: row.id, title: row.title, content: row.content, date: row.date, isImportant: row.is_important })));
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
@@ -855,18 +707,10 @@ router.get('/payments', authenticateToken, verifyOwnership, async (req, res) => 
         const { userId } = req.query;
         let q = 'SELECT * FROM payments ORDER BY date DESC';
         let params = [];
-        if (req.user.role !== 'ADMIN') {
-            q = 'SELECT * FROM payments WHERE user_id = $1 ORDER BY date DESC';
-            params = [req.user.id];
-        } else if (userId) {
-            q = 'SELECT * FROM payments WHERE user_id = $1 ORDER BY date DESC';
-            params = [userId];
-        }
+        if (req.user.role !== 'ADMIN') { q = 'SELECT * FROM payments WHERE user_id = $1 ORDER BY date DESC'; params = [req.user.id]; } 
+        else if (userId) { q = 'SELECT * FROM payments WHERE user_id = $1 ORDER BY date DESC'; params = [userId]; }
         const result = await query(q, params);
-        res.json(result.rows.map(row => ({
-            id: row.id, userId: row.user_id, amount: Number(row.amount), currency: row.currency,
-            date: row.date, description: row.description, status: row.status, reference: row.reference, receipt: row.receipt
-        })));
+        res.json(result.rows.map(row => ({ id: row.id, userId: row.user_id, amount: Number(row.amount), currency: row.currency, date: row.date, description: row.description, status: row.status, reference: row.reference, receipt: row.receipt })));
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -889,33 +733,13 @@ router.delete('/payments/:id', authenticateToken, requireAdmin, async (req, res)
 router.get('/collections', authenticateToken, verifyOwnership, async (req, res) => {
     try {
         const { userId } = req.query;
-        let q = `
-          SELECT c.*, u.business_name, u.first_name, u.last_name 
-          FROM collections c
-          JOIN users u ON c.user_id = u.id
-        `;
+        let q = `SELECT c.*, u.business_name, u.first_name, u.last_name FROM collections c JOIN users u ON c.user_id = u.id`;
         let params = [];
-        if (req.user.role !== 'ADMIN') {
-             q += ` WHERE c.user_id = $1`;
-             params.push(req.user.id);
-        } else if (userId) {
-             q += ` WHERE c.user_id = $1`;
-             params.push(userId);
-        }
+        if (req.user.role !== 'ADMIN') { q += ` WHERE c.user_id = $1`; params.push(req.user.id); } 
+        else if (userId) { q += ` WHERE c.user_id = $1`; params.push(userId); }
         q += ` ORDER BY c.created_at DESC`;
         const result = await query(q, params);
-        res.json(result.rows.map(row => ({
-            id: row.id,
-            userId: row.user_id,
-            userName: `${row.first_name} ${row.last_name}`,
-            businessName: row.business_name,
-            month: row.month,
-            year: row.year,
-            material: row.material,
-            weight: Number(row.weight),
-            images: row.images || [],
-            createdAt: row.created_at
-        })));
+        res.json(result.rows.map(row => ({ id: row.id, userId: row.user_id, userName: `${row.first_name} ${row.last_name}`, businessName: row.business_name, month: row.month, year: row.year, material: row.material, weight: Number(row.weight), images: row.images || [], createdAt: row.created_at })));
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -923,31 +747,17 @@ router.post('/collections', authenticateToken, verifyOwnership, async (req, res)
     const data = req.body;
     const id = `col-${Date.now()}`;
     const createdAt = new Date().toISOString();
-    try {
-        await query(
-            'INSERT INTO collections (id, user_id, month, year, material, weight, images, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-            [id, data.userId, data.month, data.year, data.material, data.weight, data.images, createdAt]
-        );
-        res.status(201).json({ ...data, id, createdAt });
-    } catch (e) { res.status(500).json({ message: 'Server error' }); }
+    try { await query('INSERT INTO collections (id, user_id, month, year, material, weight, images, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)', [id, data.userId, data.month, data.year, data.material, data.weight, data.images, createdAt]); res.status(201).json({ ...data, id, createdAt }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// --- MESSAGES ---
+// --- MESSAGES (Same as before) ---
 router.get('/messages/chat', authenticateToken, verifyOwnership, async (req, res) => {
     const { userId, otherUserId } = req.query;
     if (!userId || !otherUserId) return res.status(400).json({ message: "Missing userId or otherUserId" });
     try {
-        const q = `
-            SELECT * FROM messages 
-            WHERE (sender_id = $1 AND receiver_id = $2) 
-               OR (sender_id = $2 AND receiver_id = $1)
-            ORDER BY timestamp ASC
-        `;
+        const q = `SELECT * FROM messages WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) ORDER BY timestamp ASC`;
         const result = await query(q, [userId, otherUserId]);
-        const messages = result.rows.map(row => ({
-            id: row.id, senderId: row.sender_id, receiverId: row.receiver_id,
-            content: row.content, timestamp: row.timestamp, isRead: row.is_read
-        }));
+        const messages = result.rows.map(row => ({ id: row.id, senderId: row.sender_id, receiverId: row.receiver_id, content: row.content, timestamp: row.timestamp, isRead: row.is_read }));
         res.json(messages);
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -955,83 +765,45 @@ router.get('/messages/chat', authenticateToken, verifyOwnership, async (req, res
 router.get('/messages/conversations', authenticateToken, verifyOwnership, async (req, res) => {
     const { userId } = req.query;
     try {
-        const messagesQuery = `
-            SELECT sender_id, receiver_id, timestamp 
-            FROM messages 
-            WHERE sender_id = $1 OR receiver_id = $1
-            ORDER BY timestamp DESC
-        `;
+        const messagesQuery = `SELECT sender_id, receiver_id, timestamp FROM messages WHERE sender_id = $1 OR receiver_id = $1 ORDER BY timestamp DESC`;
         const messagesResult = await query(messagesQuery, [userId]);
         const rows = messagesResult.rows;
-
         if (rows.length === 0) return res.json([]);
-
         const contactIds = new Set();
-        rows.forEach(msg => {
-            const otherId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id;
-            if (otherId && otherId !== userId) contactIds.add(otherId);
-        });
-        
+        rows.forEach(msg => { const otherId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id; if (otherId && otherId !== userId) contactIds.add(otherId); });
         const uniqueIds = Array.from(contactIds);
         if (uniqueIds.length === 0) return res.json([]);
-
         const placeholders = uniqueIds.map((_, i) => `$${i + 1}`).join(',');
-        const usersQuery = `SELECT * FROM users WHERE id IN (${placeholders})`;
+        
+        // Optimize conversation fetch as well - basic info only
+        const usersQuery = `SELECT id, first_name, last_name, business_name, profile_image FROM users WHERE id IN (${placeholders})`;
         const usersResult = await query(usersQuery, uniqueIds);
         
         const usersMap = new Map();
         usersResult.rows.forEach(row => {
-            const mapped = mapUser(row);
-            if (mapped) {
-                const { password, mfa_secret, ...safe } = mapped;
-                if (req.user.role !== 'ADMIN' && req.user.id !== safe.id) {
-                     usersMap.set(safe.id, sanitizeUserForPublic(safe));
-                } else {
-                     usersMap.set(safe.id, safe);
-                }
-            }
+            const mapped = mapUser(row); // mapUser will work with partial data
+            if (mapped) usersMap.set(mapped.id, mapped);
         });
-        
         const sortedUsers = uniqueIds.map(id => usersMap.get(id)).filter(u => u !== undefined);
         res.json(sortedUsers);
-    } catch (e) {
-        res.status(500).json({ message: 'Server error: ' + e.message });
-    }
+    } catch (e) { res.status(500).json({ message: 'Server error: ' + e.message }); }
 });
 
 router.put('/messages/read', authenticateToken, verifyOwnership, async (req, res) => {
     const { userId, otherUserId } = req.body;
-    try {
-        await query(
-            'UPDATE messages SET is_read = TRUE WHERE sender_id = $2 AND receiver_id = $1 AND is_read = FALSE',
-            [userId, otherUserId]
-        );
-        res.json({ message: 'Marked read' });
-    } catch (e) { res.status(500).json({ message: 'Server error' }); }
+    try { await query('UPDATE messages SET is_read = TRUE WHERE sender_id = $2 AND receiver_id = $1 AND is_read = FALSE', [userId, otherUserId]); res.json({ message: 'Marked read' }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 router.get('/messages/unread', authenticateToken, verifyOwnership, async (req, res) => {
     const { userId } = req.query;
-    try {
-        const result = await query(
-            'SELECT COUNT(*) FROM messages WHERE receiver_id = $1 AND is_read = FALSE',
-            [userId]
-        );
-        res.json({ count: parseInt(result.rows[0].count) });
-    } catch (e) { res.status(500).json({ message: 'Server error' }); }
+    try { const result = await query('SELECT COUNT(*) FROM messages WHERE receiver_id = $1 AND is_read = FALSE', [userId]); res.json({ count: parseInt(result.rows[0].count) }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 router.post('/messages', authenticateToken, verifyOwnership, async (req, res) => {
     const { senderId, receiverId, content } = req.body;
     const id = `msg-${Date.now()}`;
     const timestamp = new Date().toISOString();
-    try {
-        await query(
-            'INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, is_read) VALUES ($1, $2, $3, $4, $5, $6)',
-            [id, senderId, receiverId, content, timestamp, false]
-        );
-        res.status(201).json({ id, senderId, receiverId, content, timestamp, isRead: false });
-    } catch (e) { res.status(500).json({ message: 'Server error' }); }
+    try { await query('INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, is_read) VALUES ($1, $2, $3, $4, $5, $6)', [id, senderId, receiverId, content, timestamp, false]); res.status(201).json({ id, senderId, receiverId, content, timestamp, isRead: false }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // --- PRICES ---
@@ -1039,21 +811,14 @@ router.get('/prices', authenticateToken, async (req, res) => {
     try {
         if (req.user.role !== 'ADMIN') {
              const userRes = await query('SELECT status FROM users WHERE id = $1', [req.user.id]);
-             if (!userRes.rows.length || userRes.rows[0].status !== 'Active') {
-                  return res.status(403).json({ message: 'Pricelist available to Active members only.' });
-             }
+             if (!userRes.rows.length || userRes.rows[0].status !== 'Active') return res.status(403).json({ message: 'Pricelist available to Active members only.' });
         }
+        // Cache prices for 60 seconds
+        res.set('Cache-Control', 'public, max-age=60');
         const result = await query('SELECT id, material_name, price, last_updated FROM material_prices ORDER BY material_name ASC');
-        const prices = result.rows.map(row => ({
-            id: row.id,
-            materialName: row.material_name,
-            price: Number(row.price),
-            lastUpdated: row.last_updated
-        }));
+        const prices = result.rows.map(row => ({ id: row.id, materialName: row.material_name, price: Number(row.price), lastUpdated: row.last_updated }));
         res.json(prices);
-    } catch (e) {
-        res.status(500).json({ message: 'Server error' });
-    }
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 router.put('/prices/:id', authenticateToken, requireAdmin, async (req, res) => {
@@ -1061,14 +826,9 @@ router.put('/prices/:id', authenticateToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
     try {
         const today = new Date().toISOString().split('T')[0];
-        await query(
-            'UPDATE material_prices SET price = $1, last_updated = $2 WHERE id = $3',
-            [price, today, id]
-        );
+        await query('UPDATE material_prices SET price = $1, last_updated = $2 WHERE id = $3', [price, today, id]);
         res.json({ message: 'Price updated successfully' });
-    } catch (e) {
-        res.status(500).json({ message: 'Server error' });
-    }
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 app.use('/.netlify/functions/api', router);
