@@ -40,12 +40,18 @@ app.use(cors({
 
 app.use(bodyParser.json({ limit: '50mb' }));
 
-// Database Connection
+// Database Connection - SERVERLESS OPTIMIZATION
+// Standard pg pool creates 10 connections by default. 
+// In serverless (Netlify), 100 concurrent users = 100 lambdas * 10 connections = 1000 connections (Crash).
+// We set max: 1 so 100 users = 100 connections.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false
-  }
+  },
+  max: 1, // CRITICAL: Limit to 1 connection per lambda instance
+  idleTimeoutMillis: 3000, // Close idle clients after 3 seconds
+  connectionTimeoutMillis: 5000, // Fail if can't connect within 5 seconds
 });
 
 // Email Config
@@ -86,93 +92,98 @@ const resetLimiter = rateLimit({
 let dbInitialized = false;
 const initDb = async () => {
     if (dbInitialized) return;
-    const schema = `
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        first_name TEXT,
-        last_name TEXT,
-        email TEXT UNIQUE NOT NULL,
-        phone TEXT,
-        password TEXT NOT NULL,
-        role TEXT DEFAULT 'MEMBER',
-        status TEXT DEFAULT 'Pending',
-        category TEXT,
-        gender TEXT,
-        business_name TEXT,
-        business_address TEXT,
-        business_state TEXT,
-        business_city TEXT,
-        business_commencement TEXT,
-        business_category TEXT,
-        states_of_operation TEXT,
-        material_types TEXT[],
-        machinery_deployed TEXT[],
-        monthly_volume TEXT,
-        employees INTEGER,
-        areas_of_interest TEXT[],
-        related_association TEXT,
-        related_association_name TEXT,
-        dob TEXT,
-        date_joined TEXT,
-        expiry_date TEXT,
-        profile_image TEXT,
-        reset_token TEXT,
-        reset_token_expiry BIGINT,
-        documents JSONB,
-        token_version INTEGER DEFAULT 0,
-        mfa_secret TEXT,
-        mfa_enabled BOOLEAN DEFAULT FALSE
-      );
-      CREATE TABLE IF NOT EXISTS announcements (
-          id TEXT PRIMARY KEY,
-          title TEXT,
-          content TEXT,
-          date TEXT,
-          is_important BOOLEAN
-      );
-      CREATE TABLE IF NOT EXISTS payments (
-          id TEXT PRIMARY KEY,
-          user_id TEXT REFERENCES users(id),
-          amount NUMERIC,
-          currency TEXT,
-          date TEXT,
-          description TEXT,
-          status TEXT,
-          reference TEXT,
-          receipt TEXT
-      );
-      CREATE TABLE IF NOT EXISTS messages (
-          id TEXT PRIMARY KEY,
-          sender_id TEXT REFERENCES users(id),
-          receiver_id TEXT REFERENCES users(id),
-          content TEXT,
-          timestamp TEXT,
-          is_read BOOLEAN DEFAULT FALSE
-      );
-      CREATE TABLE IF NOT EXISTS collections (
-          id TEXT PRIMARY KEY,
-          user_id TEXT REFERENCES users(id),
-          month TEXT,
-          year TEXT,
-          material TEXT,
-          weight NUMERIC,
-          images TEXT[],
-          created_at TEXT
-      );
-      CREATE TABLE IF NOT EXISTS material_prices (
-          id TEXT PRIMARY KEY,
-          material_name TEXT UNIQUE,
-          price NUMERIC DEFAULT 0,
-          last_updated TEXT
-      );
-    `;
+    
+    // Serverless: Ensure we actually have a connection before running init queries
+    const client = await pool.connect();
+    
     try {
-      await pool.query(schema);
+      const schema = `
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          first_name TEXT,
+          last_name TEXT,
+          email TEXT UNIQUE NOT NULL,
+          phone TEXT,
+          password TEXT NOT NULL,
+          role TEXT DEFAULT 'MEMBER',
+          status TEXT DEFAULT 'Pending',
+          category TEXT,
+          gender TEXT,
+          business_name TEXT,
+          business_address TEXT,
+          business_state TEXT,
+          business_city TEXT,
+          business_commencement TEXT,
+          business_category TEXT,
+          states_of_operation TEXT,
+          material_types TEXT[],
+          machinery_deployed TEXT[],
+          monthly_volume TEXT,
+          employees INTEGER,
+          areas_of_interest TEXT[],
+          related_association TEXT,
+          related_association_name TEXT,
+          dob TEXT,
+          date_joined TEXT,
+          expiry_date TEXT,
+          profile_image TEXT,
+          reset_token TEXT,
+          reset_token_expiry BIGINT,
+          documents JSONB,
+          token_version INTEGER DEFAULT 0,
+          mfa_secret TEXT,
+          mfa_enabled BOOLEAN DEFAULT FALSE
+        );
+        CREATE TABLE IF NOT EXISTS announcements (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            content TEXT,
+            date TEXT,
+            is_important BOOLEAN
+        );
+        CREATE TABLE IF NOT EXISTS payments (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id),
+            amount NUMERIC,
+            currency TEXT,
+            date TEXT,
+            description TEXT,
+            status TEXT,
+            reference TEXT,
+            receipt TEXT
+        );
+        CREATE TABLE IF NOT EXISTS messages (
+            id TEXT PRIMARY KEY,
+            sender_id TEXT REFERENCES users(id),
+            receiver_id TEXT REFERENCES users(id),
+            content TEXT,
+            timestamp TEXT,
+            is_read BOOLEAN DEFAULT FALSE
+        );
+        CREATE TABLE IF NOT EXISTS collections (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id),
+            month TEXT,
+            year TEXT,
+            material TEXT,
+            weight NUMERIC,
+            images TEXT[],
+            created_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS material_prices (
+            id TEXT PRIMARY KEY,
+            material_name TEXT UNIQUE,
+            price NUMERIC DEFAULT 0,
+            last_updated TEXT
+        );
+      `;
+      
+      await client.query(schema);
       
       // Migration: Ensure new columns exist for older databases
-      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0');
-      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret TEXT');
-      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE');
+      await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0');
+      await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret TEXT');
+      await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE');
       
       console.log('Database tables checked/created successfully');
       
@@ -182,12 +193,12 @@ const initDb = async () => {
 
       if (adminEmail && adminPassword) {
         // Check case-insensitively
-        const adminCheck = await pool.query("SELECT * FROM users WHERE LOWER(email) = LOWER($1)", [adminEmail]);
+        const adminCheck = await client.query("SELECT * FROM users WHERE LOWER(email) = LOWER($1)", [adminEmail]);
         if (adminCheck.rows.length === 0) {
             const salt = await bcrypt.genSalt(10);
             const hashedPassword = await bcrypt.hash(adminPassword, salt);
             const id = 'admin-seed-001';
-            await pool.query(`
+            await client.query(`
                 INSERT INTO users (
                     id, first_name, last_name, email, phone, password, role, status, 
                     category, business_name, business_address, business_state, date_joined, expiry_date, token_version
@@ -209,11 +220,11 @@ const initDb = async () => {
 
       for (const material of requiredMaterials) {
         // Check if exists
-        const check = await pool.query('SELECT id FROM material_prices WHERE material_name = $1', [material]);
+        const check = await client.query('SELECT id FROM material_prices WHERE material_name = $1', [material]);
         if (check.rows.length === 0) {
             const id = `mat-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
             const today = new Date().toISOString().split('T')[0];
-            await pool.query(
+            await client.query(
                 'INSERT INTO material_prices (id, material_name, price, last_updated) VALUES ($1, $2, 0, $3)',
                 [id, material, today]
             );
@@ -224,6 +235,8 @@ const initDb = async () => {
       dbInitialized = true;
     } catch (e) {
       console.error('Error initializing database tables:', e);
+    } finally {
+        client.release();
     }
 };
 
