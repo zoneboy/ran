@@ -30,6 +30,7 @@ const LOG_MATERIALS = [
 
 const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateUser }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(true);
   const [displayUser, setDisplayUser] = useState<User>(user);
   const [formData, setFormData] = useState<User>(user);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -55,7 +56,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       weight: '',
       images: [] as string[]
   });
-  const [isUploadingCollection, setIsUploadingCollection] = useState(false);
 
   // Expiry Logic
   const today = new Date();
@@ -68,6 +68,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
   useEffect(() => {
     const fetchData = async () => {
+        setIsLoadingData(true);
         try {
             // Load payments regardless of expiry status so they can see history/make new ones
             const payData = await api.getPayments(user.id);
@@ -86,6 +87,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
             }
         } catch (e) {
             console.error("Failed to fetch dashboard data", e);
+        } finally {
+            setIsLoadingData(false);
         }
     };
     fetchData();
@@ -203,6 +206,31 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       }
   };
 
+  // --- SKELETONS ---
+  const AnnouncementSkeleton = () => (
+     <div className="space-y-4">
+         {[1, 2].map(i => (
+             <div key={i} className="animate-pulse flex flex-col space-y-2">
+                 <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                 <div className="h-3 bg-gray-100 rounded w-full"></div>
+                 <div className="h-3 bg-gray-100 rounded w-1/2"></div>
+             </div>
+         ))}
+     </div>
+  );
+
+  const CollectionSkeleton = () => (
+     <div className="space-y-4">
+         {[1, 2, 3].map(i => (
+             <div key={i} className="animate-pulse flex space-x-4 border-b pb-2">
+                 <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+                 <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+                 <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+             </div>
+         ))}
+     </div>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -281,7 +309,12 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                     </div>
                     
                     <div className="space-y-4">
-                        {payments.length > 0 ? payments.map(pay => (
+                        {isLoadingData ? (
+                            <div className="animate-pulse space-y-4">
+                                <div className="h-10 bg-gray-100 rounded"></div>
+                                <div className="h-10 bg-gray-100 rounded"></div>
+                            </div>
+                        ) : payments.length > 0 ? payments.map(pay => (
                             <div key={pay.id} className="flex justify-between items-center border-b border-gray-100 pb-3 last:border-0 last:pb-0">
                                 <div>
                                     <p className="text-sm font-medium text-gray-800">{pay.description}</p>
@@ -319,22 +352,28 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
             /* Active View */
             <>
                 {/* Announcements */}
-                {announcements.length > 0 && (
+                {(announcements.length > 0 || isLoadingData) && (
                     <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-amber-500">
                         <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
                             <Bell className="h-5 w-5 mr-2 text-amber-500" /> Announcements & News
                         </h2>
                         <div className="space-y-4 max-h-80 overflow-y-auto pr-2">
-                            {announcements.map(ann => (
-                                <div key={ann.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                                    <div className="flex justify-between items-start">
-                                        <h3 className="font-semibold text-gray-800 sticky top-0 bg-white z-10">{ann.title}</h3>
-                                        {ann.isImportant && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full shrink-0 ml-2">Important</span>}
+                            {isLoadingData ? (
+                                <AnnouncementSkeleton />
+                            ) : announcements.length > 0 ? (
+                                announcements.map(ann => (
+                                    <div key={ann.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+                                        <div className="flex justify-between items-start">
+                                            <h3 className="font-semibold text-gray-800 sticky top-0 bg-white z-10">{ann.title}</h3>
+                                            {ann.isImportant && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full shrink-0 ml-2">Important</span>}
+                                        </div>
+                                        <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">{ann.content}</p>
+                                        <p className="text-xs text-gray-400 mt-1">{ann.date}</p>
                                     </div>
-                                    <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">{ann.content}</p>
-                                    <p className="text-xs text-gray-400 mt-1">{ann.date}</p>
-                                </div>
-                            ))}
+                                ))
+                            ) : (
+                                <p className="text-sm text-gray-400">No announcements.</p>
+                            )}
                         </div>
                     </div>
                 )}
@@ -470,7 +509,13 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
-                                        {collections.length > 0 ? collections.map(col => (
+                                        {isLoadingData ? (
+                                            <tr>
+                                                <td colSpan={4} className="px-6 py-4">
+                                                    <CollectionSkeleton />
+                                                </td>
+                                            </tr>
+                                        ) : collections.length > 0 ? collections.map(col => (
                                             <tr key={col.id}>
                                                 <td className="px-6 py-4 text-sm text-gray-900">{col.month} {col.year}</td>
                                                 <td className="px-6 py-4 text-sm text-gray-600">{col.material}</td>
@@ -557,7 +602,12 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                             </div>
                             
                             <div className="space-y-4">
-                                {payments.length > 0 ? payments.slice(0, 3).map(pay => (
+                                {isLoadingData ? (
+                                    <div className="space-y-3 animate-pulse">
+                                        <div className="h-10 bg-gray-100 rounded"></div>
+                                        <div className="h-10 bg-gray-100 rounded"></div>
+                                    </div>
+                                ) : payments.length > 0 ? payments.slice(0, 3).map(pay => (
                                     <div key={pay.id} className="flex justify-between items-center border-b border-gray-100 pb-3 last:border-0 last:pb-0">
                                         <div>
                                             <p className="text-sm font-medium text-gray-800">{pay.description}</p>
