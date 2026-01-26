@@ -14,7 +14,7 @@ const getRegion = (state: string) => {
   const mapping: { [key: string]: string } = {
     'Lagos': 'South West', 'Ogun': 'South West', 'Oyo': 'South West', 'Osun': 'South West', 'Ondo': 'South West', 'Ekiti': 'South West',
     'Rivers': 'South South', 'Delta': 'South South', 'Edo': 'South South', 'Akwa Ibom': 'South South', 'Cross River': 'South South', 'Bayelsa': 'South South',
-    'Abuja': 'North Central', 'FCT': 'North Central', 'Plateau': 'North Central', 'Benue': 'North Central', 'Kwara': 'North Central', 'Kogi': 'North Central', 'Nasarawa': 'North Central', 'Niger': 'North Central',
+    'Abuja': 'North Central', 'FCT': 'North Central', 'FCT - Abuja': 'North Central', 'Plateau': 'North Central', 'Benue': 'North Central', 'Kwara': 'North Central', 'Kogi': 'North Central', 'Nasarawa': 'North Central', 'Niger': 'North Central',
     'Kano': 'North West', 'Kaduna': 'North West', 'Katsina': 'North West', 'Kebbi': 'North West', 'Sokoto': 'North West', 'Zamfara': 'North West', 'Jigawa': 'North West',
     'Borno': 'North East', 'Adamawa': 'North East', 'Bauchi': 'North East', 'Gombe': 'North East', 'Taraba': 'North East', 'Yobe': 'North East',
     'Enugu': 'South East', 'Abia': 'South East', 'Anambra': 'South East', 'Ebonyi': 'South East', 'Imo': 'South East'

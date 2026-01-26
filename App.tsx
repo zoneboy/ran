@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
@@ -93,16 +92,14 @@ function App() {
     return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-green-700">Loading RAN Portal...</div>;
   }
 
-  // Expiry Check Helper
+  // Expiry Check Helper - Inclusive of the current day
   const isExpired = () => {
       if (!user) return false;
       if (user.status === 'Expired') return true;
       if (user.role === 'ADMIN') return false;
-      const today = new Date();
-      const expiryDate = new Date(user.expiryDate);
-      const diffTime = expiryDate.getTime() - today.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      return diffDays <= 0;
+      
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      return user.expiryDate < today;
   };
 
   const renderPage = () => {

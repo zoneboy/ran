@@ -57,14 +57,19 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       images: [] as string[]
   });
 
-  // Expiry Logic
-  const today = new Date();
-  const expiryDate = new Date(displayUser.expiryDate);
-  const diffTime = expiryDate.getTime() - today.getTime();
+  // Expiry Logic - Robust string comparison
+  const todayStr = new Date().toISOString().split('T')[0];
+  const expiryStr = displayUser.expiryDate;
+  
+  const isExpired = expiryStr < todayStr;
+  
+  // Calculate days left for banner
+  const todayDate = new Date();
+  const expiryDateObj = new Date(expiryStr);
+  const diffTime = expiryDateObj.getTime() - todayDate.getTime();
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   
-  const isExpiringSoon = diffDays > 0 && diffDays <= 30;
-  const isExpired = diffDays <= 0;
+  const isExpiringSoon = !isExpired && diffDays <= 30;
 
   useEffect(() => {
     const fetchData = async () => {
