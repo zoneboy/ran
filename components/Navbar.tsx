@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect } from 'react';
-import { Menu, X, Recycle, User, LogOut, Users, MessageSquare } from 'lucide-react';
+import { Menu, X, Recycle, User, LogOut, Users, MessageSquare, Coins } from 'lucide-react';
 import { User as UserType } from '../types';
 import { api } from '../services/api';
 
@@ -87,6 +88,14 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
                         <Users className="h-4 w-4 mr-1" /> Directory
                     </button>
                     <button
+                        onClick={() => handleNav('pricelist')}
+                        className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center ${
+                        currentPage === 'pricelist' ? 'bg-green-800 text-white' : 'hover:bg-green-600'
+                        }`}
+                    >
+                        <Coins className="h-4 w-4 mr-1" /> Pricelist
+                    </button>
+                    <button
                         onClick={() => handleNav('messages')}
                         className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center relative ${
                         currentPage === 'messages' ? 'bg-green-800 text-white' : 'hover:bg-green-600'
@@ -162,6 +171,12 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
                     className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600"
                     >
                     Member Directory
+                    </button>
+                    <button 
+                    onClick={() => handleNav('pricelist')} 
+                    className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600"
+                    >
+                    Pricelist
                     </button>
                     <button 
                     onClick={() => handleNav('messages')} 

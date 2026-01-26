@@ -127,3 +127,10 @@ export interface Collection {
   images: string[];
   createdAt: string;
 }
+
+export interface MaterialPrice {
+  id: string;
+  materialName: string;
+  price: number;
+  lastUpdated: string;
+}

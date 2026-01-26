@@ -159,6 +159,12 @@ const initDb = async () => {
           images TEXT[],
           created_at TEXT
       );
+      CREATE TABLE IF NOT EXISTS material_prices (
+          id TEXT PRIMARY KEY,
+          material_name TEXT UNIQUE,
+          price NUMERIC DEFAULT 0,
+          last_updated TEXT
+      );
     `;
     try {
       await pool.query(schema);
@@ -191,6 +197,27 @@ const initDb = async () => {
                 )
             `, [id, adminEmail.toLowerCase(), hashedPassword, new Date().toISOString().split('T')[0], '2099-12-31']);
             console.log(`Admin account seeded: ${adminEmail}`);
+        }
+      }
+
+      // Seed Material Prices
+      const requiredMaterials = [
+        'Baled B/W Pets', 'Baled Green Pets', 'Baled Brown Pets', 'Baled Grey Pets',
+        'Crushed B/W Pets', 'Crushed Green Pets', 'Crushed Brown Pets',
+        'Caps', 'Paper', 'Metal', 'Aluminium'
+      ];
+
+      for (const material of requiredMaterials) {
+        // Check if exists
+        const check = await pool.query('SELECT id FROM material_prices WHERE material_name = $1', [material]);
+        if (check.rows.length === 0) {
+            const id = `mat-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            const today = new Date().toISOString().split('T')[0];
+            await pool.query(
+                'INSERT INTO material_prices (id, material_name, price, last_updated) VALUES ($1, $2, 0, $3)',
+                [id, material, today]
+            );
+            console.log(`Seeded material price: ${material}`);
         }
       }
 
@@ -1045,6 +1072,51 @@ router.post('/messages', authenticateToken, verifyOwnership, async (req, res) =>
         );
         res.status(201).json({ id, senderId, receiverId, content, timestamp, isRead: false });
     } catch (e) { console.error("Send Message Error:", e); res.status(500).json({ message: 'Server error' }); }
+});
+
+// --- MATERIAL PRICES ---
+
+// Get all prices (Available to all active members)
+router.get('/prices', authenticateToken, async (req, res) => {
+    try {
+        // Ensure user is Active (except Admin)
+        if (req.user.role !== 'ADMIN') {
+             const userRes = await pool.query('SELECT status FROM users WHERE id = $1', [req.user.id]);
+             if (!userRes.rows.length || userRes.rows[0].status !== 'Active') {
+                  return res.status(403).json({ message: 'Pricelist available to Active members only.' });
+             }
+        }
+
+        const result = await pool.query('SELECT id, material_name, price, last_updated FROM material_prices ORDER BY material_name ASC');
+        const prices = result.rows.map(row => ({
+            id: row.id,
+            materialName: row.material_name,
+            price: Number(row.price),
+            lastUpdated: row.last_updated
+        }));
+        res.json(prices);
+    } catch (e) {
+        console.error("Prices Fetch Error:", e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Update a price (Admin only)
+router.put('/prices/:id', authenticateToken, requireAdmin, async (req, res) => {
+    const { price } = req.body;
+    const { id } = req.params;
+    
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        await pool.query(
+            'UPDATE material_prices SET price = $1, last_updated = $2 WHERE id = $3',
+            [price, today, id]
+        );
+        res.json({ message: 'Price updated successfully' });
+    } catch (e) {
+        console.error("Price Update Error:", e);
+        res.status(500).json({ message: 'Server error' });
+    }
 });
 
 app.use('/.netlify/functions/api', router);

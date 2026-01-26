@@ -1,7 +1,8 @@
 
 
 
-import { User, Announcement, Payment, Message, BankDetails, Collection } from '../types';
+
+import { User, Announcement, Payment, Message, BankDetails, Collection, MaterialPrice } from '../types';
 
 // Determine API URL based on environment
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -353,5 +354,22 @@ export const api = {
       } catch {
           return 0;
       }
+  },
+
+  // Material Prices
+  getPrices: async (): Promise<MaterialPrice[]> => {
+    const res = await fetch(`${API_URL}/prices`, {
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  updatePrice: async (id: string, price: number): Promise<void> => {
+    await fetch(`${API_URL}/prices/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ price }),
+        credentials: 'include'
+    });
   }
 };

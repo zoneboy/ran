@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
@@ -8,6 +9,7 @@ import UserDashboard from './pages/UserDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import MemberDirectory from './pages/MemberDirectory';
 import Messages from './pages/Messages';
+import Pricelist from './pages/Pricelist';
 import { User } from './types';
 import { api } from './services/api';
 
@@ -125,6 +127,10 @@ function App() {
         // Restrict messages if expired
         if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
         return user ? <Messages currentUser={user} navigate={navigate} targetUserId={pageParams?.targetUserId} /> : <Login onLogin={handleLogin} navigate={navigate} />;
+      case 'pricelist':
+        // Restrict pricelist if expired
+        if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
+        return user ? <Pricelist navigate={navigate} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       default:
         return <Home navigate={navigate} user={user} />;
     }
