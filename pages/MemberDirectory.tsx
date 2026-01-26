@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Briefcase, Tag, ArrowLeft, Users, Layers, Factory, Loader2, Phone, Mail, BarChart, Settings, ShieldAlert, User as UserIcon, MessageSquare } from 'lucide-react';
-import { BusinessCategory, User, UserRole } from '../types';
+import { Search, MapPin, Briefcase, Tag, ArrowLeft, Users, Layers, Factory, Phone, Mail, BarChart, Settings, ShieldAlert, User as UserIcon, MessageSquare } from 'lucide-react';
+import { User, UserRole } from '../types';
 import { api } from '../services/api';
 
 interface MemberDirectoryProps {
@@ -20,6 +21,7 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
 
   useEffect(() => {
     const fetchMembers = async () => {
+      setIsLoading(true);
       try {
         const data = await api.getUsers();
         setMembers(data);
@@ -64,15 +66,32 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
 
   const handleMessageUser = () => {
       if (!selectedMember) return;
-      // In App.tsx, we need to handle passing parameters to pages
-      // But for simple SPA, we can just pass the target user ID via a global state or simple prop drilling workaround
-      // For now, let's assume navigate can take params or we pass it via App state
       navigate('messages', { targetUserId: selectedMember.id });
   };
 
-  if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-10 w-10 text-green-600 animate-spin" /></div>;
-  }
+  const DirectorySkeleton = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {[1, 2, 3, 4, 5, 6].map((i) => (
+        <div key={i} className="bg-white rounded-lg shadow-sm border border-gray-100 p-6 animate-pulse">
+          <div className="flex items-start justify-between mb-4">
+            <div className="space-y-2 w-full">
+              <div className="h-5 bg-gray-200 rounded w-3/4"></div>
+              <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+              <div className="h-3 bg-gray-200 rounded w-1/3"></div>
+            </div>
+            <div className="h-12 w-12 bg-gray-200 rounded-full"></div>
+          </div>
+          <div className="space-y-2 mt-4">
+            <div className="h-3 bg-gray-200 rounded w-full"></div>
+            <div className="flex gap-2">
+              <div className="h-5 w-16 bg-gray-200 rounded-full"></div>
+              <div className="h-5 w-16 bg-gray-200 rounded-full"></div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 
   // Detailed View Component
   if (selectedMember) {
@@ -86,7 +105,7 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
             <ArrowLeft className="h-4 w-4 mr-2" /> Back to Directory
           </button>
 
-          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
             {/* Header */}
             <div className="bg-green-700 p-8 text-white">
               <div className="flex flex-col md:flex-row items-start justify-between">
@@ -294,64 +313,68 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ navigate, currentUser
         </div>
 
         {/* Results Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredMembers.length > 0 ? (
-            filteredMembers.map(member => (
-              <div key={member.id} className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden border border-gray-100 flex flex-col">
-                <div className="p-6 flex-1 cursor-pointer" onClick={() => setSelectedMember(member)}>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-gray-900 mb-1">{member.businessName}</h3>
-                      <p className="text-sm text-green-600 font-medium mb-1">{member.category}</p>
-                      <p className="text-sm text-gray-500 mb-3">{member.firstName} {member.lastName}</p>
-                    </div>
-                    {member.profileImage && (
-                      <img src={member.profileImage} alt={member.businessName} className="h-14 w-14 rounded-full object-cover ml-3 bg-gray-100 border border-gray-200" />
-                    )}
-                  </div>
-                  
-                  <div className="space-y-2 text-sm text-gray-600 mt-2">
-                    <div className="flex items-center">
-                      <MapPin className="h-4 w-4 mr-2 text-gray-400" />
-                      {member.businessAddress}, {member.businessState}
-                    </div>
-                    {(member.materialTypes || []).length > 0 && (
-                      <div className="flex items-start">
-                        <Tag className="h-4 w-4 mr-2 text-gray-400 mt-1" />
-                        <div className="flex flex-wrap gap-1">
-                          {member.materialTypes.slice(0, 3).map(mat => (
-                            <span key={mat} className="bg-gray-100 px-2 py-0.5 rounded text-xs">
-                              {mat}
-                            </span>
-                          ))}
-                          {member.materialTypes.length > 3 && <span className="text-xs text-gray-400">+{member.materialTypes.length - 3}</span>}
-                        </div>
+        {isLoading ? (
+          <DirectorySkeleton />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredMembers.length > 0 ? (
+              filteredMembers.map(member => (
+                <div key={member.id} className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden border border-gray-100 flex flex-col">
+                  <div className="p-6 flex-1 cursor-pointer" onClick={() => setSelectedMember(member)}>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h3 className="text-lg font-bold text-gray-900 mb-1">{member.businessName}</h3>
+                        <p className="text-sm text-green-600 font-medium mb-1">{member.category}</p>
+                        <p className="text-sm text-gray-500 mb-3">{member.firstName} {member.lastName}</p>
                       </div>
-                    )}
+                      {member.profileImage && (
+                        <img src={member.profileImage} alt={member.businessName} className="h-14 w-14 rounded-full object-cover ml-3 bg-gray-100 border border-gray-200" />
+                      )}
+                    </div>
+                    
+                    <div className="space-y-2 text-sm text-gray-600 mt-2">
+                      <div className="flex items-center">
+                        <MapPin className="h-4 w-4 mr-2 text-gray-400" />
+                        {member.businessAddress}, {member.businessState}
+                      </div>
+                      {(member.materialTypes || []).length > 0 && (
+                        <div className="flex items-start">
+                          <Tag className="h-4 w-4 mr-2 text-gray-400 mt-1" />
+                          <div className="flex flex-wrap gap-1">
+                            {member.materialTypes.slice(0, 3).map(mat => (
+                              <span key={mat} className="bg-gray-100 px-2 py-0.5 rounded text-xs">
+                                {mat}
+                              </span>
+                            ))}
+                            {member.materialTypes.length > 3 && <span className="text-xs text-gray-400">+{member.materialTypes.length - 3}</span>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-center items-center">
+                    <button 
+                      onClick={() => setSelectedMember(member)}
+                      className="text-sm text-green-700 font-medium hover:underline focus:outline-none"
+                    >
+                      View Details
+                    </button>
                   </div>
                 </div>
-                <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-center items-center">
-                  <button 
-                    onClick={() => setSelectedMember(member)}
-                    className="text-sm text-green-700 font-medium hover:underline focus:outline-none"
-                  >
-                    View Details
-                  </button>
-                </div>
+              ))
+            ) : (
+              <div className="col-span-full text-center py-12">
+                <p className="text-gray-500 text-lg">No members found matching your criteria.</p>
+                <button 
+                  onClick={() => {setSearchTerm(''); setSelectedCategory(''); setSelectedState('');}}
+                  className="mt-4 text-green-600 font-medium hover:text-green-700"
+                >
+                  Clear Filters
+                </button>
               </div>
-            ))
-          ) : (
-            <div className="col-span-full text-center py-12">
-              <p className="text-gray-500 text-lg">No members found matching your criteria.</p>
-              <button 
-                onClick={() => {setSearchTerm(''); setSelectedCategory(''); setSelectedState('');}}
-                className="mt-4 text-green-600 font-medium hover:text-green-700"
-              >
-                Clear Filters
-              </button>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

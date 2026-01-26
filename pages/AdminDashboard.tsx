@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment, Collection, MaterialPrice } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -106,18 +105,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
   const refreshData = async () => {
     try {
-      const [usersData, announcementsData, allPayments, allCollections, pricesData] = await Promise.all([
-        api.getUsers(),
-        api.getAnnouncements(),
-        api.getAllPayments(),
-        api.getCollections(),
-        api.getPrices()
-      ]);
+      // Sequential fetching to reduce DB load spikes
+      const usersData = await api.getUsers();
       setUsers(usersData);
-      setAnnouncements(announcementsData);
+      
+      const allPayments = await api.getAllPayments();
       setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
-      setCollections(allCollections);
+      
+      const pricesData = await api.getPrices();
       setPrices(pricesData);
+
+      // Fetch heavier data last
+      const announcementsData = await api.getAnnouncements();
+      setAnnouncements(announcementsData);
+
+      const allCollections = await api.getCollections();
+      setCollections(allCollections);
+
     } catch (error) {
       console.error('Failed to load data', error);
     } finally {
@@ -129,6 +133,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     refreshData();
   }, []);
 
+  // ... [Rest of the file remains exactly the same as previous AdminDashboard.tsx, omitted for brevity]
+  // ... (Keep existing implementation of chart data, helper functions, and render logic)
+  
+  // Need to include the rest of the file so I don't truncate it.
   const handleUpdatePrice = async (id: string, newPrice: number) => {
       try {
           await api.updatePrice(id, newPrice);
@@ -959,15 +967,32 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
           </div>
         </div>
 
-        {/* ... (Existing Announcements and Tables) ... */}
-        {/* Simplified for brevity, keeping existing structure */}
+        {/* Announcements */}
         <div className="bg-white rounded-lg shadow-sm p-6">
-           {/* Announcement Block - unchanged */}
            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
                <h2 className="text-lg font-bold text-gray-900 flex items-center">
                  <Megaphone className="h-5 w-5 mr-2 text-green-600" /> Active Announcements
                </h2>
-               {/* Filters - unchanged */}
+               <div className="flex items-center space-x-2">
+                  <div className="relative">
+                    <select
+                      value={announcementTypeFilter}
+                      onChange={(e) => setAnnouncementTypeFilter(e.target.value)}
+                      className="appearance-none border rounded-md pl-3 pr-8 py-1 text-sm bg-gray-50 hover:bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                    >
+                      <option value="All">All Types</option>
+                      <option value="Important">Important</option>
+                      <option value="General">General</option>
+                    </select>
+                    <Filter className="absolute right-2 top-1.5 h-3 w-3 text-gray-400 pointer-events-none" />
+                  </div>
+                  <input
+                    type="date"
+                    value={announcementDateFilter}
+                    onChange={(e) => setAnnouncementDateFilter(e.target.value)}
+                    className="border rounded-md px-2 py-1 text-sm text-gray-500 bg-gray-50"
+                  />
+               </div>
            </div>
            <div className="space-y-3">
               {filteredAnnouncements.length === 0 ? (
@@ -998,7 +1023,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
 
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-            {/* Member Management Table - unchanged */}
             <div className="p-6 border-b border-gray-200 flex flex-col items-center gap-4">
             <div className="w-full flex flex-col md:flex-row justify-between items-center gap-4">
                 <h2 className="text-xl font-bold text-gray-900">Member Management</h2>
@@ -1009,7 +1033,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 <FileText className="h-4 w-4 mr-2" /> Export Data
                 </button>
             </div>
-            {/* ... rest of table code ... */}
             <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="relative">
                 <input
@@ -1062,7 +1085,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 {filteredUsers.length > 0 ? (
                   filteredUsers.map((user) => (
                     <tr key={user.id} className={user.status === MembershipStatus.EXPIRED ? 'bg-red-50' : ''}>
-                       {/* Table rows unchanged */}
                       <td className="px-6 py-4">
                         <div className="text-sm font-medium text-gray-900">{user.businessName}</div>
                         <div className="text-sm text-gray-500">{user.firstName} {user.lastName}</div>
@@ -1159,7 +1181,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
         {/* Collection Logs Section */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden mt-8">
-             {/* Collection Table Code - unchanged */}
               <div className="p-6 border-b border-gray-200 space-y-4">
                 <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                     <h2 className="text-xl font-bold text-gray-900 flex items-center">
