@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Message } from '../types';
 import { api } from '../services/api';
@@ -135,8 +136,8 @@ const Messages: React.FC<MessagesProps> = ({ currentUser, navigate, targetUserId
     };
     loadMessages();
 
-    // Poll for new messages in this chat
-    const interval = setInterval(loadMessages, 5000);
+    // Poll for new messages in this chat - Reduced to 10s for performance
+    const interval = setInterval(loadMessages, 10000);
     return () => clearInterval(interval);
   }, [activeChatUser, currentUser.id]);
 
