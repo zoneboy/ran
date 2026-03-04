@@ -162,9 +162,9 @@ function App() {
             <div>
               <h4 className="text-white font-semibold mb-4">Contact</h4>
               <ul className="space-y-2 text-sm">
-                <li>Lagos, Nigeria</li>
-                <li>info@ran.org.ng</li>
-                <li>+234 800 123 4567</li>
+                <li>Abuja, Nigeria</li>
+                <li>membership@recyclersassociation.org</li>
+                <li>+234 907 981 9777</li>
               </ul>
             </div>
           </div>

@@ -312,7 +312,7 @@ const Register: React.FC<RegisterProps> = ({ navigate }) => {
     switch (category) {
       case MembershipCategory.CORPORATE: return '100,000 NGN';
       case MembershipCategory.PATRON: return '300,000 NGN';
-      case MembershipCategory.ASSOCIATE: return '50,000 NGN';
+      case MembershipCategory.ASSOCIATE: return '30,000 NGN';
       default: return 'Contact for details';
     }
   };
