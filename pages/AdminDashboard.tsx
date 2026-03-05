@@ -622,6 +622,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     return matchesSearch && matchesMaterial && matchesDate;
   });
 
+  // RESTORED ANNOUNCEMENT FILTER BLOCK
+  const filteredAnnouncements = announcements.filter(ann => {
+    const matchDate = announcementDateFilter ? ann.date === announcementDateFilter : true;
+    const matchType = announcementTypeFilter === 'All' 
+        ? true 
+        : announcementTypeFilter === 'Important' 
+            ? ann.isImportant 
+            : !ann.isImportant;
+    return matchDate && matchType;
+  });
+
   const handleExportCollections = () => {
     const headers = ['Date Logged', 'Member ID', 'Business Name', 'Period', 'Material', 'Weight (KG)'];
     const rows = filteredCollections.map(c => [
