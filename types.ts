@@ -1,4 +1,3 @@
-
 export enum UserRole {
   ADMIN = 'ADMIN',
   MEMBER = 'MEMBER',
@@ -132,5 +131,6 @@ export interface MaterialPrice {
   id: string;
   materialName: string;
   price: number;
+  co2Rate: number; // Added CO2e Rate
   lastUpdated: string;
 }

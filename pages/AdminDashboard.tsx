@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment, Collection, MaterialPrice } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File as FileIcon, BarChart2, Coins } from 'lucide-react';
+import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File as FileIcon, BarChart2, Coins, Leaf } from 'lucide-react';
 import { api } from '../services/api';
 import { uploadToCloudinary } from '../services/cloudinary';
 
@@ -101,10 +101,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   // Price Edit State
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [newPriceValue, setNewPriceValue] = useState<string>('');
+  const [newCo2Value, setNewCo2Value] = useState<string>('');
 
   const refreshData = async () => {
     try {
-      // Sequential fetching to reduce DB load spikes
       const usersData = await api.getUsers();
       setUsers(usersData);
       
@@ -114,13 +114,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       const pricesData = await api.getPrices();
       setPrices(pricesData);
 
-      // Fetch heavier data last
       const announcementsData = await api.getAnnouncements();
       setAnnouncements(announcementsData);
 
       const allCollections = await api.getCollections();
       setCollections(allCollections);
-
     } catch (error) {
       console.error('Failed to load data', error);
     } finally {
@@ -132,14 +130,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     refreshData();
   }, []);
 
-  const handleUpdatePrice = async (id: string, newPrice: number) => {
+  const handleUpdatePrice = async (id: string, newPrice: number, newCo2: number) => {
       try {
-          await api.updatePrice(id, newPrice);
+          await api.updatePrice(id, newPrice, newCo2);
           const updatedPrices = await api.getPrices();
           setPrices(updatedPrices);
           setEditingPriceId(null);
       } catch (e) {
-          alert("Failed to update price");
+          alert("Failed to update price and CO2 rate");
       }
   };
 
@@ -163,7 +161,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const uniqueRegions = Array.from(new Set(uniqueStates.map(s => getRegion(s))));
   const uniqueMachinery = Array.from(new Set(users.flatMap(u => u.machineryDeployed || []).filter(m => !!m)));
   
-  // Derived Data for Collection Filters
   const uniqueMaterials = Array.from(new Set(collections.map(c => c.material).filter(Boolean))).sort();
 
   const handleStatusChange = async (userId: string, newStatus: MembershipStatus) => {
@@ -255,76 +252,44 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   };
 
   const handleOpenIdModal = (user: User) => {
-    setIdEditModal({
-        isOpen: true,
-        userId: user.id,
-        currentId: user.id,
-        newId: user.id,
-        name: user.businessName
-    });
+    setIdEditModal({ isOpen: true, userId: user.id, currentId: user.id, newId: user.id, name: user.businessName });
   };
 
   const handleSaveId = async () => {
     if (!idEditModal) return;
-    if (!idEditModal.newId.trim()) {
-        alert("ID cannot be empty");
-        return;
-    }
+    if (!idEditModal.newId.trim()) return alert("ID cannot be empty");
     
     const existingUser = users.find(u => u.id === idEditModal.newId && u.id !== idEditModal.currentId);
-    if (existingUser) {
-        alert(`User ID '${idEditModal.newId}' is already assigned to ${existingUser.businessName}.`);
-        return;
-    }
+    if (existingUser) return alert(`User ID '${idEditModal.newId}' is already assigned to ${existingUser.businessName}.`);
 
     try {
         await api.updateUserId(idEditModal.currentId, idEditModal.newId);
         setIdEditModal(null);
         await refreshData();
         alert(`Successfully updated ID to ${idEditModal.newId}`);
-    } catch (e: any) {
-        alert(e.message || "Failed to update ID");
-    }
+    } catch (e: any) { alert(e.message || "Failed to update ID"); }
   };
 
   const handleOpenExpiryModal = (user: User) => {
-    setExpiryEditModal({
-        isOpen: true,
-        userId: user.id,
-        currentExpiry: user.expiryDate,
-        name: user.businessName
-    });
+    setExpiryEditModal({ isOpen: true, userId: user.id, currentExpiry: user.expiryDate, name: user.businessName });
   };
 
   const handleSaveExpiry = async () => {
     if (!expiryEditModal) return;
-    if (!expiryEditModal.currentExpiry) {
-        alert("Expiry date cannot be empty");
-        return;
-    }
+    if (!expiryEditModal.currentExpiry) return alert("Expiry date cannot be empty");
 
     try {
         const userToUpdate = users.find(u => u.id === expiryEditModal.userId);
         if (!userToUpdate) throw new Error("User not found");
-
-        const updatedUser = { ...userToUpdate, expiryDate: expiryEditModal.currentExpiry };
-        await api.updateUser(updatedUser);
-        
+        await api.updateUser({ ...userToUpdate, expiryDate: expiryEditModal.currentExpiry });
         setExpiryEditModal(null);
         await refreshData();
         alert(`Successfully updated expiry date for ${expiryEditModal.name}`);
-    } catch (e: any) {
-        alert(e.message || "Failed to update expiry date");
-    }
+    } catch (e: any) { alert(e.message || "Failed to update expiry date"); }
   };
 
   const handleOpenStatusModal = (user: User) => {
-    setStatusEditModal({
-        isOpen: true,
-        userId: user.id,
-        currentStatus: user.status,
-        name: user.businessName
-    });
+    setStatusEditModal({ isOpen: true, userId: user.id, currentStatus: user.status, name: user.businessName });
   };
 
   const handleSaveStatus = async () => {
@@ -332,40 +297,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     try {
         await handleStatusChange(statusEditModal.userId, statusEditModal.currentStatus);
         setStatusEditModal(null);
-    } catch (e) {
-        console.error("Failed to save status", e);
-    }
+    } catch (e) { console.error("Failed to save status", e); }
   };
 
   const handleOpenDocModal = (user: User) => {
-    setDocModal({
-      isOpen: true,
-      userId: user.id,
-      name: user.businessName,
-      profileImage: user.profileImage,
-      cac: user.documents?.cac,
-      logo: user.documents?.logo,
-      evidence: user.documents?.evidence,
-      idCard: user.documents?.membershipIdCard,
-      certificate: user.documents?.membershipCertificate
-    });
+    setDocModal({ isOpen: true, userId: user.id, name: user.businessName, profileImage: user.profileImage, cac: user.documents?.cac, logo: user.documents?.logo, evidence: user.documents?.evidence, idCard: user.documents?.membershipIdCard, certificate: user.documents?.membershipCertificate });
     setDocFiles({}); 
   };
 
   const handleDocFileChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'idCard' | 'certificate') => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      alert("File is too large. Max 5MB allowed.");
-      return;
-    }
+    if (file.size > 5 * 1024 * 1024) return alert("File is too large. Max 5MB allowed.");
 
     setUploadingDocs(prev => ({ ...prev, [type]: true }));
-
     try {
         let uploadPayload: File | string = file;
-        // Compress if image
         if (file.type.startsWith('image/')) {
             uploadPayload = await new Promise<string>((resolve) => {
                 const reader = new FileReader();
@@ -375,13 +322,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         const canvas = document.createElement('canvas');
                         const MAX_WIDTH = 800;
                         const scaleSize = MAX_WIDTH / img.width;
-                        if (scaleSize < 1) {
-                            canvas.width = MAX_WIDTH;
-                            canvas.height = img.height * scaleSize;
-                        } else {
-                            canvas.width = img.width;
-                            canvas.height = img.height;
-                        }
+                        if (scaleSize < 1) { canvas.width = MAX_WIDTH; canvas.height = img.height * scaleSize; } 
+                        else { canvas.width = img.width; canvas.height = img.height; }
                         const ctx = canvas.getContext('2d');
                         ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
                         resolve(canvas.toDataURL('image/jpeg', 0.7));
@@ -391,75 +333,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 reader.readAsDataURL(file);
             });
         }
-
         const url = await uploadToCloudinary(uploadPayload);
         setDocFiles(prev => ({ ...prev, [type]: url }));
-    } catch (err) {
-        console.error(err);
-        alert(`Failed to upload ${type}.`);
-    } finally {
-        setUploadingDocs(prev => ({ ...prev, [type]: false }));
-    }
+    } catch (err) { alert(`Failed to upload ${type}.`); } 
+    finally { setUploadingDocs(prev => ({ ...prev, [type]: false })); }
   };
 
   const handleSaveDocs = async () => {
     if (!docModal) return;
-    
     try {
       const userToUpdate = users.find(u => u.id === docModal.userId);
       if (!userToUpdate) throw new Error("User not found");
-
-      const updatedDocuments = {
-        ...userToUpdate.documents,
-        ...(docFiles.idCard && { membershipIdCard: docFiles.idCard }),
-        ...(docFiles.certificate && { membershipCertificate: docFiles.certificate }),
-      };
-
-      const updatedUser = { ...userToUpdate, documents: updatedDocuments };
-      await api.updateUser(updatedUser);
-
+      const updatedDocuments = { ...userToUpdate.documents, ...(docFiles.idCard && { membershipIdCard: docFiles.idCard }), ...(docFiles.certificate && { membershipCertificate: docFiles.certificate }) };
+      await api.updateUser({ ...userToUpdate, documents: updatedDocuments });
       setDocModal(null);
       setDocFiles({});
       await refreshData();
       alert("Documents updated successfully");
-    } catch (e: any) {
-      alert(e.message || "Failed to save documents.");
-    }
+    } catch (e: any) { alert(e.message || "Failed to save documents."); }
   };
 
   const handleOpenPaymentModal = async (user: User) => {
-    setPaymentModal({
-      isOpen: true,
-      userId: user.id,
-      name: user.businessName
-    });
+    setPaymentModal({ isOpen: true, userId: user.id, name: user.businessName });
     setShowAddPaymentForm(false);
-    
-    try {
-        const data = await api.getPayments(user.id);
-        setUserPayments(data);
-    } catch (e) {
-        console.error("Failed to fetch payments");
-        setUserPayments([]);
-    }
-
-    setPaymentForm({
-        amount: '',
-        date: new Date().toISOString().split('T')[0],
-        description: '',
-        status: 'Successful',
-        receipt: ''
-    });
+    try { setUserPayments(await api.getPayments(user.id)); } catch (e) { setUserPayments([]); }
+    setPaymentForm({ amount: '', date: new Date().toISOString().split('T')[0], description: '', status: 'Successful', receipt: '' });
   };
 
   const handlePaymentFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) { 
-        alert("Receipt file is too large. Max 5MB.");
-        return;
-    }
+    if (file.size > 5 * 1024 * 1024) return alert("Receipt file is too large. Max 5MB.");
     
     setIsUploadingReceipt(true);
     try {
@@ -473,13 +377,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         const canvas = document.createElement('canvas');
                         const MAX_WIDTH = 800; 
                         const scaleSize = MAX_WIDTH / img.width;
-                        if (scaleSize < 1) {
-                            canvas.width = MAX_WIDTH;
-                            canvas.height = img.height * scaleSize;
-                        } else {
-                            canvas.width = img.width;
-                            canvas.height = img.height;
-                        }
+                        if (scaleSize < 1) { canvas.width = MAX_WIDTH; canvas.height = img.height * scaleSize; } 
+                        else { canvas.width = img.width; canvas.height = img.height; }
                         const ctx = canvas.getContext('2d');
                         ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
                         resolve(canvas.toDataURL('image/jpeg', 0.7));
@@ -489,38 +388,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 reader.readAsDataURL(file);
             });
         }
-
         const url = await uploadToCloudinary(uploadPayload);
         setPaymentForm(prev => ({ ...prev, receipt: url }));
-    } catch (err) {
-        console.error(err);
-        alert("Failed to upload receipt.");
-    } finally {
-        setIsUploadingReceipt(false);
-    }
+    } catch (err) { alert("Failed to upload receipt."); } 
+    finally { setIsUploadingReceipt(false); }
   };
 
   const handleSavePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!paymentModal) return;
-
     try {
-        await api.createPayment({
-            userId: paymentModal.userId,
-            amount: Number(paymentForm.amount),
-            description: paymentForm.description,
-            date: paymentForm.date,
-            status: paymentForm.status,
-            receipt: paymentForm.receipt
-        });
-        const updated = await api.getPayments(paymentModal.userId);
-        setUserPayments(updated);
-        
+        await api.createPayment({ userId: paymentModal.userId, amount: Number(paymentForm.amount), description: paymentForm.description, date: paymentForm.date, status: paymentForm.status, receipt: paymentForm.receipt });
+        setUserPayments(await api.getPayments(paymentModal.userId));
         setShowAddPaymentForm(false);
         alert("Payment recorded successfully.");
-    } catch (e: any) {
-        alert(e.message || "Failed to record payment.");
-    }
+    } catch (e: any) { alert(e.message || "Failed to record payment."); }
   };
 
   const handleApprovePayment = async (e: React.MouseEvent, paymentId: string) => {
@@ -529,48 +411,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     if(!paymentModal) return;
     try {
         await api.updatePaymentStatus(paymentId, 'Successful');
-        const updated = await api.getPayments(paymentModal.userId);
-        setUserPayments(updated);
+        setUserPayments(await api.getPayments(paymentModal.userId));
         alert("Payment approved!");
-    } catch(e) {
-        alert("Failed to approve payment.");
-    }
+    } catch(e) { alert("Failed to approve payment."); }
   };
 
   const handleDeletePayment = async (e: React.MouseEvent, paymentId: string) => {
     e.preventDefault();
     e.stopPropagation();
-
-    if(!window.confirm("Are you sure you want to delete this payment record? This cannot be undone.")) {
-        return;
-    }
-
+    if(!window.confirm("Are you sure you want to delete this payment record? This cannot be undone.")) return;
     const previousPayments = [...userPayments];
     setUserPayments(prev => prev.filter(p => p.id !== paymentId));
-
     try {
         await api.deletePayment(paymentId);
-        if (paymentModal) {
-            const updated = await api.getPayments(paymentModal.userId);
-            setUserPayments(updated);
-        }
-    } catch(e) {
-        console.error("Delete Error", e);
-        alert("Failed to delete payment.");
-        setUserPayments(previousPayments);
-    }
+        if (paymentModal) setUserPayments(await api.getPayments(paymentModal.userId));
+    } catch(e) { alert("Failed to delete payment."); setUserPayments(previousPayments); }
   };
 
   const filteredUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN) return false;
-    
-    // Status Filter
     if (statusFilter && u.status !== statusFilter) return false;
-
-    // Category Filter (Case Insensitive)
     if (categoryFilter && (u.category || '').toLowerCase() !== categoryFilter.toLowerCase()) return false;
-
-    // Text Search
     if (!filter) return true;
 
     const searchTerm = filter.toLowerCase();
@@ -584,96 +445,57 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     const safeId = (u.id || '').toLowerCase();
 
     return (
-      safeFirstName.includes(searchTerm) || 
-      safeLastName.includes(searchTerm) || 
-      safeBusiness.includes(searchTerm) ||
-      safeCategory.includes(searchTerm) ||
-      safeState.includes(searchTerm) ||
-      safeRegion.includes(searchTerm) ||
-      safeMaterials.some(m => (m || '').toLowerCase().includes(searchTerm)) ||
-      safeId.includes(searchTerm)
+      safeFirstName.includes(searchTerm) || safeLastName.includes(searchTerm) || safeBusiness.includes(searchTerm) ||
+      safeCategory.includes(searchTerm) || safeState.includes(searchTerm) || safeRegion.includes(searchTerm) ||
+      safeMaterials.some(m => (m || '').toLowerCase().includes(searchTerm)) || safeId.includes(searchTerm)
     );
   });
 
   const filteredCollections = collections.filter(c => {
-    // Text Search
     const search = collectionFilter.toLowerCase();
-    const matchesSearch = (
-        (c.businessName || '').toLowerCase().includes(search) ||
-        (c.material || '').toLowerCase().includes(search) ||
-        (c.month || '').toLowerCase().includes(search) ||
-        (c.userId || '').toLowerCase().includes(search)
-    );
-
-    // Material Filter
+    const matchesSearch = ((c.businessName || '').toLowerCase().includes(search) || (c.material || '').toLowerCase().includes(search) || (c.month || '').toLowerCase().includes(search) || (c.userId || '').toLowerCase().includes(search));
     const matchesMaterial = collectionMaterialFilter ? c.material === collectionMaterialFilter : true;
-
-    // Date Range Filter
     let matchesDate = true;
-    if (collectionStartDate) {
-        matchesDate = matchesDate && new Date(c.createdAt) >= new Date(collectionStartDate);
-    }
+    if (collectionStartDate) matchesDate = matchesDate && new Date(c.createdAt) >= new Date(collectionStartDate);
     if (collectionEndDate) {
         const end = new Date(collectionEndDate);
         end.setHours(23, 59, 59, 999);
         matchesDate = matchesDate && new Date(c.createdAt) <= end;
     }
-
     return matchesSearch && matchesMaterial && matchesDate;
   });
 
-  // RESTORED ANNOUNCEMENT FILTER BLOCK
   const filteredAnnouncements = announcements.filter(ann => {
     const matchDate = announcementDateFilter ? ann.date === announcementDateFilter : true;
-    const matchType = announcementTypeFilter === 'All' 
-        ? true 
-        : announcementTypeFilter === 'Important' 
-            ? ann.isImportant 
-            : !ann.isImportant;
+    const matchType = announcementTypeFilter === 'All' ? true : announcementTypeFilter === 'Important' ? ann.isImportant : !ann.isImportant;
     return matchDate && matchType;
   });
 
   const handleExportCollections = () => {
     const headers = ['Date Logged', 'Member ID', 'Business Name', 'Period', 'Material', 'Weight (KG)'];
-    const rows = filteredCollections.map(c => [
-       new Date(c.createdAt).toLocaleDateString(),
-       c.userId,
-       `"${c.businessName}"`, // Escape commas in business name
-       `${c.month} ${c.year}`,
-       c.material,
-       c.weight
-    ]);
-
+    const rows = filteredCollections.map(c => [new Date(c.createdAt).toLocaleDateString(), c.userId, `"${c.businessName}"`, `${c.month} ${c.year}`, c.material, c.weight]);
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    
     let filename = `ran_collections_${new Date().toISOString().split('T')[0]}`;
     if (collectionMaterialFilter) filename += `_${collectionMaterialFilter.replace(/\s+/g, '_')}`;
     link.setAttribute('download', `${filename}.csv`);
-    
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // Robust Date comparison for Expiring Users
   const today = new Date();
-  today.setHours(0, 0, 0, 0); // Normalize to midnight
-
+  today.setHours(0, 0, 0, 0); 
   const expiringUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN || u.status === MembershipStatus.SUSPENDED) return false;
     if (!u.expiryDate) return false;
-    
     const expiry = new Date(u.expiryDate);
-    expiry.setHours(0, 0, 0, 0); // Normalize to midnight
-    
+    expiry.setHours(0, 0, 0, 0); 
     const diffTime = expiry.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    // Only flag them if they are between 0 (expiring today) and 30 days out
     return diffDays >= 0 && diffDays <= 30;
   });
 
@@ -682,53 +504,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       if(u.role === UserRole.ADMIN) return false;
       const matchState = exportConfig.state ? u.businessState === exportConfig.state : true;
       const matchRegion = exportConfig.region ? getRegion(u.businessState) === exportConfig.region : true;
-      // Case Insensitive Category Match
       const matchCat = exportConfig.category ? (u.category || '').toLowerCase() === exportConfig.category.toLowerCase() : true;
       const matchMach = exportConfig.machinery ? (u.machineryDeployed || []).includes(exportConfig.machinery) : true;
       return matchState && matchRegion && matchCat && matchMach;
     });
 
     if (exportConfig.format === 'Excel') {
-        const headers = [
-            'ID', 'Business Name', 'Category', 'Status', 'Expiry Date',
-            'First Name', 'Last Name', 'Gender', 'Email', 'Phone', 'DOB',
-            'Address', 'City', 'State', 'Region', 'Other States',
-            'Commencement Date', 'Monthly Volume (Tons)', 'Employees',
-            'Materials', 'Machinery',
-            'Interests', 'Related Association'
-        ];
-        
+        const headers = ['ID', 'Business Name', 'Category', 'Status', 'Expiry Date', 'First Name', 'Last Name', 'Gender', 'Email', 'Phone', 'DOB', 'Address', 'City', 'State', 'Region', 'Other States', 'Commencement Date', 'Monthly Volume (Tons)', 'Employees', 'Materials', 'Machinery', 'Interests', 'Related Association'];
         const rows = exportData.map(u => {
              const safeUser = u as any; 
-             return [
-                `"${safeUser.id}"`,
-                `"${safeUser.businessName}"`,
-                `"${safeUser.category}"`,
-                `"${safeUser.status}"`,
-                `"${safeUser.expiryDate}"`,
-                `"${safeUser.firstName}"`,
-                `"${safeUser.lastName}"`,
-                `"${safeUser.gender || ''}"`,
-                `"${safeUser.email}"`,
-                `"${safeUser.phone}"`,
-                `"${safeUser.dob || ''}"`,
-                `"${safeUser.businessAddress}"`,
-                `"${safeUser.businessCity || ''}"`,
-                `"${safeUser.businessState}"`,
-                `"${getRegion(safeUser.businessState)}"`,
-                `"${safeUser.statesOfOperation || ''}"`,
-                `"${safeUser.businessCommencement || ''}"`,
-                `"${safeUser.monthlyVolume}"`,
-                `"${safeUser.employees}"`,
-                `"${(safeUser.materialTypes || []).join(' | ')}"`,
-                `"${(safeUser.machineryDeployed || []).join(' | ')}"`,
-                `"${(safeUser.areasOfInterest || []).join(' | ')}"`,
-                `"${safeUser.relatedAssociation === 'Yes' ? safeUser.relatedAssociationName : 'No'}"`
-            ].join(',');
+             return [`"${safeUser.id}"`, `"${safeUser.businessName}"`, `"${safeUser.category}"`, `"${safeUser.status}"`, `"${safeUser.expiryDate}"`, `"${safeUser.firstName}"`, `"${safeUser.lastName}"`, `"${safeUser.gender || ''}"`, `"${safeUser.email}"`, `"${safeUser.phone}"`, `"${safeUser.dob || ''}"`, `"${safeUser.businessAddress}"`, `"${safeUser.businessCity || ''}"`, `"${safeUser.businessState}"`, `"${getRegion(safeUser.businessState)}"`, `"${safeUser.statesOfOperation || ''}"`, `"${safeUser.businessCommencement || ''}"`, `"${safeUser.monthlyVolume}"`, `"${safeUser.employees}"`, `"${(safeUser.materialTypes || []).join(' | ')}"`, `"${(safeUser.machineryDeployed || []).join(' | ')}"`, `"${(safeUser.areasOfInterest || []).join(' | ')}"`, `"${safeUser.relatedAssociation === 'Yes' ? safeUser.relatedAssociationName : 'No'}"`].join(',');
         });
-
         const csvContent = [headers.join(','), ...rows].join('\n');
-
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -742,14 +529,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         if (printWindow) {
             const escapeHtml = (unsafe: string | null | undefined): string => {
                 if (!unsafe) return '';
-                return String(unsafe)
-                    .replace(/&/g, "&amp;")
-                    .replace(/</g, "&lt;")
-                    .replace(/>/g, "&gt;")
-                    .replace(/"/g, "&quot;")
-                    .replace(/'/g, "&#039;");
+                return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
             };
-
             printWindow.document.write(`
                 <html>
                 <head>
@@ -779,28 +560,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         <h1 style="color:#166534;">Recyclers Association of Nigeria</h1>
                         <p>Membership Database Export - Generated: ${escapeHtml(new Date().toLocaleDateString())}</p>
                     </div>
-
                     ${exportData.map(u => {
                         const safeUser = u as any;
                         const region = getRegion(safeUser.businessState);
                         const cleanMaterials = (safeUser.materialTypes || []).map((m: string) => escapeHtml(m)).join(', ');
                         const cleanMachinery = (safeUser.machineryDeployed || []).map((m: string) => escapeHtml(m)).join(', ');
                         const cleanInterests = (safeUser.areasOfInterest || []).map((m: string) => escapeHtml(m)).join(', ');
-
                         return `
                         <div class="member-card">
                             <div class="header">
-                                <div>
-                                    <h1>${escapeHtml(safeUser.businessName)}</h1>
-                                    <div style="font-size:14px; color:#555;">${escapeHtml(safeUser.category)}</div>
-                                </div>
-                                <div class="meta">
-                                    ID: <strong>${escapeHtml(safeUser.id)}</strong><br/>
-                                    Status: <span class="${safeUser.status === 'Active' ? 'status-active' : 'status-expired'}">${escapeHtml(safeUser.status)}</span><br/>
-                                    Expires: ${escapeHtml(safeUser.expiryDate)}
-                                </div>
+                                <div><h1>${escapeHtml(safeUser.businessName)}</h1><div style="font-size:14px; color:#555;">${escapeHtml(safeUser.category)}</div></div>
+                                <div class="meta">ID: <strong>${escapeHtml(safeUser.id)}</strong><br/>Status: <span class="${safeUser.status === 'Active' ? 'status-active' : 'status-expired'}">${escapeHtml(safeUser.status)}</span><br/>Expires: ${escapeHtml(safeUser.expiryDate)}</div>
                             </div>
-
                             <div class="profile-header">
                                 ${safeUser.profileImage ? `<img src="${safeUser.profileImage}" class="profile-img" crossorigin="anonymous" />` : '<div class="profile-img" style="display:flex;align-items:center;justify-content:center;color:#999;">No Photo</div>'}
                                 <div style="flex:1; padding-left: 10px;">
@@ -814,7 +585,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                                 </div>
                                 ${safeUser.documents?.logo ? `<img src="${safeUser.documents.logo}" class="logo-img" crossorigin="anonymous" />` : ''}
                             </div>
-
                             <div class="section-title">Business Information</div>
                             <div class="grid">
                                 <div class="field"><span class="label">Address</span><span class="value">${escapeHtml(safeUser.businessAddress)}, ${escapeHtml(safeUser.businessCity || '')}</span></div>
@@ -822,7 +592,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                                 <div class="field"><span class="label">Date Commenced</span><span class="value">${escapeHtml(safeUser.businessCommencement || 'N/A')}</span></div>
                                 <div class="field"><span class="label">Other States</span><span class="value">${escapeHtml(safeUser.statesOfOperation || 'None')}</span></div>
                             </div>
-
                             <div class="section-title">Operational Data</div>
                             <div class="grid">
                                 <div class="field"><span class="label">Materials</span><span class="value">${cleanMaterials}</span></div>
@@ -830,33 +599,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                                 <div class="field"><span class="label">Monthly Volume</span><span class="value">${escapeHtml(safeUser.monthlyVolume)} Tons</span></div>
                                 <div class="field"><span class="label">Employees</span><span class="value">${escapeHtml(String(safeUser.employees))}</span></div>
                             </div>
-                            
                             <div class="section-title">Other Details</div>
                             <div class="grid">
                                 <div class="field"><span class="label">Areas of Interest</span><span class="value">${cleanInterests}</span></div>
                                 <div class="field"><span class="label">Related Association</span><span class="value">${safeUser.relatedAssociation === 'Yes' ? escapeHtml(safeUser.relatedAssociationName) : 'No'}</span></div>
-                                <div class="field">
-                                    <span class="label">Uploaded Documents</span>
-                                    <div style="margin-top:2px;">
-                                        ${safeUser.documents?.cac ? `<a href="${safeUser.documents.cac}" target="_blank" class="doc-badge">CAC Cert</a>` : ''}
-                                        ${safeUser.documents?.evidence ? `<a href="${safeUser.documents.evidence}" target="_blank" class="doc-badge">Evidence</a>` : ''}
-                                        ${safeUser.documents?.membershipIdCard ? `<a href="${safeUser.documents.membershipIdCard}" target="_blank" class="doc-badge">ID Card</a>` : ''}
-                                        ${safeUser.documents?.membershipCertificate ? `<a href="${safeUser.documents.membershipCertificate}" target="_blank" class="doc-badge">RAN Cert</a>` : ''}
-                                        ${(!safeUser.documents?.cac && !safeUser.documents?.evidence && !safeUser.documents?.membershipIdCard && !safeUser.documents?.membershipCertificate) ? '<span style="color:#999;font-style:italic;">None</span>' : ''}
-                                    </div>
-                                </div>
+                                <div class="field"><span class="label">Uploaded Documents</span><div style="margin-top:2px;">
+                                    ${safeUser.documents?.cac ? `<a href="${safeUser.documents.cac}" target="_blank" class="doc-badge">CAC Cert</a>` : ''}
+                                    ${safeUser.documents?.evidence ? `<a href="${safeUser.documents.evidence}" target="_blank" class="doc-badge">Evidence</a>` : ''}
+                                    ${safeUser.documents?.membershipIdCard ? `<a href="${safeUser.documents.membershipIdCard}" target="_blank" class="doc-badge">ID Card</a>` : ''}
+                                    ${safeUser.documents?.membershipCertificate ? `<a href="${safeUser.documents.membershipCertificate}" target="_blank" class="doc-badge">RAN Cert</a>` : ''}
+                                    ${(!safeUser.documents?.cac && !safeUser.documents?.evidence && !safeUser.documents?.membershipIdCard && !safeUser.documents?.membershipCertificate) ? '<span style="color:#999;font-style:italic;">None</span>' : ''}
+                                </div></div>
                             </div>
-                        </div>
-                        `
+                        </div>`
                     }).join('')}
-
-                    <script>
-                        window.onload = function() {
-                            setTimeout(function() {
-                                window.print();
-                            }, 500);
-                        };
-                    </script>
+                    <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
                 </body>
                 </html>
             `);
@@ -866,9 +623,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     setShowExportModal(false);
   };
 
-  if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-10 w-10 text-green-600 animate-spin" /></div>;
-  }
+  if (isLoading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-10 w-10 text-green-600 animate-spin" /></div>;
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 sm:p-6 lg:p-8 relative">
@@ -876,48 +631,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
           <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-          
           <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
-             <div 
-                onClick={() => setShowExpiringModal(true)}
-                className="relative cursor-pointer bg-white p-2 rounded-full shadow-sm hover:shadow-md transition-shadow" 
-                title="Expiring Members"
-             >
+             <div onClick={() => setShowExpiringModal(true)} className="relative cursor-pointer bg-white p-2 rounded-full shadow-sm hover:shadow-md transition-shadow" title="Expiring Members">
                 <Bell className="h-6 w-6 text-gray-600" />
-                {expiringUsers.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                    {expiringUsers.length}
-                  </span>
-                )}
+                {expiringUsers.length > 0 && <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full animate-pulse">{expiringUsers.length}</span>}
              </div>
-
-             <button 
-                onClick={() => setShowPriceModal(true)}
-                className="flex items-center space-x-2 bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-md font-medium text-sm shadow-sm transition-all"
-             >
-                <Coins className="h-4 w-4" />
-                <span>Manage Prices</span>
+             <button onClick={() => setShowPriceModal(true)} className="flex items-center space-x-2 bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-md font-medium text-sm shadow-sm transition-all">
+                <Coins className="h-4 w-4" /><span>Manage Rates</span>
              </button>
-
-             <button 
-                onClick={() => setShowPendingPaymentModal(true)}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-md font-medium text-sm shadow-sm transition-all ${
-                   pendingPayments.length > 0 
-                   ? 'bg-red-600 text-white hover:bg-red-700 animate-pulse' 
-                   : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                }`}
-             >
-                <CreditCard className="h-4 w-4" />
-                <span>Payment Requests</span>
-                {pendingPayments.length > 0 && (
-                   <span className="bg-white text-red-600 px-1.5 py-0.5 rounded-full text-xs font-bold">{pendingPayments.length}</span>
-                )}
+             <button onClick={() => setShowPendingPaymentModal(true)} className={`flex items-center space-x-2 px-4 py-2 rounded-md font-medium text-sm shadow-sm transition-all ${pendingPayments.length > 0 ? 'bg-red-600 text-white hover:bg-red-700 animate-pulse' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'}`}>
+                <CreditCard className="h-4 w-4" /><span>Payment Requests</span>
+                {pendingPayments.length > 0 && <span className="bg-white text-red-600 px-1.5 py-0.5 rounded-full text-xs font-bold">{pendingPayments.length}</span>}
              </button>
-
-             <button 
-               onClick={() => setShowAnnounceModal(true)}
-               className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center shadow-sm"
-             >
+             <button onClick={() => setShowAnnounceModal(true)} className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center shadow-sm">
                 <Megaphone className="h-4 w-4 mr-2" /> Make Announcement
              </button>
           </div>
@@ -929,18 +655,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie
-                    data={statusData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                    label
-                  >
-                    {statusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
+                  <Pie data={statusData} cx="50%" cy="50%" outerRadius={80} fill="#8884d8" dataKey="value" label>
+                    {statusData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                   </Pie>
                   <Tooltip />
                 </PieChart>
@@ -948,14 +664,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             </div>
             <div className="flex justify-center gap-4 text-sm mt-2">
               {statusData.map((entry, index) => (
-                <div key={index} className="flex items-center">
-                  <span className="w-3 h-3 rounded-full mr-1" style={{ backgroundColor: COLORS[index] }}></span>
-                  {entry.name}: {entry.value}
-                </div>
+                <div key={index} className="flex items-center"><span className="w-3 h-3 rounded-full mr-1" style={{ backgroundColor: COLORS[index] }}></span>{entry.name}: {entry.value}</div>
               ))}
             </div>
           </div>
-
           <div className="bg-white p-6 rounded-lg shadow-sm">
             <h2 className="text-lg font-bold text-gray-700 mb-4">Member Categories</h2>
             <div className="h-64">
@@ -979,23 +691,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                </h2>
                <div className="flex items-center space-x-2">
                   <div className="relative">
-                    <select
-                      value={announcementTypeFilter}
-                      onChange={(e) => setAnnouncementTypeFilter(e.target.value)}
-                      className="appearance-none border rounded-md pl-3 pr-8 py-1 text-sm bg-gray-50 hover:bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
-                    >
+                    <select value={announcementTypeFilter} onChange={(e) => setAnnouncementTypeFilter(e.target.value)} className="appearance-none border rounded-md pl-3 pr-8 py-1 text-sm bg-gray-50 hover:bg-white focus:outline-none focus:ring-1 focus:ring-green-500">
                       <option value="All">All Types</option>
                       <option value="Important">Important</option>
                       <option value="General">General</option>
                     </select>
                     <Filter className="absolute right-2 top-1.5 h-3 w-3 text-gray-400 pointer-events-none" />
                   </div>
-                  <input
-                    type="date"
-                    value={announcementDateFilter}
-                    onChange={(e) => setAnnouncementDateFilter(e.target.value)}
-                    className="border rounded-md px-2 py-1 text-sm text-gray-500 bg-gray-50"
-                  />
+                  <input type="date" value={announcementDateFilter} onChange={(e) => setAnnouncementDateFilter(e.target.value)} className="border rounded-md px-2 py-1 text-sm text-gray-500 bg-gray-50" />
                </div>
            </div>
            <div className="space-y-3">
@@ -1012,14 +715,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                       <p className="text-sm text-gray-600 mt-1">{ann.content}</p>
                       <p className="text-xs text-gray-400 mt-1">Posted: {ann.date}</p>
                     </div>
-                    <button 
-                      type="button"
-                      onClick={(e) => handleDeleteAnnouncement(e, ann.id)}
-                      className="text-gray-400 hover:text-red-500 p-2 rounded hover:bg-gray-100 transition-colors"
-                      title="Delete Announcement"
-                    >
-                      <Trash2 className="h-5 w-5 pointer-events-none" />
-                    </button>
+                    <button type="button" onClick={(e) => handleDeleteAnnouncement(e, ann.id)} className="text-gray-400 hover:text-red-500 p-2 rounded hover:bg-gray-100 transition-colors" title="Delete Announcement"><Trash2 className="h-5 w-5 pointer-events-none" /></button>
                   </div>
                 ))
               )}
@@ -1030,37 +726,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             <div className="p-6 border-b border-gray-200 flex flex-col items-center gap-4">
             <div className="w-full flex flex-col md:flex-row justify-between items-center gap-4">
                 <h2 className="text-xl font-bold text-gray-900">Member Management</h2>
-                <button
-                onClick={() => setShowExportModal(true)}
-                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors"
-                >
-                <FileText className="h-4 w-4 mr-2" /> Export Data
-                </button>
+                <button onClick={() => setShowExportModal(true)} className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors"><FileText className="h-4 w-4 mr-2" /> Export Data</button>
             </div>
             <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="relative">
-                <input
-                    type="text"
-                    placeholder="Search name, ID, business..."
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500"
-                />
+                <input type="text" placeholder="Search name, ID, business..." value={filter} onChange={(e) => setFilter(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500" />
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
                 </div>
-                <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                >
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500">
                     <option value="">All Statuses</option>
                     {Object.values(MembershipStatus).map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
-                <select
-                    value={categoryFilter}
-                    onChange={(e) => setCategoryFilter(e.target.value)}
-                    className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                >
+                <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500">
                     <option value="">All Categories</option>
                     {Object.values(MembershipCategory).map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -1096,88 +773,39 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 group relative">
                         <div className="flex items-center space-x-2">
                            <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">{user.id}</span>
-                           <button onClick={() => handleOpenIdModal(user)} className="text-gray-400 hover:text-green-600" title="Edit ID">
-                             <Edit className="h-4 w-4" />
-                           </button>
+                           <button onClick={() => handleOpenIdModal(user)} className="text-gray-400 hover:text-green-600" title="Edit ID"><Edit className="h-4 w-4" /></button>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.category}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.businessState}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <span className="block font-medium">{getRegion(user.businessState || '')}</span>
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><span className="block font-medium">{getRegion(user.businessState || '')}</span></td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.gender || 'N/A'}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.email}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.phone}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.dob || 'N/A'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-500 max-w-xs break-words">
-                        {(user.materialTypes || []).join(', ')}
-                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500 max-w-xs break-words">{(user.materialTypes || []).join(', ')}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex items-center space-x-2">
                             <span className={user.status === MembershipStatus.EXPIRED ? 'text-red-600 font-bold' : ''}>{user.expiryDate}</span>
-                            <button onClick={() => handleOpenExpiryModal(user)} className="text-gray-400 hover:text-green-600" title="Edit Expiry Date">
-                                <Edit className="h-4 w-4" />
-                            </button>
+                            <button onClick={() => handleOpenExpiryModal(user)} className="text-gray-400 hover:text-green-600" title="Edit Expiry Date"><Edit className="h-4 w-4" /></button>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center space-x-2">
-                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                              ${user.status === 'Active' ? 'bg-green-100 text-green-800' : 
-                                user.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' : 
-                                user.status === 'Expired' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
-                              {user.status}
-                            </span>
-                             <button onClick={() => handleOpenStatusModal(user)} className="text-gray-400 hover:text-blue-600" title="Change Status">
-                                <Edit className="h-4 w-4" />
-                             </button>
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${user.status === 'Active' ? 'bg-green-100 text-green-800' : user.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' : user.status === 'Expired' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>{user.status}</span>
+                             <button onClick={() => handleOpenStatusModal(user)} className="text-gray-400 hover:text-blue-600" title="Change Status"><Edit className="h-4 w-4" /></button>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2 flex items-center">
-                        <button
-                          onClick={() => handleOpenDocModal(user)}
-                          className="text-gray-500 hover:text-green-600 bg-gray-50 p-1.5 rounded"
-                          title="Manage Documents (ID/Cert)"
-                        >
-                          <FileCheck className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={() => handleOpenPaymentModal(user)}
-                          className="text-amber-500 hover:text-amber-600 bg-amber-50 p-1.5 rounded"
-                          title="Manage Payments"
-                        >
-                          <CreditCard className="h-5 w-5" />
-                        </button>
-                        {user.status === MembershipStatus.PENDING && (
-                          <button 
-                            onClick={() => handleStatusChange(user.id, MembershipStatus.ACTIVE)}
-                            className="text-green-600 hover:text-green-900 bg-green-50 p-1 rounded" title="Approve">
-                            <Check className="h-5 w-5" />
-                          </button>
-                        )}
-                        {user.status !== MembershipStatus.SUSPENDED && (
-                          <button 
-                            onClick={() => handleStatusChange(user.id, MembershipStatus.SUSPENDED)}
-                            className="text-red-600 hover:text-red-900 bg-red-50 p-1 rounded" title="Suspend">
-                            <X className="h-5 w-5" />
-                          </button>
-                        )}
-                         {user.status === MembershipStatus.SUSPENDED && (
-                          <button 
-                            onClick={() => handleStatusChange(user.id, MembershipStatus.ACTIVE)}
-                            className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1 rounded" title="Reactivate">
-                            <Check className="h-5 w-5" />
-                          </button>
-                        )}
+                        <button onClick={() => handleOpenDocModal(user)} className="text-gray-500 hover:text-green-600 bg-gray-50 p-1.5 rounded" title="Manage Documents"><FileCheck className="h-5 w-5" /></button>
+                        <button onClick={() => handleOpenPaymentModal(user)} className="text-amber-500 hover:text-amber-600 bg-amber-50 p-1.5 rounded" title="Manage Payments"><CreditCard className="h-5 w-5" /></button>
+                        {user.status === MembershipStatus.PENDING && <button onClick={() => handleStatusChange(user.id, MembershipStatus.ACTIVE)} className="text-green-600 hover:text-green-900 bg-green-50 p-1 rounded" title="Approve"><Check className="h-5 w-5" /></button>}
+                        {user.status !== MembershipStatus.SUSPENDED && <button onClick={() => handleStatusChange(user.id, MembershipStatus.SUSPENDED)} className="text-red-600 hover:text-red-900 bg-red-50 p-1 rounded" title="Suspend"><X className="h-5 w-5" /></button>}
+                         {user.status === MembershipStatus.SUSPENDED && <button onClick={() => handleStatusChange(user.id, MembershipStatus.ACTIVE)} className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1 rounded" title="Reactivate"><Check className="h-5 w-5" /></button>}
                       </td>
                     </tr>
                   ))
-                ) : (
-                  <tr>
-                    <td colSpan={13} className="px-6 py-4 text-center text-gray-500">No members found matching your search.</td>
-                  </tr>
-                )}
+                ) : (<tr><td colSpan={13} className="px-6 py-4 text-center text-gray-500">No members found matching your search.</td></tr>)}
               </tbody>
             </table>
           </div>
@@ -1187,53 +815,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         <div className="bg-white rounded-lg shadow-sm overflow-hidden mt-8">
               <div className="p-6 border-b border-gray-200 space-y-4">
                 <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                    <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                        <BarChart2 className="h-5 w-5 mr-2 text-green-600" /> Collection Activity Logs
-                    </h2>
-                    <button 
-                        onClick={handleExportCollections}
-                        className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors text-sm"
-                    >
-                        <Download className="h-4 w-4 mr-2" /> Export CSV
-                    </button>
+                    <h2 className="text-xl font-bold text-gray-900 flex items-center"><BarChart2 className="h-5 w-5 mr-2 text-green-600" /> Collection Activity Logs</h2>
+                    <button onClick={handleExportCollections} className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors text-sm"><Download className="h-4 w-4 mr-2" /> Export CSV</button>
                 </div>
-                {/* Filters */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="relative">
-                        <input
-                            type="text"
-                            placeholder="Search collections..."
-                            value={collectionFilter}
-                            onChange={(e) => setCollectionFilter(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500 text-sm"
-                        />
+                        <input type="text" placeholder="Search collections..." value={collectionFilter} onChange={(e) => setCollectionFilter(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500 text-sm" />
                         <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
                     </div>
-                    <select
-                        value={collectionMaterialFilter}
-                        onChange={(e) => setCollectionMaterialFilter(e.target.value)}
-                        className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500 text-sm"
-                    >
+                    <select value={collectionMaterialFilter} onChange={(e) => setCollectionMaterialFilter(e.target.value)} className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500 text-sm">
                         <option value="">All Materials</option>
                         {uniqueMaterials.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
                     <div className="flex items-center">
                         <span className="text-gray-500 text-xs mr-2">From:</span>
-                        <input
-                            type="date"
-                            value={collectionStartDate}
-                            onChange={(e) => setCollectionStartDate(e.target.value)}
-                            className="w-full border rounded-md px-2 py-2 focus:ring-green-500 focus:border-green-500 text-sm"
-                        />
+                        <input type="date" value={collectionStartDate} onChange={(e) => setCollectionStartDate(e.target.value)} className="w-full border rounded-md px-2 py-2 focus:ring-green-500 focus:border-green-500 text-sm" />
                     </div>
                     <div className="flex items-center">
                         <span className="text-gray-500 text-xs mr-2">To:</span>
-                        <input
-                            type="date"
-                            value={collectionEndDate}
-                            onChange={(e) => setCollectionEndDate(e.target.value)}
-                            className="w-full border rounded-md px-2 py-2 focus:ring-green-500 focus:border-green-500 text-sm"
-                        />
+                        <input type="date" value={collectionEndDate} onChange={(e) => setCollectionEndDate(e.target.value)} className="w-full border rounded-md px-2 py-2 focus:ring-green-500 focus:border-green-500 text-sm" />
                     </div>
                 </div>
               </div>
@@ -1260,26 +860,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                                 <td className="px-6 py-4 text-sm text-gray-600">{col.material}</td>
                                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{col.weight}</td>
                             </tr>
-                        )) : (
-                            <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">No collection records found.</td></tr>
-                        )}
+                        )) : (<tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">No collection records found.</td></tr>)}
                     </tbody>
                  </table>
               </div>
         </div>
       </div>
 
-      {/* --- PRICE MODAL --- */}
+      {/* --- PRICE MODAL UPDATED FOR CO2e --- */}
       {showPriceModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                        <Coins className="mr-2 h-5 w-5 text-amber-500" /> Manage Material Prices
+                        <Coins className="mr-2 h-5 w-5 text-amber-500" /> Manage Rates & Impact
                     </h2>
-                    <button onClick={() => setShowPriceModal(false)} className="text-gray-400 hover:text-gray-600">
-                        <X className="h-6 w-6" />
-                    </button>
+                    <button onClick={() => setShowPriceModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
                 </div>
                 
                 <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
@@ -1287,7 +883,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         <thead className="bg-gray-50 sticky top-0">
                             <tr>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Price (NGN)</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price (NGN)</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase flex items-center"><Leaf className="h-3 w-3 mr-1 text-green-600"/> CO₂e Saved (kg/kg)</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Update</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
                             </tr>
@@ -1295,51 +892,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         <tbody className="bg-white divide-y divide-gray-200">
                             {prices.map(price => (
                                 <tr key={price.id} className="hover:bg-gray-50">
-                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                                        {price.materialName}
-                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{price.materialName}</td>
+                                    
+                                    {/* Price Column */}
                                     <td className="px-4 py-3 text-sm text-green-700 font-bold">
                                         {editingPriceId === price.id ? (
-                                            <input 
-                                                type="number" 
-                                                value={newPriceValue}
-                                                onChange={(e) => setNewPriceValue(e.target.value)}
-                                                className="w-32 border rounded px-2 py-1 text-sm focus:ring-green-500 focus:border-green-500"
-                                                autoFocus
-                                            />
-                                        ) : (
-                                            `₦${price.price.toLocaleString()}`
-                                        )}
+                                            <input type="number" value={newPriceValue} onChange={(e) => setNewPriceValue(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm focus:ring-green-500 focus:border-green-500" autoFocus />
+                                        ) : (`₦${price.price.toLocaleString()}`)}
                                     </td>
-                                    <td className="px-4 py-3 text-sm text-gray-500 text-xs">
-                                        {price.lastUpdated}
+                                    
+                                    {/* CO2 Rate Column */}
+                                    <td className="px-4 py-3 text-sm text-teal-700 font-bold">
+                                        {editingPriceId === price.id ? (
+                                            <input type="number" step="0.01" value={newCo2Value} onChange={(e) => setNewCo2Value(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm focus:ring-teal-500 focus:border-teal-500" />
+                                        ) : (`${price.co2Rate} kg`)}
                                     </td>
+
+                                    <td className="px-4 py-3 text-sm text-gray-500 text-xs">{price.lastUpdated}</td>
                                     <td className="px-4 py-3 text-sm">
                                         {editingPriceId === price.id ? (
                                             <div className="flex items-center space-x-2">
-                                                <button 
-                                                    onClick={() => handleUpdatePrice(price.id, Number(newPriceValue))}
-                                                    className="bg-green-600 text-white p-1 rounded hover:bg-green-700"
-                                                >
-                                                    <Check className="h-4 w-4" />
-                                                </button>
-                                                <button 
-                                                    onClick={() => setEditingPriceId(null)}
-                                                    className="bg-gray-200 text-gray-600 p-1 rounded hover:bg-gray-300"
-                                                >
-                                                    <X className="h-4 w-4" />
-                                                </button>
+                                                <button onClick={() => handleUpdatePrice(price.id, Number(newPriceValue), Number(newCo2Value))} className="bg-green-600 text-white p-1 rounded hover:bg-green-700"><Check className="h-4 w-4" /></button>
+                                                <button onClick={() => setEditingPriceId(null)} className="bg-gray-200 text-gray-600 p-1 rounded hover:bg-gray-300"><X className="h-4 w-4" /></button>
                                             </div>
                                         ) : (
-                                            <button 
-                                                onClick={() => {
-                                                    setEditingPriceId(price.id);
-                                                    setNewPriceValue(price.price.toString());
-                                                }}
-                                                className="text-blue-600 hover:text-blue-800"
-                                            >
-                                                <Edit className="h-4 w-4" />
-                                            </button>
+                                            <button onClick={() => { setEditingPriceId(price.id); setNewPriceValue(price.price.toString()); setNewCo2Value(price.co2Rate.toString()); }} className="text-blue-600 hover:text-blue-800"><Edit className="h-4 w-4" /></button>
                                         )}
                                     </td>
                                 </tr>
@@ -1347,10 +924,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </tbody>
                     </table>
                 </div>
-                
-                <div className="flex justify-end">
-                    <button onClick={() => setShowPriceModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button>
-                </div>
+                <div className="flex justify-end"><button onClick={() => setShowPriceModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
             </div>
         </div>
       )}
@@ -1359,61 +933,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                        <Bell className="mr-2 h-5 w-5 text-amber-500" /> Members Expiring Soon
-                    </h2>
-                    <button onClick={() => setShowExpiringModal(false)} className="text-gray-400 hover:text-gray-600">
-                        <X className="h-6 w-6" />
-                    </button>
+                    <h2 className="text-xl font-bold text-gray-900 flex items-center"><Bell className="mr-2 h-5 w-5 text-amber-500" /> Members Expiring Soon</h2>
+                    <button onClick={() => setShowExpiringModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
                 </div>
-                
                 <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
                     <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50 sticky top-0">
-                            <tr>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry Date</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Days Left</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
-                            </tr>
-                        </thead>
+                        <thead className="bg-gray-50 sticky top-0"><tr><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry Date</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Days Left</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th></tr></thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {expiringUsers.length > 0 ? expiringUsers.map(u => {
                                 const expiryDateObj = new Date(u.expiryDate);
                                 expiryDateObj.setHours(0, 0, 0, 0);
                                 const daysLeft = Math.ceil((expiryDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                                
                                 return (
                                     <tr key={u.id} className="hover:bg-gray-50">
-                                        <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                                            {u.businessName} <br/>
-                                            <span className="text-xs text-gray-500">{u.firstName} {u.lastName}</span>
-                                        </td>
+                                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{u.businessName} <br/><span className="text-xs text-gray-500">{u.firstName} {u.lastName}</span></td>
                                         <td className="px-4 py-3 text-sm text-gray-600">{u.expiryDate}</td>
                                         <td className="px-4 py-3 text-sm font-bold text-amber-600">{daysLeft} days</td>
-                                        <td className="px-4 py-3 text-sm">
-                                            <button 
-                                                onClick={() => {
-                                                    setFilter(u.businessName);
-                                                    setShowExpiringModal(false);
-                                                }}
-                                                className="text-blue-600 hover:underline text-xs"
-                                            >
-                                                View Profile
-                                            </button>
-                                        </td>
+                                        <td className="px-4 py-3 text-sm"><button onClick={() => { setFilter(u.businessName); setShowExpiringModal(false); }} className="text-blue-600 hover:underline text-xs">View Profile</button></td>
                                     </tr>
                                 );
-                            }) : (
-                                <tr><td colSpan={4} className="text-center py-8 text-gray-500">No members expiring within 30 days.</td></tr>
-                            )}
+                            }) : (<tr><td colSpan={4} className="text-center py-8 text-gray-500">No members expiring within 30 days.</td></tr>)}
                         </tbody>
                     </table>
                 </div>
-                
-                <div className="flex justify-end">
-                    <button onClick={() => setShowExpiringModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button>
-                </div>
+                <div className="flex justify-end"><button onClick={() => setShowExpiringModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
             </div>
         </div>
       )}
@@ -1422,29 +965,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                    <CreditCard className="mr-2 h-5 w-5 text-red-600" /> Pending Payment Requests
-                  </h2>
-                  <p className="text-sm text-gray-500">Review receipts and approve membership payments.</p>
-                </div>
-                <button onClick={() => setShowPendingPaymentModal(false)} className="text-gray-400 hover:text-gray-600">
-                  <X className="h-6 w-6" />
-                </button>
+                <div><h2 className="text-xl font-bold text-gray-900 flex items-center"><CreditCard className="mr-2 h-5 w-5 text-red-600" /> Pending Payment Requests</h2><p className="text-sm text-gray-500">Review receipts and approve membership payments.</p></div>
+                <button onClick={() => setShowPendingPaymentModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
              </div>
-
              <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
                 <table className="min-w-full divide-y divide-gray-200">
-                   <thead className="bg-gray-50 sticky top-0">
-                      <tr>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receipt</th>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-                      </tr>
-                   </thead>
+                   <thead className="bg-gray-50 sticky top-0"><tr><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receipt</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead>
                    <tbody className="bg-white divide-y divide-gray-200">
                       {pendingPayments.length > 0 ? pendingPayments.map(p => (
                          <tr key={p.id} className="hover:bg-gray-50">
@@ -1452,385 +978,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                             <td className="px-4 py-3 text-sm font-medium text-gray-900">{getUserName(p.userId)}</td>
                             <td className="px-4 py-3 text-sm text-gray-600">{p.description}</td>
                             <td className="px-4 py-3 text-sm font-bold text-green-700">{p.amount.toLocaleString()}</td>
-                            <td className="px-4 py-3 text-sm">
-                               {p.receipt ? (
-                                  <a 
-                                    href={p.receipt} 
-                                    download={`receipt_${p.reference}`} 
-                                    className="text-blue-600 hover:underline flex items-center text-xs"
-                                  >
-                                    <Download className="h-3 w-3 mr-1" /> View/Download
-                                  </a>
-                               ) : (
-                                  <span className="text-red-400 text-xs italic">No receipt</span>
-                               )}
-                            </td>
-                            <td className="px-4 py-3 text-sm space-x-2">
-                               <button 
-                                 onClick={(e) => handleGlobalApprovePayment(e, p.id)}
-                                 className="bg-green-100 text-green-700 hover:bg-green-200 px-2 py-1 rounded text-xs font-semibold border border-green-200"
-                               >
-                                  Approve
-                               </button>
-                               <button 
-                                 onClick={(e) => handleGlobalRejectPayment(e, p.id)}
-                                 className="bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs font-semibold border border-red-200"
-                               >
-                                  Reject
-                               </button>
-                            </td>
+                            <td className="px-4 py-3 text-sm">{p.receipt ? (<a href={p.receipt} download={`receipt_${p.reference}`} className="text-blue-600 hover:underline flex items-center text-xs"><Download className="h-3 w-3 mr-1" /> View/Download</a>) : (<span className="text-red-400 text-xs italic">No receipt</span>)}</td>
+                            <td className="px-4 py-3 text-sm space-x-2"><button onClick={(e) => handleGlobalApprovePayment(e, p.id)} className="bg-green-100 text-green-700 hover:bg-green-200 px-2 py-1 rounded text-xs font-semibold border border-green-200">Approve</button><button onClick={(e) => handleGlobalRejectPayment(e, p.id)} className="bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs font-semibold border border-red-200">Reject</button></td>
                          </tr>
-                      )) : (
-                         <tr><td colSpan={6} className="text-center py-8 text-gray-500">No pending payment requests.</td></tr>
-                      )}
+                      )) : (<tr><td colSpan={6} className="text-center py-8 text-gray-500">No pending payment requests.</td></tr>)}
                    </tbody>
                 </table>
              </div>
-             
-             <div className="flex justify-end">
-                <button onClick={() => setShowPendingPaymentModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button>
-             </div>
+             <div className="flex justify-end"><button onClick={() => setShowPendingPaymentModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
            </div>
         </div>
       )}
-
-      {showExportModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                <Download className="mr-2 h-5 w-5 text-green-600" /> Export Data
-              </h2>
-              <button onClick={() => setShowExportModal(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Region</label>
-                <select 
-                  className="w-full border rounded-md px-3 py-2"
-                  value={exportConfig.region}
-                  onChange={(e) => setExportConfig({...exportConfig, region: e.target.value})}
-                >
-                  <option value="">All Regions</option>
-                  {uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Filter by State</label>
-                <select 
-                  className="w-full border rounded-md px-3 py-2"
-                  value={exportConfig.state}
-                  onChange={(e) => setExportConfig({...exportConfig, state: e.target.value})}
-                >
-                  <option value="">All States</option>
-                  {uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Membership Type</label>
-                <select 
-                  className="w-full border rounded-md px-3 py-2"
-                  value={exportConfig.category}
-                  onChange={(e) => setExportConfig({...exportConfig, category: e.target.value})}
-                >
-                  <option value="">All Categories</option>
-                  {Object.values(MembershipCategory).map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Machinery Deployed</label>
-                <select 
-                  className="w-full border rounded-md px-3 py-2"
-                  value={exportConfig.machinery}
-                  onChange={(e) => setExportConfig({...exportConfig, machinery: e.target.value})}
-                >
-                   <option value="">All Machinery</option>
-                   {uniqueMachinery.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-
-              <div className="pt-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Export Format</label>
-                <div className="flex space-x-4">
-                  <label className="flex items-center">
-                    <input 
-                      type="radio" 
-                      name="format" 
-                      value="Excel" 
-                      checked={exportConfig.format === 'Excel'}
-                      onChange={() => setExportConfig({...exportConfig, format: 'Excel'})}
-                      className="mr-2 text-green-600 focus:ring-green-500"
-                    />
-                    Excel (.csv)
-                  </label>
-                  <label className="flex items-center">
-                    <input 
-                      type="radio" 
-                      name="format" 
-                      value="PDF" 
-                      checked={exportConfig.format === 'PDF'}
-                      onChange={() => setExportConfig({...exportConfig, format: 'PDF'})}
-                      className="mr-2 text-green-600 focus:ring-green-500"
-                    />
-                    PDF (Print Detailed)
-                  </label>
-                </div>
-              </div>
-
-              <div className="pt-4 flex justify-end space-x-3">
-                <button 
-                  onClick={() => setShowExportModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleExport}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
-                >
-                  <Download className="h-4 w-4 mr-2" /> Download Report
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAnnounceModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                <Megaphone className="mr-2 h-5 w-5 text-amber-500" /> New Announcement
-              </h2>
-              <button onClick={() => setShowAnnounceModal(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-            
-            <form onSubmit={handlePostAnnouncement} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-                <input 
-                  type="text" 
-                  required
-                  value={newAnnouncement.title}
-                  onChange={(e) => setNewAnnouncement({...newAnnouncement, title: e.target.value})}
-                  className="w-full border rounded-md px-3 py-2 focus:ring-amber-500 focus:border-amber-500"
-                  placeholder="e.g. AGM 2024 Rescheduled"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Content</label>
-                <textarea 
-                  required
-                  value={newAnnouncement.content}
-                  onChange={(e) => setNewAnnouncement({...newAnnouncement, content: e.target.value})}
-                  rows={4}
-                  className="w-full border rounded-md px-3 py-2 focus:ring-amber-500 focus:border-amber-500"
-                  placeholder="Enter details..."
-                />
-              </div>
-
-              <div className="flex items-center">
-                <input 
-                  type="checkbox" 
-                  id="isImportant"
-                  checked={newAnnouncement.isImportant}
-                  onChange={(e) => setNewAnnouncement({...newAnnouncement, isImportant: e.target.checked})}
-                  className="h-4 w-4 text-amber-600 focus:ring-amber-500 border-gray-300 rounded"
-                />
-                <label htmlFor="isImportant" className="ml-2 block text-sm text-gray-900">
-                  Mark as Important / Urgent
-                </label>
-              </div>
-
-              <div className="pt-4 flex justify-end space-x-3">
-                <button 
-                  type="button"
-                  onClick={() => setShowAnnounceModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center"
-                >
-                   Post Announcement
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-      
-      {idEditModal && idEditModal.isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Assign Member ID</h3>
-            <p className="text-sm text-gray-500 mb-4">
-                Updating ID for <span className="font-semibold">{idEditModal.name}</span>.
-            </p>
-            <div className="space-y-3">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">New ID</label>
-                    <input 
-                        type="text" 
-                        value={idEditModal.newId}
-                        onChange={(e) => setIdEditModal({...idEditModal, newId: e.target.value})}
-                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                    />
-                </div>
-                <div className="flex justify-end gap-2 pt-2">
-                    <button onClick={() => setIdEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
-                    <button onClick={handleSaveId} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save ID</button>
-                </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {expiryEditModal && expiryEditModal.isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center mb-4 text-amber-600"><Calendar className="h-5 w-5 mr-2" /><h3 className="text-lg font-bold text-gray-900">Edit Expiry Date</h3></div>
-            <p className="text-sm text-gray-500 mb-4">Update membership expiry date for <span className="font-semibold">{expiryEditModal.name}</span>.</p>
-            <div className="space-y-3">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">New Expiry Date</label>
-                    <input type="date" value={expiryEditModal.currentExpiry} onChange={(e) => setExpiryEditModal({...expiryEditModal, currentExpiry: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"/>
-                </div>
-                <div className="flex justify-end gap-2 pt-2">
-                    <button onClick={() => setExpiryEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
-                    <button onClick={handleSaveExpiry} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save Changes</button>
-                </div>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {statusEditModal && statusEditModal.isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center mb-4 text-blue-600"><Shield className="h-5 w-5 mr-2" /><h3 className="text-lg font-bold text-gray-900">Edit Membership Status</h3></div>
-            <p className="text-sm text-gray-500 mb-4">Manually change status for <span className="font-semibold">{statusEditModal.name}</span>.</p>
-            <div className="space-y-3">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                    <select value={statusEditModal.currentStatus} onChange={(e) => setStatusEditModal({...statusEditModal, currentStatus: e.target.value as MembershipStatus})} className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500">
-                        {Object.values(MembershipStatus).map((status) => (<option key={status} value={status}>{status}</option>))}
-                    </select>
-                </div>
-                <div className="flex justify-end gap-2 pt-2">
-                    <button onClick={() => setStatusEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
-                    <button onClick={handleSaveStatus} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save Status</button>
-                </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {docModal && docModal.isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
-             <div className="flex justify-between items-center mb-6">
-               <div><h2 className="text-xl font-bold text-gray-900 flex items-center"><FileCheck className="mr-2 h-5 w-5 text-green-600" /> Member Documents</h2><p className="text-sm text-gray-500">Manage ID Card & Certificate for {docModal.name}</p></div>
-               <button onClick={() => setDocModal(null)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
-             </div>
-             <div className="space-y-6">
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                    <h3 className="font-bold text-blue-800 mb-3 text-sm uppercase flex items-center"><UserIcon className="h-4 w-4 mr-1"/> Registration Submissions</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center">
-                            <span className="text-xs font-semibold text-gray-500 mb-2">Profile Image</span>
-                            {docModal.profileImage ? (<><img src={docModal.profileImage} alt="Profile" className="h-20 w-20 object-cover rounded-full mb-2 border border-gray-200"/><a href={docModal.profileImage} download="Profile_Image" className="text-xs text-blue-600 hover:underline flex items-center"><Download className="h-3 w-3 mr-1"/> Download</a></>) : <span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>}
-                        </div>
-                        <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center justify-center space-y-2">
-                             {docModal.cac && <a href={docModal.cac} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View CAC Cert</a>}
-                             {docModal.logo && <a href={docModal.logo} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View Logo</a>}
-                             {docModal.evidence && <a href={docModal.evidence} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View Evidence</a>}
-                             {(!docModal.cac && !docModal.logo && !docModal.evidence) && <span className="text-xs text-gray-400 italic">No business docs uploaded</span>}
-                        </div>
-                    </div>
-                </div>
-                <div className="border-t border-gray-200 my-4"></div>
-                <h3 className="font-bold text-gray-800 mb-1 text-sm uppercase">Issue Documents</h3>
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                   <div className="flex justify-between items-start mb-3">
-                      <label className="block text-sm font-bold text-gray-800">Membership ID Card</label>
-                      {uploadingDocs.idCard ? (<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>) : docModal.idCard && (<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>)}
-                   </div>
-                   <div className="flex items-center space-x-3">
-                      <div className="flex-1"><input type="file" onChange={(e) => handleDocFileChange(e, 'idCard')} disabled={uploadingDocs.idCard} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50"/></div>
-                      {docModal.idCard && (<a href={docModal.idCard} download="ID_Card" className="text-blue-600 hover:text-blue-800 text-xs underline shrink-0">View Current</a>)}
-                   </div>
-                </div>
-                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                   <div className="flex justify-between items-start mb-3">
-                      <label className="block text-sm font-bold text-gray-800">Membership Certificate</label>
-                      {uploadingDocs.certificate ? (<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>) : docModal.certificate && (<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>)}
-                   </div>
-                   <div className="flex items-center space-x-3">
-                      <div className="flex-1"><input type="file" onChange={(e) => handleDocFileChange(e, 'certificate')} disabled={uploadingDocs.certificate} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50"/></div>
-                      {docModal.certificate && (<a href={docModal.certificate} download="Certificate" className="text-blue-600 hover:text-blue-800 text-xs underline shrink-0">View Current</a>)}
-                   </div>
-                </div>
-             </div>
-             <div className="pt-6 flex justify-end space-x-3 border-t border-gray-100 mt-4">
-                <button onClick={() => setDocModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
-                <button onClick={handleSaveDocs} disabled={uploadingDocs.idCard || uploadingDocs.certificate} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center disabled:opacity-50"><Save className="h-4 w-4 mr-2" /> Save Documents</button>
-             </div>
-          </div>
-        </div>
-      )}
-
-      {paymentModal && paymentModal.isOpen && (
-         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold text-gray-900 flex items-center"><CreditCard className="mr-2 h-5 w-5 text-amber-500" /> Manage Payments</h2><button onClick={() => setPaymentModal(null)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button></div>
-                <p className="text-sm text-gray-500 mb-4">Payments for: <span className="font-semibold">{paymentModal.name}</span></p>
-                <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50 sticky top-0"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Action</th></tr></thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {userPayments.length > 0 ? userPayments.map(p => (
-                                <tr key={p.id}>
-                                    <td className="px-3 py-2 text-sm text-gray-500">{p.date}</td>
-                                    <td className="px-3 py-2 text-sm font-medium">{p.amount.toLocaleString()}</td>
-                                    <td className="px-3 py-2"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${p.status === 'Successful' ? 'bg-green-100 text-green-800' : p.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>{p.status}</span></td>
-                                    <td className="px-3 py-2 text-sm space-x-2 flex items-center">
-                                        {p.receipt && (<a href={p.receipt} download={`receipt_${p.reference}`} title="Download Receipt" className="text-blue-600 hover:text-blue-800 inline-block"><Download className="h-4 w-4" /></a>)}
-                                        {p.status === 'Pending' && (<button onClick={(e) => handleApprovePayment(e, p.id)} className="text-green-600 hover:text-green-900 font-medium text-xs border border-green-200 px-2 py-0.5 rounded bg-green-50">Approve</button>)}
-                                        <button type="button" onClick={(e) => handleDeletePayment(e, p.id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded ml-2 border border-red-200" title="Delete Payment"><Trash2 className="h-4 w-4 pointer-events-none" /></button>
-                                    </td>
-                                </tr>
-                            )) : (<tr><td colSpan={4} className="text-center py-4 text-sm text-gray-500">No records found.</td></tr>)}
-                        </tbody>
-                    </table>
-                </div>
-                {!showAddPaymentForm ? (
-                    <button onClick={() => setShowAddPaymentForm(true)} className="w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-600 hover:border-green-500 hover:text-green-600 font-medium flex justify-center items-center"><Plus className="h-4 w-4 mr-2" /> Record New Payment Manually</button>
-                ) : (
-                    <form onSubmit={handleSavePayment} className="space-y-4 border-t pt-4 bg-gray-50 p-4 rounded-md animate-in fade-in slide-in-from-bottom-2">
-                        <div className="flex justify-between items-center"><h4 className="text-sm font-bold text-gray-700">New Payment Entry</h4><button type="button" onClick={() => setShowAddPaymentForm(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button></div>
-                        <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-medium text-gray-700 mb-1">Date</label><input type="date" required value={paymentForm.date} onChange={(e) => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/></div><div><label className="block text-xs font-medium text-gray-700 mb-1">Amount</label><input type="number" required value={paymentForm.amount} onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/></div></div>
-                        <div><label className="block text-xs font-medium text-gray-700 mb-1">Description</label><input type="text" required placeholder="e.g. Annual Dues 2024" value={paymentForm.description} onChange={(e) => setPaymentForm({...paymentForm, description: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/></div>
-                        <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-medium text-gray-700 mb-1">Status</label><select value={paymentForm.status} onChange={(e) => setPaymentForm({...paymentForm, status: e.target.value as any})} className="w-full border rounded-md px-2 py-1.5 text-sm"><option value="Successful">Successful</option><option value="Pending">Pending</option><option value="Failed">Failed</option></select></div><div><label className="block text-xs font-medium text-gray-700 mb-1">Receipt</label><div className="relative">{isUploadingReceipt ? (<div className="flex items-center space-x-2 text-xs text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> <span>Uploading...</span></div>) : (<input type="file" accept="image/*,application/pdf" onChange={handlePaymentFileChange} className="block w-full text-xs text-gray-500"/>)}</div></div></div>
-                        <div className="pt-2 flex justify-end"><button type="submit" disabled={isUploadingReceipt} className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center text-sm disabled:opacity-50">{isUploadingReceipt ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Payment'}</button></div>
-                    </form>
-                )}
-            </div>
-         </div>
-      )}
-
     </div>
   );
 };

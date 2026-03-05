@@ -206,6 +206,7 @@ const initDb = async () => {
             id TEXT PRIMARY KEY,
             material_name TEXT UNIQUE,
             price NUMERIC DEFAULT 0,
+            co2_rate NUMERIC DEFAULT 0,
             last_updated TEXT
         );
       `;
@@ -215,6 +216,7 @@ const initDb = async () => {
       await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0');
       await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret TEXT');
       await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE');
+      await client.query('ALTER TABLE material_prices ADD COLUMN IF NOT EXISTS co2_rate NUMERIC DEFAULT 0');
       
       console.log('Database tables checked/created successfully');
       
@@ -240,10 +242,11 @@ const initDb = async () => {
         }
       }
 
+      // Synchronized with the UserDashboard collection types
       const requiredMaterials = [
-        'Baled B/W Pets', 'Baled Green Pets', 'Baled Brown Pets', 'Baled Grey Pets',
-        'Crushed B/W Pets', 'Crushed Green Pets', 'Crushed Brown Pets',
-        'Caps', 'Paper', 'Metal', 'Aluminium'
+        'PET Plastics', 'Other Plastics', 'Paper/Cartons', 'UBC', 'Metals', 'Glass', 
+        'E-waste', 'Nylon', 'Organic', 'PVC', 'Baled B/W Pets', 'Baled Green Pets', 
+        'Baled Brown Pets', 'Caps', 'Aluminium'
       ];
 
       for (const material of requiredMaterials) {
@@ -252,7 +255,7 @@ const initDb = async () => {
             const id = `mat-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
             const today = new Date().toISOString().split('T')[0];
             await client.query(
-                'INSERT INTO material_prices (id, material_name, price, last_updated) VALUES ($1, $2, 0, $3)',
+                'INSERT INTO material_prices (id, material_name, price, co2_rate, last_updated) VALUES ($1, $2, 0, 0, $3)',
                 [id, material, today]
             );
         }
@@ -288,7 +291,6 @@ const mapUser = (row) => {
         businessCity: row.business_city,
         businessCommencement: row.business_commencement,
         businessCategory: row.business_category, 
-        business_category: row.business_category,
         statesOfOperation: row.states_of_operation,
         materialTypes: row.material_types || [],
         machineryDeployed: row.machinery_deployed || [],
@@ -347,22 +349,14 @@ const sanitizeUserForPublic = (user) => {
 };
 
 const checkExpiry = async (user) => {
-    // Admins bypass these checks
     if (user.role === 'ADMIN') return user;
-    
     if (user.expiryDate && user.status === 'Active') {
         const expiryDate = new Date(user.expiryDate);
         const today = new Date();
-        
-        // Normalize times to midnight for clean math
         expiryDate.setHours(0, 0, 0, 0);
         today.setHours(0, 0, 0, 0);
-        
-        // Calculate days past expiry
         const diffTime = today.getTime() - expiryDate.getTime();
         const daysPastExpiry = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-        // Expire exactly on or after Day 1 past the expiry date
         if (daysPastExpiry >= 1) {
             await query('UPDATE users SET status = $1 WHERE id = $2', ['Expired', user.id]);
             user.status = 'Expired';
@@ -374,46 +368,29 @@ const checkExpiry = async (user) => {
 // --- AUTH MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
     const token = req.cookies.token;
-    
     if (token == null) return res.status(401).json({ message: 'Unauthorized: No token provided' });
-
     jwt.verify(token, JWT_SECRET, async (err, decoded) => {
         if (err) return res.status(403).json({ message: 'Forbidden: Invalid token' });
-        
         try {
             const result = await query('SELECT token_version FROM users WHERE id = $1', [decoded.id]);
             if (result.rows.length === 0) return res.status(403).json({ message: 'User not found' });
-            
-            const currentVersion = result.rows[0].token_version || 0;
-            const tokenVersion = decoded.token_version || 0;
-
-            if (tokenVersion !== currentVersion) {
+            if (decoded.token_version !== result.rows[0].token_version) {
                 res.clearCookie('token');
-                return res.status(401).json({ message: 'Session expired (Password changed). Please login again.' });
+                return res.status(401).json({ message: 'Session expired. Please login again.' });
             }
-
-            if (decoded.partial) {
-                const allowedEndpoints = ['/auth/mfa/setup', '/auth/mfa/confirm', '/auth/mfa/login', '/auth/logout'];
-                const isAllowed = allowedEndpoints.some(path => req.url.includes(path));
-                
-                if (!isAllowed) {
-                    return res.status(403).json({ message: 'MFA verification required. Please complete 2FA.' });
-                }
+            if (decoded.partial && !['/auth/mfa/setup', '/auth/mfa/confirm', '/auth/mfa/login', '/auth/logout'].some(p => req.url.includes(p))) {
+                return res.status(403).json({ message: 'MFA verification required.' });
             }
-
             req.user = decoded;
             next();
         } catch (e) {
-            console.error("Auth Middleware Error:", e);
-            res.status(500).json({ message: 'Server error during authentication' });
+            res.status(500).json({ message: 'Server error' });
         }
     });
 };
 
 const requireAdmin = (req, res, next) => {
-    if (req.user.role !== 'ADMIN') {
-        return res.status(403).json({ message: 'Forbidden: Admin access required' });
-    }
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ message: 'Forbidden: Admin access required' });
     next();
 };
 
@@ -441,57 +418,20 @@ router.post('/auth/login', async (req, res) => {
     if (user.status === 'Suspended') return res.status(403).json({ message: 'Account suspended.' });
     
     const isMatch = await bcrypt.compare(password, user.password);
-    
     if (isMatch) {
       if (user.role === 'ADMIN') {
-          const isMfaEnabled = user.mfa_enabled;
-          const tempToken = jwt.sign({ 
-              id: user.id, 
-              role: user.role, 
-              email: user.email, 
-              token_version: user.token_version || 0,
-              partial: true 
-          }, JWT_SECRET, { expiresIn: '15m' });
-
-          res.cookie('token', tempToken, {
-              httpOnly: true,
-              secure: process.env.NODE_ENV === 'production',
-              sameSite: 'lax', 
-              maxAge: 15 * 60 * 1000
-          });
-
-          if (isMfaEnabled) {
-              return res.json({ mfaRequired: true });
-          } else {
-              return res.json({ mfaSetupRequired: true });
-          }
+          const tempToken = jwt.sign({ id: user.id, role: user.role, email: user.email, token_version: user.token_version || 0, partial: true }, JWT_SECRET, { expiresIn: '15m' });
+          res.cookie('token', tempToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 15 * 60 * 1000 });
+          return res.json(user.mfa_enabled ? { mfaRequired: true } : { mfaSetupRequired: true });
       }
-
-      const token = jwt.sign({ 
-          id: user.id, 
-          role: user.role, 
-          email: user.email, 
-          token_version: user.token_version || 0,
-          partial: false
-      }, JWT_SECRET, { expiresIn: '7d' });
-      
-      const { password, mfa_secret, ...userWithoutPassword } = user;
-      
-      res.cookie('token', token, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax', 
-          maxAge: 7 * 24 * 60 * 60 * 1000
-      });
-
-      res.json({ ...userWithoutPassword });
-    } else {
-      res.status(401).json({ message: 'Invalid credentials' });
-    }
-  } catch (error) { res.status(500).json({ message: 'Server error: ' + error.message }); }
+      const token = jwt.sign({ id: user.id, role: user.role, email: user.email, token_version: user.token_version || 0, partial: false }, JWT_SECRET, { expiresIn: '7d' });
+      const { password, mfa_secret, ...safeUser } = user;
+      res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
+      res.json(safeUser);
+    } else { res.status(401).json({ message: 'Invalid credentials' }); }
+  } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// --- MFA ENDPOINTS ---
 router.post('/auth/mfa/setup', authenticateToken, async (req, res) => {
     try {
         const secret = speakeasy.generateSecret({ name: `RAN Portal (${req.user.email})` });
@@ -505,14 +445,12 @@ router.post('/auth/mfa/setup', authenticateToken, async (req, res) => {
 router.post('/auth/mfa/confirm', authenticateToken, async (req, res) => {
     const { token, secret } = req.body;
     try {
-        const verified = speakeasy.totp.verify({ secret: secret, encoding: 'base32', token: token, window: 1 });
-        if (verified) {
+        if (speakeasy.totp.verify({ secret: secret, encoding: 'base32', token: token, window: 1 })) {
             await query('UPDATE users SET mfa_secret = $1, mfa_enabled = TRUE WHERE id = $2', [secret, req.user.id]);
             const fullToken = jwt.sign({ id: req.user.id, role: req.user.role, email: req.user.email, token_version: req.user.token_version, partial: false }, JWT_SECRET, { expiresIn: '7d' });
             res.cookie('token', fullToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
             const userRes = await query('SELECT * FROM users WHERE id = $1', [req.user.id]);
-            const user = mapUser(userRes.rows[0]);
-            const { password, mfa_secret, ...safeUser } = user;
+            const { password, mfa_secret, ...safeUser } = mapUser(userRes.rows[0]);
             res.json(safeUser);
         } else { res.status(400).json({ message: 'Invalid code. Please try again.' }); }
     } catch(e) { res.status(500).json({ message: 'Verification error' }); }
@@ -524,8 +462,7 @@ router.post('/auth/mfa/login', authenticateToken, async (req, res) => {
         const userRes = await query('SELECT * FROM users WHERE id = $1', [req.user.id]);
         const user = mapUser(userRes.rows[0]);
         if (!user.mfa_secret) return res.status(500).json({ message: 'MFA is enabled but secret is missing.' });
-        const verified = speakeasy.totp.verify({ secret: user.mfa_secret, encoding: 'base32', token: token, window: 1 });
-        if (verified) {
+        if (speakeasy.totp.verify({ secret: user.mfa_secret, encoding: 'base32', token: token, window: 1 })) {
              const fullToken = jwt.sign({ id: user.id, role: user.role, email: user.email, token_version: user.token_version, partial: false }, JWT_SECRET, { expiresIn: '7d' });
             res.cookie('token', fullToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
             const { password, mfa_secret, ...safeUser } = user;
@@ -539,7 +476,6 @@ router.post('/auth/logout', (req, res) => {
     res.json({ message: 'Logged out successfully' });
 });
 
-// --- RESET & REGISTER ---
 router.post('/auth/request-reset', resetLimiter, async (req, res) => {
   const { email } = req.body;
   try {
@@ -592,40 +528,19 @@ router.post('/auth/register', async (req, res) => {
 });
 
 router.get('/config/bank-details', authenticateToken, (req, res) => {
-    // Cache for 5 minutes
     res.set('Cache-Control', 'public, max-age=300');
-    res.json({
-        bankName: process.env.BANK_NAME || 'Access Bank PLC',
-        accountNumber: process.env.BANK_ACCOUNT_NUMBER || '0785293332',
-        accountName: process.env.BANK_ACCOUNT_NAME || 'Recyclers Association of Nigeria'
-    });
+    res.json({ bankName: process.env.BANK_NAME || 'Access Bank PLC', accountNumber: process.env.BANK_ACCOUNT_NUMBER || '0785293332', accountName: process.env.BANK_ACCOUNT_NAME || 'Recyclers Association of Nigeria' });
 });
 
-// --- USER MANAGEMENT (Protected) ---
 router.get('/users', authenticateToken, async (req, res) => {
   try {
-    let q = 'SELECT * FROM users';
-    
-    // OPTIMIZATION: If not admin, select ONLY public columns to reduce DB load & bandwidth
-    if (req.user.role !== 'ADMIN') {
-        q = `
-            SELECT id, first_name, last_name, business_name, business_address, business_state, 
-                   category, material_types, profile_image, date_joined, role, status 
-            FROM users 
-            WHERE status = 'Active'
-        `;
-    }
-    
+    let q = req.user.role !== 'ADMIN' ? `SELECT id, first_name, last_name, business_name, business_address, business_state, category, material_types, profile_image, date_joined, role, status FROM users WHERE status = 'Active'` : 'SELECT * FROM users';
     const result = await query(q);
     const users = result.rows.map(mapUser).map(u => { 
         if(!u) return null;
         const { password, mfa_secret, ...safe } = u; 
-        if (req.user.role !== 'ADMIN') {
-            return sanitizeUserForPublic(safe);
-        }
-        return safe; 
+        return req.user.role !== 'ADMIN' ? sanitizeUserForPublic(safe) : safe; 
     }).filter(Boolean);
-    
     res.json(users);
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -695,10 +610,8 @@ router.post('/users/update-id', authenticateToken, requireAdmin, async (req, res
     } catch (e) { if(client) await client.query('ROLLBACK'); res.status(500).json({ message: 'Failed: ' + e.message }); } finally { if(client) client.release(); }
 });
 
-// --- ANNOUNCEMENTS ---
 router.get('/announcements', async (req, res) => {
   try {
-    // Cache for 60 seconds (Short enough to see new posts soon, long enough to save DB)
     res.set('Cache-Control', 'public, max-age=60');
     const result = await query('SELECT * FROM announcements ORDER BY date DESC');
     res.json(result.rows.map(row => ({ id: row.id, title: row.title, content: row.content, date: row.date, isImportant: row.is_important })));
@@ -715,7 +628,6 @@ router.delete('/announcements/:id', authenticateToken, requireAdmin, async (req,
     try { await query('DELETE FROM announcements WHERE id = $1', [req.params.id]); res.json({ message: 'Deleted' }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// --- PAYMENTS ---
 router.get('/payments', authenticateToken, verifyOwnership, async (req, res) => {
     try {
         const { userId } = req.query;
@@ -743,7 +655,6 @@ router.delete('/payments/:id', authenticateToken, requireAdmin, async (req, res)
     try { await query('DELETE FROM payments WHERE id = $1', [req.params.id]); res.json({ message: 'Deleted' }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// --- COLLECTIONS ---
 router.get('/collections', authenticateToken, verifyOwnership, async (req, res) => {
     try {
         const { userId } = req.query;
@@ -764,7 +675,6 @@ router.post('/collections', authenticateToken, verifyOwnership, async (req, res)
     try { await query('INSERT INTO collections (id, user_id, month, year, material, weight, images, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)', [id, data.userId, data.month, data.year, data.material, data.weight, data.images, createdAt]); res.status(201).json({ ...data, id, createdAt }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// --- MESSAGES ---
 router.get('/messages/chat', authenticateToken, verifyOwnership, async (req, res) => {
     const { userId, otherUserId } = req.query;
     if (!userId || !otherUserId) return res.status(400).json({ message: "Missing userId or otherUserId" });
@@ -789,18 +699,17 @@ router.get('/messages/conversations', authenticateToken, verifyOwnership, async 
         if (uniqueIds.length === 0) return res.json([]);
         const placeholders = uniqueIds.map((_, i) => `$${i + 1}`).join(',');
         
-        // Optimize conversation fetch as well - basic info only
         const usersQuery = `SELECT id, first_name, last_name, business_name, profile_image FROM users WHERE id IN (${placeholders})`;
         const usersResult = await query(usersQuery, uniqueIds);
         
         const usersMap = new Map();
         usersResult.rows.forEach(row => {
-            const mapped = mapUser(row); // mapUser will work with partial data
+            const mapped = mapUser(row);
             if (mapped) usersMap.set(mapped.id, mapped);
         });
         const sortedUsers = uniqueIds.map(id => usersMap.get(id)).filter(u => u !== undefined);
         res.json(sortedUsers);
-    } catch (e) { res.status(500).json({ message: 'Server error: ' + e.message }); }
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 router.put('/messages/read', authenticateToken, verifyOwnership, async (req, res) => {
@@ -820,28 +729,33 @@ router.post('/messages', authenticateToken, verifyOwnership, async (req, res) =>
     try { await query('INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, is_read) VALUES ($1, $2, $3, $4, $5, $6)', [id, senderId, receiverId, content, timestamp, false]); res.status(201).json({ id, senderId, receiverId, content, timestamp, isRead: false }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// --- PRICES ---
+// --- PRICES & CO2e RATES ---
 router.get('/prices', authenticateToken, async (req, res) => {
     try {
         if (req.user.role !== 'ADMIN') {
              const userRes = await query('SELECT status FROM users WHERE id = $1', [req.user.id]);
              if (!userRes.rows.length || userRes.rows[0].status !== 'Active') return res.status(403).json({ message: 'Pricelist available to Active members only.' });
         }
-        // Cache prices for 60 seconds
         res.set('Cache-Control', 'public, max-age=60');
-        const result = await query('SELECT id, material_name, price, last_updated FROM material_prices ORDER BY material_name ASC');
-        const prices = result.rows.map(row => ({ id: row.id, materialName: row.material_name, price: Number(row.price), lastUpdated: row.last_updated }));
+        const result = await query('SELECT id, material_name, price, co2_rate, last_updated FROM material_prices ORDER BY material_name ASC');
+        const prices = result.rows.map(row => ({ 
+            id: row.id, 
+            materialName: row.material_name, 
+            price: Number(row.price), 
+            co2Rate: Number(row.co2_rate || 0), 
+            lastUpdated: row.last_updated 
+        }));
         res.json(prices);
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 router.put('/prices/:id', authenticateToken, requireAdmin, async (req, res) => {
-    const { price } = req.body;
+    const { price, co2Rate } = req.body;
     const { id } = req.params;
     try {
         const today = new Date().toISOString().split('T')[0];
-        await query('UPDATE material_prices SET price = $1, last_updated = $2 WHERE id = $3', [price, today, id]);
-        res.json({ message: 'Price updated successfully' });
+        await query('UPDATE material_prices SET price = $1, co2_rate = $2, last_updated = $3 WHERE id = $4', [price, co2Rate, today, id]);
+        res.json({ message: 'Price and CO2e rate updated successfully' });
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 

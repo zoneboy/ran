@@ -364,11 +364,11 @@ export const api = {
     return await handleResponse(res);
   },
 
-  updatePrice: async (id: string, price: number): Promise<void> => {
+  updatePrice: async (id: string, price: number, co2Rate: number): Promise<void> => {
     await fetch(`${API_URL}/prices/${encodeURIComponent(id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ price }),
+        body: JSON.stringify({ price, co2Rate }),
         credentials: 'include'
     });
   }
