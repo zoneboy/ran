@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -348,11 +347,26 @@ const sanitizeUserForPublic = (user) => {
 };
 
 const checkExpiry = async (user) => {
+    // Admins bypass these checks
     if (user.role === 'ADMIN') return user;
-    const today = new Date().toISOString().split('T')[0];
-    if (user.expiryDate && user.expiryDate < today && user.status === 'Active') {
-        await query('UPDATE users SET status = $1 WHERE id = $2', ['Expired', user.id]);
-        user.status = 'Expired';
+    
+    if (user.expiryDate && user.status === 'Active') {
+        const expiryDate = new Date(user.expiryDate);
+        const today = new Date();
+        
+        // Normalize times to midnight for clean math
+        expiryDate.setHours(0, 0, 0, 0);
+        today.setHours(0, 0, 0, 0);
+        
+        // Calculate days past expiry
+        const diffTime = today.getTime() - expiryDate.getTime();
+        const daysPastExpiry = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+        // Expire exactly on or after Day 1 past the expiry date
+        if (daysPastExpiry >= 1) {
+            await query('UPDATE users SET status = $1 WHERE id = $2', ['Expired', user.id]);
+            user.status = 'Expired';
+        }
     }
     return user;
 };
@@ -477,7 +491,7 @@ router.post('/auth/login', async (req, res) => {
   } catch (error) { res.status(500).json({ message: 'Server error: ' + error.message }); }
 });
 
-// --- MFA ENDPOINTS (Same as before) ---
+// --- MFA ENDPOINTS ---
 router.post('/auth/mfa/setup', authenticateToken, async (req, res) => {
     try {
         const secret = speakeasy.generateSecret({ name: `RAN Portal (${req.user.email})` });
@@ -525,7 +539,7 @@ router.post('/auth/logout', (req, res) => {
     res.json({ message: 'Logged out successfully' });
 });
 
-// --- RESET & REGISTER (Same as before) ---
+// --- RESET & REGISTER ---
 router.post('/auth/request-reset', resetLimiter, async (req, res) => {
   const { email } = req.body;
   try {
@@ -750,7 +764,7 @@ router.post('/collections', authenticateToken, verifyOwnership, async (req, res)
     try { await query('INSERT INTO collections (id, user_id, month, year, material, weight, images, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)', [id, data.userId, data.month, data.year, data.material, data.weight, data.images, createdAt]); res.status(201).json({ ...data, id, createdAt }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// --- MESSAGES (Same as before) ---
+// --- MESSAGES ---
 router.get('/messages/chat', authenticateToken, verifyOwnership, async (req, res) => {
     const { userId, otherUserId } = req.query;
     if (!userId || !otherUserId) return res.status(400).json({ message: "Missing userId or otherUserId" });

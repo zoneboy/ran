@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { User, MembershipStatus, Announcement, Payment, BankDetails, Collection } from '../types';
 import { api } from '../services/api';
@@ -57,19 +56,21 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       images: [] as string[]
   });
 
-  // Expiry Logic - Robust string comparison
-  const todayStr = new Date().toISOString().split('T')[0];
-  const expiryStr = displayUser.expiryDate;
-  
-  const isExpired = expiryStr < todayStr;
-  
-  // Calculate days left for banner
+  // Expiry Logic - Robust Date comparison
   const todayDate = new Date();
-  const expiryDateObj = new Date(expiryStr);
+  todayDate.setHours(0, 0, 0, 0);
+
+  const expiryDateObj = new Date(displayUser.expiryDate);
+  expiryDateObj.setHours(0, 0, 0, 0);
+  
   const diffTime = expiryDateObj.getTime() - todayDate.getTime();
+  
+  // diffDays represents how many days until expiration
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   
-  const isExpiringSoon = !isExpired && diffDays <= 30;
+  // If diffDays is -1 or lower, they are 1+ days past their expiry date
+  const isExpired = diffDays <= -1 || displayUser.status === 'Expired';
+  const isExpiringSoon = !isExpired && diffDays >= 0 && diffDays <= 30;
 
   useEffect(() => {
     const fetchData = async () => {

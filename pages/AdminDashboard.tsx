@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment, Collection, MaterialPrice } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -133,10 +132,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     refreshData();
   }, []);
 
-  // ... [Rest of the file remains exactly the same as previous AdminDashboard.tsx, omitted for brevity]
-  // ... (Keep existing implementation of chart data, helper functions, and render logic)
-  
-  // Need to include the rest of the file so I don't truncate it.
   const handleUpdatePrice = async (id: string, newPrice: number) => {
       try {
           await api.updatePrice(id, newPrice);
@@ -627,16 +622,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     return matchesSearch && matchesMaterial && matchesDate;
   });
 
-  const filteredAnnouncements = announcements.filter(ann => {
-    const matchDate = announcementDateFilter ? ann.date === announcementDateFilter : true;
-    const matchType = announcementTypeFilter === 'All' 
-        ? true 
-        : announcementTypeFilter === 'Important' 
-            ? ann.isImportant 
-            : !ann.isImportant;
-    return matchDate && matchType;
-  });
-
   const handleExportCollections = () => {
     const headers = ['Date Logged', 'Member ID', 'Business Name', 'Period', 'Material', 'Weight (KG)'];
     const rows = filteredCollections.map(c => [
@@ -663,13 +648,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     document.body.removeChild(link);
   };
 
+  // Robust Date comparison for Expiring Users
   const today = new Date();
+  today.setHours(0, 0, 0, 0); // Normalize to midnight
+
   const expiringUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN || u.status === MembershipStatus.SUSPENDED) return false;
     if (!u.expiryDate) return false;
+    
     const expiry = new Date(u.expiryDate);
+    expiry.setHours(0, 0, 0, 0); // Normalize to midnight
+    
     const diffTime = expiry.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    // Only flag them if they are between 0 (expiring today) and 30 days out
     return diffDays >= 0 && diffDays <= 30;
   });
 
@@ -1375,7 +1368,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {expiringUsers.length > 0 ? expiringUsers.map(u => {
-                                const daysLeft = Math.ceil((new Date(u.expiryDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                                const expiryDateObj = new Date(u.expiryDate);
+                                expiryDateObj.setHours(0, 0, 0, 0);
+                                const daysLeft = Math.ceil((expiryDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                                
                                 return (
                                     <tr key={u.id} className="hover:bg-gray-50">
                                         <td className="px-4 py-3 text-sm font-medium text-gray-900">
@@ -1487,12 +1483,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* Export Modal, Announcement Modal, Edit Modals ... */}
-      
       {showExportModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-             {/* ... Export Modal Content from original code ... */}
              <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-900 flex items-center">
                 <Download className="mr-2 h-5 w-5 text-green-600" /> Export Data
@@ -1503,7 +1496,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             </div>
             
             <div className="space-y-4">
-               {/* Filters UI */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Region</label>
                 <select 
@@ -1602,7 +1594,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       {showAnnounceModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-             {/* Announcement Form content - unchanged */}
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-900 flex items-center">
                 <Megaphone className="mr-2 h-5 w-5 text-amber-500" /> New Announcement
@@ -1670,7 +1661,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
       
-      {/* Existing Edit Modals (ID, Expiry, Status, Docs, Payment) - kept existing logic, just wrapping */}
       {idEditModal && idEditModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
@@ -1716,7 +1706,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
       
-      {/* ... Status Modal, Doc Modal, Payment Modal logic remains identical to previous file ... */}
       {statusEditModal && statusEditModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
@@ -1738,10 +1727,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* Simplified rendering for Doc and Payment modals for brevity, assuming standard implementation */}
       {docModal && docModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-           {/* Document Modal Content */}
            <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
              <div className="flex justify-between items-center mb-6">
                <div><h2 className="text-xl font-bold text-gray-900 flex items-center"><FileCheck className="mr-2 h-5 w-5 text-green-600" /> Member Documents</h2><p className="text-sm text-gray-500">Manage ID Card & Certificate for {docModal.name}</p></div>
@@ -1751,12 +1738,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                     <h3 className="font-bold text-blue-800 mb-3 text-sm uppercase flex items-center"><UserIcon className="h-4 w-4 mr-1"/> Registration Submissions</h3>
                     <div className="grid grid-cols-2 gap-4">
-                        {/* Images display logic */}
                         <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center">
                             <span className="text-xs font-semibold text-gray-500 mb-2">Profile Image</span>
                             {docModal.profileImage ? (<><img src={docModal.profileImage} alt="Profile" className="h-20 w-20 object-cover rounded-full mb-2 border border-gray-200"/><a href={docModal.profileImage} download="Profile_Image" className="text-xs text-blue-600 hover:underline flex items-center"><Download className="h-3 w-3 mr-1"/> Download</a></>) : <span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>}
                         </div>
-                        {/* Other docs display logic similar to original file */}
+                        <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center justify-center space-y-2">
+                             {docModal.cac && <a href={docModal.cac} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View CAC Cert</a>}
+                             {docModal.logo && <a href={docModal.logo} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View Logo</a>}
+                             {docModal.evidence && <a href={docModal.evidence} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View Evidence</a>}
+                             {(!docModal.cac && !docModal.logo && !docModal.evidence) && <span className="text-xs text-gray-400 italic">No business docs uploaded</span>}
+                        </div>
                     </div>
                 </div>
                 <div className="border-t border-gray-200 my-4"></div>
@@ -1771,7 +1762,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                       {docModal.idCard && (<a href={docModal.idCard} download="ID_Card" className="text-blue-600 hover:text-blue-800 text-xs underline shrink-0">View Current</a>)}
                    </div>
                 </div>
-                {/* Certificate upload logic similar to above */}
                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                    <div className="flex justify-between items-start mb-3">
                       <label className="block text-sm font-bold text-gray-800">Membership Certificate</label>
@@ -1793,7 +1783,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
       {paymentModal && paymentModal.isOpen && (
          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-             {/* Payment Modal Content */}
               <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
                 <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold text-gray-900 flex items-center"><CreditCard className="mr-2 h-5 w-5 text-amber-500" /> Manage Payments</h2><button onClick={() => setPaymentModal(null)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button></div>
                 <p className="text-sm text-gray-500 mb-4">Payments for: <span className="font-semibold">{paymentModal.name}</span></p>
