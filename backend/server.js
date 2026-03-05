@@ -366,24 +366,36 @@ const checkExpiry = async (user) => {
 };
 
 // --- AUTH MIDDLEWARE ---
+// --- AUTH MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
     const token = req.cookies.token;
+    
     if (token == null) return res.status(401).json({ message: 'Unauthorized: No token provided' });
+
     jwt.verify(token, JWT_SECRET, async (err, decoded) => {
         if (err) return res.status(403).json({ message: 'Forbidden: Invalid token' });
+        
         try {
             const result = await query('SELECT token_version FROM users WHERE id = $1', [decoded.id]);
             if (result.rows.length === 0) return res.status(403).json({ message: 'User not found' });
-            if (decoded.token_version !== result.rows[0].token_version) {
+            
+            // FIX: Safely handle 'null' database values by defaulting both sides to 0
+            const currentVersion = result.rows[0].token_version || 0;
+            const tokenVersion = decoded.token_version || 0;
+
+            if (tokenVersion !== currentVersion) {
                 res.clearCookie('token');
                 return res.status(401).json({ message: 'Session expired. Please login again.' });
             }
+
             if (decoded.partial && !['/auth/mfa/setup', '/auth/mfa/confirm', '/auth/mfa/login', '/auth/logout'].some(p => req.url.includes(p))) {
                 return res.status(403).json({ message: 'MFA verification required.' });
             }
+
             req.user = decoded;
             next();
         } catch (e) {
+            console.error("Auth Middleware Error:", e);
             res.status(500).json({ message: 'Server error' });
         }
     });
