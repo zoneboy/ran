@@ -58,8 +58,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center cursor-pointer" onClick={() => handleNav('home')}>
-            <Recycle className="h-8 w-8 text-amber-400 mr-2" />
-            <span className="font-bold text-xl tracking-tight">RAN Portal</span>
+            <img src="/ran-logo.png" alt="RAN Logo" className="h-10 mr-2" />
           </div>
           
           <div className="hidden md:block">
