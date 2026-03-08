@@ -8,6 +8,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import MemberDirectory from './pages/MemberDirectory';
 import Messages from './pages/Messages';
 import Pricelist from './pages/Pricelist';
+import Benefits from './pages/Benefits';
 import { User } from './types';
 import { api } from './services/api';
 
@@ -117,6 +118,8 @@ function App() {
     switch (currentPage) {
       case 'home':
         return <Home navigate={navigate} user={user} />;
+      case 'benefits': // <-- ADD THIS CASE
+        return <Benefits navigate={navigate} user={user} />;
       case 'register':
         return <Register navigate={navigate} />;
       case 'login':
