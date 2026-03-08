@@ -406,20 +406,46 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       </div>
 
       {/* Payment Modal */}
-      {showPaymentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-                <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-gray-900">Record Payment</h3><button onClick={() => setShowPaymentModal(false)}><X className="h-5 w-5 text-gray-500" /></button></div>
-                {bankDetails && (<div className="bg-gray-50 p-4 rounded mb-4 text-sm text-gray-700 border border-gray-200"><p className="font-bold mb-1">Bank Transfer Details:</p><p>Bank: {bankDetails.bankName}</p><p>Account: {bankDetails.accountNumber}</p><p>Name: {bankDetails.accountName}</p></div>)}
-                <form onSubmit={handleSubmitPayment} className="space-y-4">
-                    <div><label className="block text-sm font-medium text-gray-700">Amount (NGN)</label><input type="number" required value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" /></div>
-                    <div><label className="block text-sm font-medium text-gray-700">Description</label><input type="text" required value={paymentDesc} onChange={e => setPaymentDesc(e.target.value)} className="w-full border rounded px-3 py-2 mt-1" placeholder="e.g. Annual Dues 2024" /></div>
-                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Upload Receipt</label><div className="border-2 border-dashed border-gray-300 rounded-md p-4 text-center">{isUploadingReceipt ? (<Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" />) : receiptFileUrl ? (<div className="flex items-center justify-center text-green-600"><Check className="h-5 w-5 mr-2" /> Receipt Attached</div>) : (<input type="file" accept="image/*,.pdf" onChange={handleReceiptUpload} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />)}</div></div>
-                    <button type="submit" disabled={isProcessingPayment} className="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700 disabled:opacity-50">{isProcessingPayment ? 'Submitting...' : 'Submit Payment'}</button>
-                </form>
-            </div>
-        </div>
-      )}
+{/* Payment Modal inside pages/UserDashboard.tsx */}
+{showPaymentModal && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+          <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-gray-900">Record Payment</h3><button onClick={() => setShowPaymentModal(false)}><X className="h-5 w-5 text-gray-500" /></button></div>
+          {bankDetails && (<div className="bg-gray-50 p-4 rounded mb-4 text-sm text-gray-700 border border-gray-200"><p className="font-bold mb-1">Bank Transfer Details:</p><p>Bank: {bankDetails.bankName}</p><p>Account: {bankDetails.accountNumber}</p><p>Name: {bankDetails.accountName}</p></div>)}
+          <form onSubmit={handleSubmitPayment} className="space-y-4">
+              
+              {/* --- UPDATED AMOUNT FIELD --- */}
+              <div>
+                  <label className="block text-sm font-medium text-gray-700">Amount (NGN)</label>
+                  <select 
+                      required 
+                      value={paymentAmount} 
+                      onChange={e => {
+                          const val = e.target.value;
+                          setPaymentAmount(val);
+                          // Auto-fill description to reflect the category in the admin panel
+                          if (val === '80000') setPaymentDesc('Corporate Member Dues');
+                          else if (val === '20000') setPaymentDesc('Associate Member Dues');
+                          else if (val === '200000') setPaymentDesc('Patrons Dues');
+                          else setPaymentDesc('');
+                      }} 
+                      className="w-full border rounded px-3 py-2 mt-1 bg-white"
+                  >
+                      <option value="">Select Membership Category</option>
+                      <option value="80000">Corporate Member (₦80,000)</option>
+                      <option value="20000">Associate Member (₦20,000)</option>
+                      <option value="200000">Patrons (₦200,000)</option>
+                  </select>
+              </div>
+              {/* ----------------------------- */}
+
+              <div><label className="block text-sm font-medium text-gray-700">Description</label><input type="text" required value={paymentDesc} onChange={e => setPaymentDesc(e.target.value)} className="w-full border rounded px-3 py-2 mt-1" placeholder="e.g. Annual Dues 2024" /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Upload Receipt</label><div className="border-2 border-dashed border-gray-300 rounded-md p-4 text-center">{isUploadingReceipt ? (<Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" />) : receiptFileUrl ? (<div className="flex items-center justify-center text-green-600"><Check className="h-5 w-5 mr-2" /> Receipt Attached</div>) : (<input type="file" accept="image/*,.pdf" onChange={handleReceiptUpload} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />)}</div></div>
+              <button type="submit" disabled={isProcessingPayment} className="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700 disabled:opacity-50">{isProcessingPayment ? 'Submitting...' : 'Submit Payment'}</button>
+          </form>
+      </div>
+  </div>
+)}
 
       {/* Collection Modal */}
       {showCollectionModal && !isExpired && (

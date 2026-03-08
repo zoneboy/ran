@@ -1899,16 +1899,39 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                             <h4 className="text-sm font-bold text-gray-700">New Payment Entry</h4>
                             <button type="button" onClick={() => setShowAddPaymentForm(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Date</label>
-                                <input type="date" required value={paymentForm.date} onChange={(e) => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Amount</label>
-                                <input type="number" required value={paymentForm.amount} onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/>
-                            </div>
-                        </div>
+                        {/* Inside pages/AdminDashboard.tsx (Manual Payment Form) */}
+<div className="grid grid-cols-2 gap-4">
+    <div>
+        <label className="block text-xs font-medium text-gray-700 mb-1">Date</label>
+        <input type="date" required value={paymentForm.date} onChange={(e) => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/>
+    </div>
+    
+    {/* --- UPDATED AMOUNT FIELD --- */}
+    <div>
+        <label className="block text-xs font-medium text-gray-700 mb-1">Amount</label>
+        <select 
+            required 
+            value={paymentForm.amount} 
+            onChange={(e) => {
+                const val = e.target.value;
+                let desc = paymentForm.description;
+                // Auto-fill description
+                if (val === '80000') desc = 'Corporate Member Dues';
+                else if (val === '20000') desc = 'Associate Member Dues';
+                else if (val === '200000') desc = 'Patrons Dues';
+                
+                setPaymentForm({...paymentForm, amount: val, description: desc});
+            }} 
+            className="w-full border rounded-md px-2 py-1.5 text-sm bg-white"
+        >
+            <option value="">Select Amount</option>
+            <option value="80000">Corporate Member (₦80,000)</option>
+            <option value="20000">Associate Member (₦20,000)</option>
+            <option value="200000">Patrons (₦200,000)</option>
+        </select>
+    </div>
+    {/* ----------------------------- */}
+</div>
                         <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
                             <input type="text" required placeholder="e.g. Annual Dues 2024" value={paymentForm.description} onChange={(e) => setPaymentForm({...paymentForm, description: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/>
