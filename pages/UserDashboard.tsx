@@ -15,16 +15,19 @@ const YEARS = [new Date().getFullYear(), new Date().getFullYear() - 1];
 
 const LOG_MATERIALS = [
   'PET Plastics',
+  'HDPE',
+  'PVC',
+  'PP',
+  'PS',
   'Other Plastics',
   'Paper/Cartons',
   'UBC',
+  'Aluminium',
+  'Copper',
   'Metals',
   'Glass',
   'E-waste',
-  'Nylon',
-  'Organic',
-  'PVC',
-  'Organics'
+  'Nylon'
 ];
 
 const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateUser }) => {

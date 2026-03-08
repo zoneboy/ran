@@ -243,10 +243,12 @@ const initDb = async () => {
       }
 
       // Synchronized with the UserDashboard collection types
+// Synchronized with the UserDashboard collection types
       const requiredMaterials = [
-        'PET Plastics', 'Other Plastics', 'Paper/Cartons', 'UBC', 'Metals', 'Glass', 
-        'E-waste', 'Nylon', 'Organic', 'PVC', 'Baled B/W Pets', 'Baled Green Pets', 
-        'Baled Brown Pets', 'Caps', 'Aluminium'
+        'PET Plastics', 'HDPE', 'PVC', 'PP', 'PS', 'Other Plastics', 
+        'Paper/Cartons', 'UBC', 'Aluminium', 'Copper', 'Metals', 'Glass', 
+        'E-waste', 'Nylon', 'Baled B/W Pets', 'Baled Green Pets', 
+        'Baled Brown Pets', 'Caps'
       ];
 
       for (const material of requiredMaterials) {
