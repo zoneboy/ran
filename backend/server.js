@@ -40,14 +40,16 @@ app.use(cors({
 app.use(bodyParser.json({ limit: '50mb' }));
 
 // Database Connection - SERVERLESS OPTIMIZATION
+// Database Connection - SERVERLESS OPTIMIZATION
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false
   },
-  max: 1, // CRITICAL: Limit to 1 connection per lambda instance
-  idleTimeoutMillis: 3000, // Close idle clients after 3 seconds
-  connectionTimeoutMillis: 5000, // Fail if can't connect within 5 seconds
+  max: 1, // Keep this at 1: Each serverless container gets exactly 1 connection
+  idleTimeoutMillis: 1000, // Aggressively drop idle connections after 1 second (down from 3s)
+  connectionTimeoutMillis: 5000, // Fail fast if the DB is unreachable
+  allowExitOnIdle: true, // CRITICAL: Allows the Node.js event loop to clear so the Lambda can freeze gracefully
 });
 
 // --- SMART QUERY WRAPPER WITH RETRY LOGIC ---
