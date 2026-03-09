@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
-import Home from './pages/Home';
 import Register from './pages/Register';
 import Login from './pages/Login';
 import UserDashboard from './pages/UserDashboard';
@@ -13,7 +12,7 @@ import { User } from './types';
 import { api } from './services/api';
 
 function App() {
-  const [currentPage, setCurrentPage] = useState('home');
+  const [currentPage, setCurrentPage] = useState('login');
   const [pageParams, setPageParams] = useState<any>(null); // State to hold parameters passed during navigation
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,7 +74,7 @@ function App() {
   const handleLogout = async () => {
     await api.logout();
     setUser(null);
-    navigate('home');
+    navigate('login');
   };
 
   const handleUpdateUser = async (updatedUser: User) => {
@@ -112,13 +111,11 @@ function App() {
       return daysPastExpiry >= 1;
   };
 
-  const renderPage = () => {
+ const renderPage = () => {
     const expired = isExpired();
 
     switch (currentPage) {
-      case 'home':
-        return <Home navigate={navigate} user={user} />;
-      case 'benefits': // <-- ADD THIS CASE
+      case 'benefits':
         return <Benefits navigate={navigate} user={user} />;
       case 'register':
         return <Register navigate={navigate} />;
@@ -127,21 +124,18 @@ function App() {
       case 'dashboard':
         return user ? <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       case 'admin-dashboard':
-        return user && user.role === 'ADMIN' ? <AdminDashboard /> : <Home navigate={navigate} user={user} />;
+        return user && user.role === 'ADMIN' ? <AdminDashboard /> : <Login onLogin={handleLogin} navigate={navigate} />;
       case 'member-directory':
-        // Restrict directory if expired
         if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
         return user ? <MemberDirectory navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       case 'messages':
-        // Restrict messages if expired
         if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
         return user ? <Messages currentUser={user} navigate={navigate} targetUserId={pageParams?.targetUserId} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       case 'pricelist':
-        // Restrict pricelist if expired
         if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
         return user ? <Pricelist navigate={navigate} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       default:
-        return <Home navigate={navigate} user={user} />;
+        return <Login onLogin={handleLogin} navigate={navigate} />; // Fallback to login
     }
   };
 
@@ -165,7 +159,7 @@ function App() {
             <div>
               <h4 className="text-white font-semibold mb-4">Quick Links</h4>
               <ul className="space-y-2 text-sm">
-                <li><button onClick={() => navigate('home')} className="hover:text-white">Home</button></li>
+                <li><button onClick={() => navigate('login')} className="hover:text-white">Portal Login</button></li>
                 {!user && <li><button onClick={() => navigate('register')} className="hover:text-white">Join Us</button></li>}
                 <li><button className="hover:text-white">Contact Support</button></li>
                 <li><button className="hover:text-white">Privacy Policy</button></li>
