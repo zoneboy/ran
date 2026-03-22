@@ -11,9 +11,18 @@ const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
+const cloudinary = require('cloudinary').v2;
 require('dotenv').config();
 
 const app = express();
+
+
+// Configure Cloudinary using the Netlify Environment Variables
+cloudinary.config({ 
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
+  api_key: process.env.CLOUDINARY_API_KEY, 
+  api_secret: process.env.CLOUDINARY_API_SECRET 
+});
 
 // Trust Proxy for secure cookies behind load balancers (Netlify/Heroku)
 app.set('trust proxy', 1);
@@ -541,6 +550,30 @@ router.post('/auth/register', async (req, res) => {
     res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
     res.status(201).json({ ...safeUser });
   } catch (error) { res.status(500).json({ message: 'Registration failed. ' + error.message }); }
+});
+
+// --- SECURE FILE UPLOAD ROUTE ---
+router.post('/upload', authenticateToken, async (req, res) => {
+    try {
+        const { file } = req.body;
+        
+        if (!file) {
+            return res.status(400).json({ message: 'No file provided' });
+        }
+
+        // Upload to Cloudinary securely from the backend
+        const result = await cloudinary.uploader.upload(file, {
+            folder: 'ran_portal_secure', // Keeps the RAN portal uploads organized
+            resource_type: 'auto',       // Automatically handles images or PDFs
+            use_filename: false,         // Ignore original file names
+            unique_filename: true        // Generate unguessable, secure URLs
+        });
+
+        res.status(200).json({ secure_url: result.secure_url });
+    } catch (error) {
+        console.error("Cloudinary Backend Upload Error:", error);
+        res.status(500).json({ message: 'Failed to upload file to storage.' });
+    }
 });
 
 router.get('/config/bank-details', authenticateToken, (req, res) => {
