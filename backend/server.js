@@ -31,19 +31,36 @@ app.set('trust proxy', 1);
 app.use(helmet());
 app.use(helmet.contentSecurityPolicy({
     directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'", process.env.API_URL ? process.env.API_URL : "'self'"],
+        defaultSrc: ["'none'"], // API shouldn't load anything by default
+        scriptSrc: ["'none'"],  // API shouldn't execute scripts
+        styleSrc: ["'none'"],   // API has no styles
+        imgSrc: ["'none'"],     // API renders no images
+        connectSrc: ["'self'"], 
+        frameAncestors: ["'none'"], // Prevents Clickjacking
+        formAction: ["'none'"]
     }
 }));
 app.use(cookieParser());
 
-// CORS: Enable credentials for cookies. origin: true reflects request origin.
-app.use(cors({ 
-    origin: true, 
-    credentials: true 
+// --- STRICT CORS CONFIGURATION ---
+const allowedOrigins = [
+    'http://localhost:3000',         // Local Vite development
+    'https://ranified.netlify.app'   // Production Netlify app
+];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // Allow requests with no origin (e.g., Postman, curl, or server-to-server)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        } else {
+            const msg = `CORS Policy Violation: The origin ${origin} is not allowed to access this API.`;
+            return callback(new Error(msg), false);
+        }
+    },
+    credentials: true // Still required so your JWT cookies work
 }));
 
 app.use(bodyParser.json({ limit: '50mb' }));
