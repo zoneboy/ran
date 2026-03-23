@@ -4,16 +4,11 @@ const API_URL = isLocal
     ? 'http://localhost:5000/api'  
     : '/.netlify/functions/api';   
 
-/**
- * Uploads a file or base64 string SECURELY via the Node.js backend
- * @param file File object (e.g., PDF) or Base64 Data URI string (compressed image)
- * @returns Promise resolving to the secure URL
- */
 export const uploadToCloudinary = async (file: File | string): Promise<string> => {
   try {
     let uploadPayload = file;
 
-    // If the file is a raw File object (like a PDF), convert it to Base64 first
+    // Convert raw files (like PDFs) to Base64
     if (file instanceof File) {
         uploadPayload = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
@@ -23,12 +18,15 @@ export const uploadToCloudinary = async (file: File | string): Promise<string> =
         });
     }
 
-    // Send the base64 payload to the secure backend route
-    const response = await fetch(`${API_URL}/upload`, {
+    // SMART ROUTING: Check if user is logged in
+    const isRegisteredUser = !!localStorage.getItem('ran_user');
+    const endpoint = isRegisteredUser ? '/upload' : '/upload/public';
+
+    const response = await fetch(`${API_URL}${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file: uploadPayload }),
-      credentials: 'include' // This pushes the JWT cookie to the backend
+      credentials: 'include' 
     });
 
     if (!response.ok) {

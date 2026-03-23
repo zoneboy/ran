@@ -133,6 +133,15 @@ const resetLimiter = rateLimit({
     legacyHeaders: false, 
 });
 
+// Rate Limiter for Public Uploads (Registration)
+const publicUploadLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 10, // Max 10 uploads per IP per hour to prevent spam
+    message: { message: 'Upload limit reached. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 // Database Initialization
 let dbInitialized = false;
 const initDb = async () => {
@@ -590,6 +599,30 @@ router.post('/upload', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error("Cloudinary Backend Upload Error:", error);
         res.status(500).json({ message: 'Failed to upload file to storage.' });
+    }
+});
+
+// --- PUBLIC FILE UPLOAD ROUTE (FOR REGISTRATION) ---
+router.post('/upload/public', publicUploadLimiter, async (req, res) => {
+    try {
+        const { file } = req.body;
+        
+        if (!file) {
+            return res.status(400).json({ message: 'No file provided' });
+        }
+
+        // Upload to a specific registration folder
+        const result = await cloudinary.uploader.upload(file, {
+            folder: 'ran_portal_registration', 
+            resource_type: 'auto',       
+            use_filename: false,         
+            unique_filename: true        
+        });
+
+        res.status(200).json({ secure_url: result.secure_url });
+    } catch (error) {
+        console.error("Cloudinary Public Upload Error:", error);
+        res.status(500).json({ message: 'Failed to upload file.' });
     }
 });
 
