@@ -689,8 +689,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     });
 
     if (exportConfig.format === 'Excel') {
-        const headers = [
-            'ID', 'Business Name', 'Category', 'Status', 'Expiry Date',
+const headers = [
+            'ID', 'Business Name', 'Membership Category', 'Business Type', 'Status', 'Expiry Date',
             'First Name', 'Last Name', 'Gender', 'Email', 'Phone', 'DOB',
             'Address', 'City', 'State', 'Region', 'Other States',
             'Commencement Date', 'Monthly Volume (Tons)', 'Employees',
@@ -704,6 +704,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 `"${safeUser.id}"`,
                 `"${safeUser.businessName}"`,
                 `"${safeUser.category}"`,
+                `"${safeUser.businessCategory || 'N/A'}"`,
                 `"${safeUser.status}"`,
                 `"${safeUser.expiryDate}"`,
                 `"${safeUser.firstName}"`,
@@ -817,6 +818,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
                             <div class="section-title">Business Information</div>
                             <div class="grid">
+                            <div class="field"><span class="label">Business Type</span><span class="value">${escapeHtml(safeUser.businessCategory || 'N/A')}</span></div>
                                 <div class="field"><span class="label">Address</span><span class="value">${escapeHtml(safeUser.businessAddress)}, ${escapeHtml(safeUser.businessCity || '')}</span></div>
                                 <div class="field"><span class="label">State / Region</span><span class="value">${escapeHtml(safeUser.businessState)} (${escapeHtml(region)})</span></div>
                                 <div class="field"><span class="label">Date Commenced</span><span class="value">${escapeHtml(safeUser.businessCommencement || 'N/A')}</span></div>
@@ -1070,10 +1072,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
              <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+              <thead className="bg-gray-50">
+                <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Business / Name</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Membership</th>
+                  {/* ADD THIS LINE */}
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Biz Type</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">State</th>
+                  {/* ... rest of headers */}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Region</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
@@ -1102,6 +1109,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.category}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">{user.businessCategory || 'N/A'}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.businessState}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <span className="block font-medium">{getRegion(user.businessState || '')}</span>
