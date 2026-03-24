@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment, Collection, MaterialPrice } from '../types';
+import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment, Collection, MaterialPrice, BusinessCategory } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File as FileIcon, BarChart2, Coins, Leaf } from 'lucide-react';
 import { api } from '../services/api';
@@ -33,6 +33,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [filter, setFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [businessTypeFilter, setBusinessTypeFilter] = useState('');
 
   // Collection Filters
   const [collectionFilter, setCollectionFilter] = useState('');
@@ -54,6 +55,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     state: '',
     region: '',
     category: '',
+    businessType: '',
     machinery: '',
     format: 'Excel'
   });
@@ -105,7 +107,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
   const refreshData = async () => {
     try {
-      // Sequential fetching to reduce DB load spikes
       const usersData = await api.getUsers();
       setUsers(usersData);
       
@@ -115,7 +116,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       const pricesData = await api.getPrices();
       setPrices(pricesData);
 
-      // Fetch heavier data last
       const announcementsData = await api.getAnnouncements();
       setAnnouncements(announcementsData);
 
@@ -164,7 +164,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const uniqueRegions = Array.from(new Set(uniqueStates.map(s => getRegion(s))));
   const uniqueMachinery = Array.from(new Set(users.flatMap(u => u.machineryDeployed || []).filter(m => !!m)));
   
-  // Derived Data for Collection Filters
   const uniqueMaterials = Array.from(new Set(collections.map(c => c.material).filter(Boolean))).sort();
 
   const handleStatusChange = async (userId: string, newStatus: MembershipStatus) => {
@@ -366,7 +365,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
     try {
         let uploadPayload: File | string = file;
-        // Compress if image
         if (file.type.startsWith('image/')) {
             uploadPayload = await new Promise<string>((resolve) => {
                 const reader = new FileReader();
@@ -571,6 +569,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     // Category Filter (Case Insensitive)
     if (categoryFilter && (u.category || '').toLowerCase() !== categoryFilter.toLowerCase()) return false;
 
+    // Business Type Filter
+    if (businessTypeFilter && (u.businessCategory || '') !== businessTypeFilter) return false;
+
     // Text Search
     if (!filter) return true;
 
@@ -579,6 +580,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     const safeLastName = (u.lastName || '').toLowerCase();
     const safeBusiness = (u.businessName || '').toLowerCase();
     const safeCategory = (u.category || '').toString().toLowerCase();
+    const safeBizCategory = (u.businessCategory || '').toLowerCase();
     const safeState = (u.businessState || '').toLowerCase();
     const safeRegion = getRegion(u.businessState).toLowerCase();
     const safeMaterials = u.materialTypes || [];
@@ -589,6 +591,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       safeLastName.includes(searchTerm) || 
       safeBusiness.includes(searchTerm) ||
       safeCategory.includes(searchTerm) ||
+      safeBizCategory.includes(searchTerm) ||
       safeState.includes(searchTerm) ||
       safeRegion.includes(searchTerm) ||
       safeMaterials.some(m => (m || '').toLowerCase().includes(searchTerm)) ||
@@ -597,7 +600,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   });
 
   const filteredCollections = collections.filter(c => {
-    // Text Search
     const search = collectionFilter.toLowerCase();
     const matchesSearch = (
         (c.businessName || '').toLowerCase().includes(search) ||
@@ -606,10 +608,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         (c.userId || '').toLowerCase().includes(search)
     );
 
-    // Material Filter
     const matchesMaterial = collectionMaterialFilter ? c.material === collectionMaterialFilter : true;
 
-    // Date Range Filter
     let matchesDate = true;
     if (collectionStartDate) {
         matchesDate = matchesDate && new Date(c.createdAt) >= new Date(collectionStartDate);
@@ -638,7 +638,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     const rows = filteredCollections.map(c => [
        new Date(c.createdAt).toLocaleDateString(),
        c.userId,
-       `"${c.businessName}"`, // Escape commas in business name
+       `"${c.businessName}"`,
        `${c.month} ${c.year}`,
        c.material,
        c.weight
@@ -659,21 +659,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     document.body.removeChild(link);
   };
 
-  // Robust Date comparison for Expiring Users
   const today = new Date();
-  today.setHours(0, 0, 0, 0); // Normalize to midnight
+  today.setHours(0, 0, 0, 0);
 
   const expiringUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN || u.status === MembershipStatus.SUSPENDED) return false;
     if (!u.expiryDate) return false;
     
     const expiry = new Date(u.expiryDate);
-    expiry.setHours(0, 0, 0, 0); // Normalize to midnight
+    expiry.setHours(0, 0, 0, 0); 
     
     const diffTime = expiry.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
-    // Only flag them if they are between 0 (expiring today) and 30 days out
     return diffDays >= 0 && diffDays <= 30;
   });
 
@@ -682,14 +680,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       if(u.role === UserRole.ADMIN) return false;
       const matchState = exportConfig.state ? u.businessState === exportConfig.state : true;
       const matchRegion = exportConfig.region ? getRegion(u.businessState) === exportConfig.region : true;
-      // Case Insensitive Category Match
       const matchCat = exportConfig.category ? (u.category || '').toLowerCase() === exportConfig.category.toLowerCase() : true;
       const matchMach = exportConfig.machinery ? (u.machineryDeployed || []).includes(exportConfig.machinery) : true;
-      return matchState && matchRegion && matchCat && matchMach;
+      const matchBizType = exportConfig.businessType ? u.businessCategory === exportConfig.businessType : true;
+      return matchState && matchRegion && matchCat && matchMach && matchBizType;
     });
 
     if (exportConfig.format === 'Excel') {
-const headers = [
+        const headers = [
             'ID', 'Business Name', 'Membership Category', 'Business Type', 'Status', 'Expiry Date',
             'First Name', 'Last Name', 'Gender', 'Email', 'Phone', 'DOB',
             'Address', 'City', 'State', 'Region', 'Other States',
@@ -818,7 +816,7 @@ const headers = [
 
                             <div class="section-title">Business Information</div>
                             <div class="grid">
-                            <div class="field"><span class="label">Business Type</span><span class="value">${escapeHtml(safeUser.businessCategory || 'N/A')}</span></div>
+                                <div class="field"><span class="label">Business Type</span><span class="value">${escapeHtml(safeUser.businessCategory || 'N/A')}</span></div>
                                 <div class="field"><span class="label">Address</span><span class="value">${escapeHtml(safeUser.businessAddress)}, ${escapeHtml(safeUser.businessCity || '')}</span></div>
                                 <div class="field"><span class="label">State / Region</span><span class="value">${escapeHtml(safeUser.businessState)} (${escapeHtml(region)})</span></div>
                                 <div class="field"><span class="label">Date Commenced</span><span class="value">${escapeHtml(safeUser.businessCommencement || 'N/A')}</span></div>
@@ -1039,7 +1037,7 @@ const headers = [
                 <FileText className="h-4 w-4 mr-2" /> Export Data
                 </button>
             </div>
-            <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="w-full grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="relative">
                 <input
                     type="text"
@@ -1063,8 +1061,16 @@ const headers = [
                     onChange={(e) => setCategoryFilter(e.target.value)}
                     className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
                 >
-                    <option value="">All Categories</option>
+                    <option value="">All Memberships</option>
                     {Object.values(MembershipCategory).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select
+                    value={businessTypeFilter}
+                    onChange={(e) => setBusinessTypeFilter(e.target.value)}
+                    className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
+                >
+                    <option value="">All Business Types</option>
+                    {Object.values(BusinessCategory).map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
             </div>
           </div>
@@ -1072,15 +1078,11 @@ const headers = [
              <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-              <thead className="bg-gray-50">
-                <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Business / Name</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member ID</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Membership</th>
-                  {/* ADD THIS LINE */}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Biz Type</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">State</th>
-                  {/* ... rest of headers */}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Region</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
@@ -1183,7 +1185,7 @@ const headers = [
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={13} className="px-6 py-4 text-center text-gray-500">No members found matching your search.</td>
+                    <td colSpan={14} className="px-6 py-4 text-center text-gray-500">No members found matching your search.</td>
                   </tr>
                 )}
               </tbody>
@@ -1574,6 +1576,18 @@ const headers = [
               </div>
 
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Business Type</label>
+                <select 
+                  className="w-full border rounded-md px-3 py-2"
+                  value={exportConfig.businessType}
+                  onChange={(e) => setExportConfig({...exportConfig, businessType: e.target.value})}
+                >
+                  <option value="">All Business Types</option>
+                  {Object.values(BusinessCategory).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Machinery Deployed</label>
                 <select 
                   className="w-full border rounded-md px-3 py-2"
@@ -1907,39 +1921,33 @@ const headers = [
                             <h4 className="text-sm font-bold text-gray-700">New Payment Entry</h4>
                             <button type="button" onClick={() => setShowAddPaymentForm(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
                         </div>
-                        {/* Inside pages/AdminDashboard.tsx (Manual Payment Form) */}
-<div className="grid grid-cols-2 gap-4">
-    <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">Date</label>
-        <input type="date" required value={paymentForm.date} onChange={(e) => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/>
-    </div>
-    
-    {/* --- UPDATED AMOUNT FIELD --- */}
-    <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">Amount</label>
-        <select 
-            required 
-            value={paymentForm.amount} 
-            onChange={(e) => {
-                const val = e.target.value;
-                let desc = paymentForm.description;
-                // Auto-fill description
-                if (val === '80000') desc = 'Corporate Member Dues';
-                else if (val === '20000') desc = 'Associate Member Dues';
-                else if (val === '200000') desc = 'Patrons Dues';
-                
-                setPaymentForm({...paymentForm, amount: val, description: desc});
-            }} 
-            className="w-full border rounded-md px-2 py-1.5 text-sm bg-white"
-        >
-            <option value="">Select Amount</option>
-            <option value="80000">Corporate Member (₦80,000)</option>
-            <option value="20000">Associate Member (₦20,000)</option>
-            <option value="200000">Patrons (₦200,000)</option>
-        </select>
-    </div>
-    {/* ----------------------------- */}
-</div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Date</label>
+                                <input type="date" required value={paymentForm.date} onChange={(e) => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Amount</label>
+                                <select 
+                                    required 
+                                    value={paymentForm.amount} 
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        let desc = paymentForm.description;
+                                        if (val === '80000') desc = 'Corporate Member Dues';
+                                        else if (val === '20000') desc = 'Associate Member Dues';
+                                        else if (val === '200000') desc = 'Patrons Dues';
+                                        setPaymentForm({...paymentForm, amount: val, description: desc});
+                                    }} 
+                                    className="w-full border rounded-md px-2 py-1.5 text-sm bg-white"
+                                >
+                                    <option value="">Select Amount</option>
+                                    <option value="80000">Corporate Member (₦80,000)</option>
+                                    <option value="20000">Associate Member (₦20,000)</option>
+                                    <option value="200000">Patrons (₦200,000)</option>
+                                </select>
+                            </div>
+                        </div>
                         <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
                             <input type="text" required placeholder="e.g. Annual Dues 2024" value={paymentForm.description} onChange={(e) => setPaymentForm({...paymentForm, description: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/>
