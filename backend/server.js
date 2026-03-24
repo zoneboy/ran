@@ -571,7 +571,34 @@ router.post('/auth/register', async (req, res) => {
     const newUser = await query(q, values);
     const mappedUser = mapUser(newUser.rows[0]);
     const { password, mfa_secret, ...safeUser } = mappedUser;
-    try { await transporter.sendMail({ from: process.env.EMAIL_USER, to: data.email, subject: 'Welcome to RAN', text: `Welcome ${data.firstName}, your registration is pending approval.` }); } catch(e) {}
+    try { 
+        await transporter.sendMail({ 
+            from: process.env.EMAIL_USER, 
+            to: data.email, 
+            subject: 'Welcome to RAN - Registration Received', 
+            html: `
+                <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+                    <h2>Welcome to RAN, ${data.firstName}!</h2>
+                    <p>Your registration has been received and is currently pending admin approval.</p>
+                    
+                    <div style="background-color: #f0fdf4; border-left: 4px solid #16a34a; padding: 15px; margin: 20px 0;">
+                        <p style="margin-top: 0;"><strong>You can proceed to make payment using the information below:</strong></p>
+                        <h3 style="margin-bottom: 10px; color: #166534;">Payment Details:</h3>
+                        <ul style="list-style-type: none; padding-left: 0; margin-bottom: 0;">
+                            <li><strong>Bank Name:</strong> Access Bank PLC</li>
+                            <li><strong>Account Number:</strong> 0785293332</li>
+                            <li><strong>Account Name:</strong> Recyclers Association of Nigeria</li>
+                        </ul>
+                    </div>
+
+                    <p>Once you have made the payment, please log in to your dashboard to start using the portal.</p>
+                    <p>Best regards,<br/><strong>The RAN Team</strong></p>
+                </div>
+            ` 
+        }); 
+    } catch(e) {
+        console.error("Failed to send welcome email:", e);
+    }
     const token = jwt.sign({ id: safeUser.id, role: safeUser.role, email: safeUser.email, token_version: 0, partial: false }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
     res.status(201).json({ ...safeUser });
