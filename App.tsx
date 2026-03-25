@@ -195,36 +195,6 @@ function App() {
                   </a>
                 </li>
                 <li><button className="hover:text-white transition-colors">Privacy Policy</button></li>
-              </ul><ul className="space-y-2 text-sm">
-                <li>
-                  <a href="https://recyclersassociation.org" className="hover:text-white transition-colors">
-                    Home
-                  </a>
-                </li>
-                <li>
-                  <button 
-                    onClick={() => navigate(user ? (user.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard') : 'login')} 
-                    className="hover:text-white transition-colors"
-                  >
-                    {user ? 'My Dashboard' : 'Portal Login'}
-                  </button>
-                </li>
-                {!user && (
-                  <li>
-                    <button onClick={() => navigate('register')} className="hover:text-white transition-colors">
-                      Join Us
-                    </button>
-                  </li>
-                )}
-                <li>
-                  <a 
-                    href="mailto:membership@recyclersassociation.org?subject=RAN%20Portal%20Support%20Request" 
-                    className="hover:text-white transition-colors"
-                  >
-                    Contact Support
-                  </a>
-                </li>
-                <li><button className="hover:text-white transition-colors">Privacy Policy</button></li>
               </ul>
             </div>
             <div>
