@@ -166,7 +166,14 @@ function App() {
             <div>
               <h4 className="text-white font-semibold mb-4">Quick Links</h4>
               <ul className="space-y-2 text-sm">
-                <li><button onClick={() => navigate('login')} className="hover:text-white">Portal Login</button></li>
+                <li>
+                  <button 
+                    onClick={() => navigate(user ? (user.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard') : 'login')} 
+                    className="hover:text-white"
+                  >
+                    {user ? 'My Dashboard' : 'Portal Login'}
+                  </button>
+                </li>
                 {!user && <li><button onClick={() => navigate('register')} className="hover:text-white">Join Us</button></li>}
                 <li><button className="hover:text-white">Contact Support</button></li>
                 <li><button className="hover:text-white">Privacy Policy</button></li>
