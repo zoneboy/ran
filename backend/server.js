@@ -45,8 +45,8 @@ app.use(cookieParser());
 // --- STRICT CORS CONFIGURATION ---
 const allowedOrigins = [
     'http://localhost:3000',         // Local Vite development
-    'https://ranified.netlify.app'   // Production Netlify app
-    'https://portal.recyclersassociation.org/' //Live site
+    'https://ranified.netlify.app',   // Production Netlify app
+    'https://portal.recyclersassociation.org' //Live site
 ];
 
 app.use(cors({
