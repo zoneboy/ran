@@ -17,9 +17,10 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize Session
+// Initialize Session
   useEffect(() => {
     const initSession = async () => {
+      let restoredUser = null;
       try {
         const storedUser = await api.getCurrentUser(); // Gets from Memory
         
@@ -29,6 +30,7 @@ function App() {
              const validUser = await api.getUser(storedUser.id);
              if (validUser) {
                setUser(validUser);
+               restoredUser = validUser;
              } else {
                // User exists in memory but not in DB
                await api.logout();
@@ -37,23 +39,28 @@ function App() {
            } catch (e) {
              console.warn("Backend validation failed (offline?), using stored session.");
              setUser(storedUser);
+             restoredUser = storedUser;
            }
         }
       } catch (error) {
         console.error('Session restore failed', error);
       } finally {
         setIsLoading(false);
+        
+        // Handle routing AFTER the session is checked
+        const params = new URLSearchParams(window.location.search);
+        const page = params.get('page');
+        
+        if (page) {
+            setCurrentPage(page);
+        } else if (restoredUser) {
+            // Auto-route to the correct dashboard if they are already logged in
+            setCurrentPage(restoredUser.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard');
+        }
       }
     };
-    initSession();
     
-    // Legacy support: if URL has page param but no sensitive token
-    const params = new URLSearchParams(window.location.search);
-    const page = params.get('page');
-    if (page) {
-        setCurrentPage(page);
-    }
-
+    initSession();
   }, []);
 
   const navigate = (page: string, params?: any) => {
