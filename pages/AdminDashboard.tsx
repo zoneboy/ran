@@ -222,18 +222,51 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     }
   };
 
+  // Helper: Extend a member's expiry by 1 year and set status to Active
+  const activateMemberOnPayment = async (userId: string) => {
+    const member = users.find(u => u.id === userId);
+    if (!member || member.role === UserRole.ADMIN) return;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const currentExpiry = new Date(member.expiryDate);
+    currentExpiry.setHours(0, 0, 0, 0);
+
+    // If membership is already expired, extend 1 year from today.
+    // If still active, extend 1 year from the current expiry date.
+    const baseDate = currentExpiry < today ? today : currentExpiry;
+    const newExpiry = new Date(baseDate);
+    newExpiry.setFullYear(newExpiry.getFullYear() + 1);
+    const newExpiryStr = newExpiry.toISOString().split('T')[0];
+
+    const updatedUser = { ...member, status: MembershipStatus.ACTIVE, expiryDate: newExpiryStr };
+    await api.updateUser(updatedUser);
+
+    // Update local state immediately
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: MembershipStatus.ACTIVE, expiryDate: newExpiryStr } : u));
+  };
+
   const handleGlobalApprovePayment = async (e: React.MouseEvent, paymentId: string) => {
     e.preventDefault();
     e.stopPropagation();
     
-    if(!window.confirm("Confirm approval of this payment?")) return;
+    // Find the payment to get the userId
+    const payment = pendingPayments.find(p => p.id === paymentId);
+    if (!payment) return;
+
+    if(!window.confirm("Confirm approval of this payment? This will also extend the member's membership by 1 year and set their status to Active.")) return;
     
     try {
         await api.updatePaymentStatus(paymentId, 'Successful');
+
+        // Auto-activate member and extend expiry
+        await activateMemberOnPayment(payment.userId);
+
         setPendingPayments(prev => prev.filter(p => p.id !== paymentId));
         const allPayments = await api.getAllPayments();
         setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
-        alert("Payment approved successfully.");
+        alert("Payment approved. Member status set to Active and expiry extended by 1 year.");
     } catch(e) {
         console.error(e);
         alert("Failed to approve payment.");
@@ -535,11 +568,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     e.preventDefault();
     e.stopPropagation();
     if(!paymentModal) return;
+
+    if(!window.confirm("Approve this payment? This will extend the member's membership by 1 year and set their status to Active.")) return;
+
     try {
         await api.updatePaymentStatus(paymentId, 'Successful');
+
+        // Auto-activate member and extend expiry
+        await activateMemberOnPayment(paymentModal.userId);
+
         const updated = await api.getPayments(paymentModal.userId);
         setUserPayments(updated);
-        alert("Payment approved!");
+        alert("Payment approved. Member status set to Active and expiry extended by 1 year.");
     } catch(e) {
         alert("Failed to approve payment.");
     }
