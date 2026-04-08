@@ -281,7 +281,6 @@ const initDb = async () => {
       }
 
       // Synchronized with the UserDashboard collection types
-// Synchronized with the UserDashboard collection types
       const requiredMaterials = [
         'PET Plastics', 'HDPE', 'PVC', 'PP', 'PS', 'Other Plastics', 
         'Paper/Cartons', 'UBC', 'Aluminium', 'Copper', 'Metals', 'Glass', 
@@ -403,6 +402,25 @@ const checkExpiry = async (user) => {
         }
     }
     return user;
+};
+
+// --- BULK EXPIRY SYNC ---
+// Updates ALL members whose expiry_date has passed but status is still 'Active'.
+// Called once per admin GET /users request so the dashboard always shows real-time status.
+const syncExpiredMembers = async () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
+
+    await query(
+        `UPDATE users 
+         SET status = 'Expired' 
+         WHERE role != 'ADMIN' 
+           AND status = 'Active' 
+           AND expiry_date IS NOT NULL 
+           AND expiry_date < $1`,
+        [todayStr]
+    );
 };
 
 // --- AUTH MIDDLEWARE ---
@@ -661,6 +679,14 @@ router.get('/config/bank-details', authenticateToken, (req, res) => {
 
 router.get('/users', authenticateToken, async (req, res) => {
   try {
+    // --- BULK EXPIRY SYNC (Admin only) ---
+    // Before returning users, update any Active members whose expiry has passed.
+    // This ensures the admin dashboard always shows real-time expired status
+    // regardless of whether the member has logged in or not.
+    if (req.user.role === 'ADMIN') {
+        await syncExpiredMembers();
+    }
+
     let q = req.user.role !== 'ADMIN' ? `SELECT id, first_name, last_name, business_name, business_address, business_state, category, material_types, profile_image, date_joined, role, status FROM users WHERE status = 'Active'` : 'SELECT * FROM users';
     const result = await query(q);
     const users = result.rows.map(mapUser).map(u => { 
