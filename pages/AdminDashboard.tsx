@@ -35,6 +35,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [businessTypeFilter, setBusinessTypeFilter] = useState('');
 
+  // Member Table Pagination
+  const [memberPage, setMemberPage] = useState(1);
+  const MEMBERS_PER_PAGE = 50;
+
   // Collection Filters
   const [collectionFilter, setCollectionFilter] = useState('');
   const [collectionMaterialFilter, setCollectionMaterialFilter] = useState('');
@@ -132,6 +136,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   useEffect(() => {
     refreshData();
   }, []);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setMemberPage(1);
+  }, [filter, statusFilter, categoryFilter, businessTypeFilter]);
 
   const handleUpdatePrice = async (id: string, newPrice: number, newCo2: number) => {
       try {
@@ -563,16 +572,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const filteredUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN) return false;
     
-    // Status Filter
     if (statusFilter && u.status !== statusFilter) return false;
-
-    // Category Filter (Case Insensitive)
     if (categoryFilter && (u.category || '').toLowerCase() !== categoryFilter.toLowerCase()) return false;
-
-    // Business Type Filter
     if (businessTypeFilter && (u.businessCategory || '') !== businessTypeFilter) return false;
 
-    // Text Search
     if (!filter) return true;
 
     const searchTerm = filter.toLowerCase();
@@ -598,6 +601,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       safeId.includes(searchTerm)
     );
   });
+
+  // Pagination for member table
+  const totalMemberPages = Math.ceil(filteredUsers.length / MEMBERS_PER_PAGE);
+  const paginatedUsers = filteredUsers.slice(
+    (memberPage - 1) * MEMBERS_PER_PAGE,
+    memberPage * MEMBERS_PER_PAGE
+  );
 
   const filteredCollections = collections.filter(c => {
     const search = collectionFilter.toLowerCase();
@@ -1026,10 +1036,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
            </div>
         </div>
 
+        {/* ========== MEMBER MANAGEMENT — CONTAINED & PAGINATED ========== */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
             <div className="p-6 border-b border-gray-200 flex flex-col items-center gap-4">
             <div className="w-full flex flex-col md:flex-row justify-between items-center gap-4">
-                <h2 className="text-xl font-bold text-gray-900">Member Management</h2>
+                <div className="flex items-center gap-3">
+                    <h2 className="text-xl font-bold text-gray-900">Member Management</h2>
+                    <span className="text-sm text-gray-500 bg-gray-100 px-2.5 py-0.5 rounded-full font-medium">
+                        {filteredUsers.length} member{filteredUsers.length !== 1 ? 's' : ''}
+                    </span>
+                </div>
                 <button
                 onClick={() => setShowExportModal(true)}
                 className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors"
@@ -1074,9 +1090,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 </select>
             </div>
           </div>
-          <div className="overflow-x-auto">
+
+          {/* Scrollable table container with fixed max height */}
+          <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
              <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Business / Name</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member ID</th>
@@ -1095,8 +1113,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredUsers.length > 0 ? (
-                  filteredUsers.map((user) => (
+                {paginatedUsers.length > 0 ? (
+                  paginatedUsers.map((user) => (
                     <tr key={user.id} className={user.status === MembershipStatus.EXPIRED ? 'bg-red-50' : ''}>
                       <td className="px-6 py-4">
                         <div className="text-sm font-medium text-gray-900">{user.businessName}</div>
@@ -1191,7 +1209,75 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {totalMemberPages > 1 && (
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <p className="text-sm text-gray-600">
+                Showing {((memberPage - 1) * MEMBERS_PER_PAGE) + 1}–{Math.min(memberPage * MEMBERS_PER_PAGE, filteredUsers.length)} of {filteredUsers.length} members
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setMemberPage(1)}
+                  disabled={memberPage === 1}
+                  className="px-3 py-1.5 text-sm border rounded-md hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => setMemberPage(p => Math.max(1, p - 1))}
+                  disabled={memberPage === 1}
+                  className="px-3 py-1.5 text-sm border rounded-md hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Prev
+                </button>
+                
+                {Array.from({ length: totalMemberPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalMemberPages || Math.abs(p - memberPage) <= 2)
+                  .reduce<(number | string)[]>((acc, p, i, arr) => {
+                    if (i > 0 && typeof arr[i - 1] === 'number' && (p as number) - (arr[i - 1] as number) > 1) {
+                      acc.push('...');
+                    }
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, i) =>
+                    typeof p === 'string' ? (
+                      <span key={`ellipsis-${i}`} className="px-2 text-gray-400 text-sm">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setMemberPage(p)}
+                        className={`px-3 py-1.5 text-sm border rounded-md transition-colors ${
+                          memberPage === p
+                            ? 'bg-green-600 text-white border-green-600'
+                            : 'hover:bg-white'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+
+                <button
+                  onClick={() => setMemberPage(p => Math.min(totalMemberPages, p + 1))}
+                  disabled={memberPage === totalMemberPages}
+                  className="px-3 py-1.5 text-sm border rounded-md hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => setMemberPage(totalMemberPages)}
+                  disabled={memberPage === totalMemberPages}
+                  className="px-3 py-1.5 text-sm border rounded-md hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Last
+                </button>
+              </div>
+            </div>
+          )}
         </div>
+        {/* ========== END MEMBER MANAGEMENT ========== */}
 
         {/* Collection Logs Section */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden mt-8">
@@ -1207,7 +1293,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         <Download className="h-4 w-4 mr-2" /> Export CSV
                     </button>
                 </div>
-                {/* Filters */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="relative">
                         <input
@@ -1279,7 +1364,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       </div>
 
-      {/* --- PRICE MODAL UPDATED FOR CO2e --- */}
+      {/* --- PRICE MODAL --- */}
       {showPriceModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
@@ -1308,70 +1393,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         <tbody className="bg-white divide-y divide-gray-200">
                             {prices.map(price => (
                                 <tr key={price.id} className="hover:bg-gray-50">
-                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                                        {price.materialName}
-                                    </td>
-                                    
-                                    {/* Price Column */}
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{price.materialName}</td>
                                     <td className="px-4 py-3 text-sm text-green-700 font-bold">
                                         {editingPriceId === price.id ? (
-                                            <input 
-                                                type="number" 
-                                                value={newPriceValue}
-                                                onChange={(e) => setNewPriceValue(e.target.value)}
-                                                className="w-24 border rounded px-2 py-1 text-sm focus:ring-green-500 focus:border-green-500"
-                                                autoFocus
-                                            />
-                                        ) : (
-                                            `₦${price.price.toLocaleString()}`
-                                        )}
+                                            <input type="number" value={newPriceValue} onChange={(e) => setNewPriceValue(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm focus:ring-green-500 focus:border-green-500" autoFocus />
+                                        ) : (`₦${price.price.toLocaleString()}`)}
                                     </td>
-                                    
-                                    {/* CO2 Rate Column */}
                                     <td className="px-4 py-3 text-sm text-teal-700 font-bold">
                                         {editingPriceId === price.id ? (
-                                            <input 
-                                                type="number" 
-                                                step="0.01" 
-                                                value={newCo2Value}
-                                                onChange={(e) => setNewCo2Value(e.target.value)}
-                                                className="w-24 border rounded px-2 py-1 text-sm focus:ring-teal-500 focus:border-teal-500"
-                                            />
-                                        ) : (
-                                            `${price.co2Rate} kg`
-                                        )}
+                                            <input type="number" step="0.01" value={newCo2Value} onChange={(e) => setNewCo2Value(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm focus:ring-teal-500 focus:border-teal-500" />
+                                        ) : (`${price.co2Rate} kg`)}
                                     </td>
-
-                                    <td className="px-4 py-3 text-sm text-gray-500 text-xs">
-                                        {price.lastUpdated}
-                                    </td>
+                                    <td className="px-4 py-3 text-sm text-gray-500 text-xs">{price.lastUpdated}</td>
                                     <td className="px-4 py-3 text-sm">
                                         {editingPriceId === price.id ? (
                                             <div className="flex items-center space-x-2">
-                                                <button 
-                                                    onClick={() => handleUpdatePrice(price.id, Number(newPriceValue), Number(newCo2Value))}
-                                                    className="bg-green-600 text-white p-1 rounded hover:bg-green-700"
-                                                >
-                                                    <Check className="h-4 w-4" />
-                                                </button>
-                                                <button 
-                                                    onClick={() => setEditingPriceId(null)}
-                                                    className="bg-gray-200 text-gray-600 p-1 rounded hover:bg-gray-300"
-                                                >
-                                                    <X className="h-4 w-4" />
-                                                </button>
+                                                <button onClick={() => handleUpdatePrice(price.id, Number(newPriceValue), Number(newCo2Value))} className="bg-green-600 text-white p-1 rounded hover:bg-green-700"><Check className="h-4 w-4" /></button>
+                                                <button onClick={() => setEditingPriceId(null)} className="bg-gray-200 text-gray-600 p-1 rounded hover:bg-gray-300"><X className="h-4 w-4" /></button>
                                             </div>
                                         ) : (
-                                            <button 
-                                                onClick={() => {
-                                                    setEditingPriceId(price.id);
-                                                    setNewPriceValue(price.price.toString());
-                                                    setNewCo2Value(price.co2Rate.toString());
-                                                }}
-                                                className="text-blue-600 hover:text-blue-800"
-                                            >
-                                                <Edit className="h-4 w-4" />
-                                            </button>
+                                            <button onClick={() => { setEditingPriceId(price.id); setNewPriceValue(price.price.toString()); setNewCo2Value(price.co2Rate.toString()); }} className="text-blue-600 hover:text-blue-800"><Edit className="h-4 w-4" /></button>
                                         )}
                                     </td>
                                 </tr>
@@ -1379,10 +1420,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </tbody>
                     </table>
                 </div>
-                
-                <div className="flex justify-end">
-                    <button onClick={() => setShowPriceModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button>
-                </div>
+                <div className="flex justify-end"><button onClick={() => setShowPriceModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
             </div>
         </div>
       )}
@@ -1391,61 +1429,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                        <Bell className="mr-2 h-5 w-5 text-amber-500" /> Members Expiring Soon
-                    </h2>
-                    <button onClick={() => setShowExpiringModal(false)} className="text-gray-400 hover:text-gray-600">
-                        <X className="h-6 w-6" />
-                    </button>
+                    <h2 className="text-xl font-bold text-gray-900 flex items-center"><Bell className="mr-2 h-5 w-5 text-amber-500" /> Members Expiring Soon</h2>
+                    <button onClick={() => setShowExpiringModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
                 </div>
-                
                 <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
                     <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50 sticky top-0">
-                            <tr>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry Date</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Days Left</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
-                            </tr>
-                        </thead>
+                        <thead className="bg-gray-50 sticky top-0"><tr><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry Date</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Days Left</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th></tr></thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {expiringUsers.length > 0 ? expiringUsers.map(u => {
-                                const expiryDateObj = new Date(u.expiryDate);
-                                expiryDateObj.setHours(0, 0, 0, 0);
+                                const expiryDateObj = new Date(u.expiryDate); expiryDateObj.setHours(0, 0, 0, 0);
                                 const daysLeft = Math.ceil((expiryDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                                
-                                return (
-                                    <tr key={u.id} className="hover:bg-gray-50">
-                                        <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                                            {u.businessName} <br/>
-                                            <span className="text-xs text-gray-500">{u.firstName} {u.lastName}</span>
-                                        </td>
-                                        <td className="px-4 py-3 text-sm text-gray-600">{u.expiryDate}</td>
-                                        <td className="px-4 py-3 text-sm font-bold text-amber-600">{daysLeft} days</td>
-                                        <td className="px-4 py-3 text-sm">
-                                            <button 
-                                                onClick={() => {
-                                                    setFilter(u.businessName);
-                                                    setShowExpiringModal(false);
-                                                }}
-                                                className="text-blue-600 hover:underline text-xs"
-                                            >
-                                                View Profile
-                                            </button>
-                                        </td>
-                                    </tr>
-                                );
-                            }) : (
-                                <tr><td colSpan={4} className="text-center py-8 text-gray-500">No members expiring within 30 days.</td></tr>
-                            )}
+                                return (<tr key={u.id} className="hover:bg-gray-50"><td className="px-4 py-3 text-sm font-medium text-gray-900">{u.businessName} <br/><span className="text-xs text-gray-500">{u.firstName} {u.lastName}</span></td><td className="px-4 py-3 text-sm text-gray-600">{u.expiryDate}</td><td className="px-4 py-3 text-sm font-bold text-amber-600">{daysLeft} days</td><td className="px-4 py-3 text-sm"><button onClick={() => { setFilter(u.businessName); setShowExpiringModal(false); }} className="text-blue-600 hover:underline text-xs">View Profile</button></td></tr>);
+                            }) : (<tr><td colSpan={4} className="text-center py-8 text-gray-500">No members expiring within 30 days.</td></tr>)}
                         </tbody>
                     </table>
                 </div>
-                
-                <div className="flex justify-end">
-                    <button onClick={() => setShowExpiringModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button>
-                </div>
+                <div className="flex justify-end"><button onClick={() => setShowExpiringModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
             </div>
         </div>
       )}
@@ -1454,29 +1453,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                    <CreditCard className="mr-2 h-5 w-5 text-red-600" /> Pending Payment Requests
-                  </h2>
-                  <p className="text-sm text-gray-500">Review receipts and approve membership payments.</p>
-                </div>
-                <button onClick={() => setShowPendingPaymentModal(false)} className="text-gray-400 hover:text-gray-600">
-                  <X className="h-6 w-6" />
-                </button>
+                <div><h2 className="text-xl font-bold text-gray-900 flex items-center"><CreditCard className="mr-2 h-5 w-5 text-red-600" /> Pending Payment Requests</h2><p className="text-sm text-gray-500">Review receipts and approve membership payments.</p></div>
+                <button onClick={() => setShowPendingPaymentModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
              </div>
-
              <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
                 <table className="min-w-full divide-y divide-gray-200">
-                   <thead className="bg-gray-50 sticky top-0">
-                      <tr>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receipt</th>
-                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-                      </tr>
-                   </thead>
+                   <thead className="bg-gray-50 sticky top-0"><tr><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receipt</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead>
                    <tbody className="bg-white divide-y divide-gray-200">
                       {pendingPayments.length > 0 ? pendingPayments.map(p => (
                          <tr key={p.id} className="hover:bg-gray-50">
@@ -1484,44 +1466,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                             <td className="px-4 py-3 text-sm font-medium text-gray-900">{getUserName(p.userId)}</td>
                             <td className="px-4 py-3 text-sm text-gray-600">{p.description}</td>
                             <td className="px-4 py-3 text-sm font-bold text-green-700">{p.amount.toLocaleString()}</td>
-                            <td className="px-4 py-3 text-sm">
-                               {p.receipt ? (
-                                  <a 
-                                    href={p.receipt} 
-                                    download={`receipt_${p.reference}`} 
-                                    className="text-blue-600 hover:underline flex items-center text-xs"
-                                  >
-                                    <Download className="h-3 w-3 mr-1" /> View/Download
-                                  </a>
-                               ) : (
-                                  <span className="text-red-400 text-xs italic">No receipt</span>
-                               )}
-                            </td>
+                            <td className="px-4 py-3 text-sm">{p.receipt ? (<a href={p.receipt} download={`receipt_${p.reference}`} className="text-blue-600 hover:underline flex items-center text-xs"><Download className="h-3 w-3 mr-1" /> View/Download</a>) : (<span className="text-red-400 text-xs italic">No receipt</span>)}</td>
                             <td className="px-4 py-3 text-sm space-x-2">
-                               <button 
-                                 onClick={(e) => handleGlobalApprovePayment(e, p.id)}
-                                 className="bg-green-100 text-green-700 hover:bg-green-200 px-2 py-1 rounded text-xs font-semibold border border-green-200"
-                               >
-                                  Approve
-                               </button>
-                               <button 
-                                 onClick={(e) => handleGlobalRejectPayment(e, p.id)}
-                                 className="bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs font-semibold border border-red-200"
-                               >
-                                  Reject
-                               </button>
+                               <button onClick={(e) => handleGlobalApprovePayment(e, p.id)} className="bg-green-100 text-green-700 hover:bg-green-200 px-2 py-1 rounded text-xs font-semibold border border-green-200">Approve</button>
+                               <button onClick={(e) => handleGlobalRejectPayment(e, p.id)} className="bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs font-semibold border border-red-200">Reject</button>
                             </td>
                          </tr>
-                      )) : (
-                         <tr><td colSpan={6} className="text-center py-8 text-gray-500">No pending payment requests.</td></tr>
-                      )}
+                      )) : (<tr><td colSpan={6} className="text-center py-8 text-gray-500">No pending payment requests.</td></tr>)}
                    </tbody>
                 </table>
              </div>
-             
-             <div className="flex justify-end">
-                <button onClick={() => setShowPendingPaymentModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button>
-             </div>
+             <div className="flex justify-end"><button onClick={() => setShowPendingPaymentModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
            </div>
         </div>
       )}
@@ -1530,116 +1485,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
              <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                <Download className="mr-2 h-5 w-5 text-green-600" /> Export Data
-              </h2>
-              <button onClick={() => setShowExportModal(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="h-6 w-6" />
-              </button>
+              <h2 className="text-xl font-bold text-gray-900 flex items-center"><Download className="mr-2 h-5 w-5 text-green-600" /> Export Data</h2>
+              <button onClick={() => setShowExportModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
             </div>
-            
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Region</label>
-                <select 
-                  className="w-full border rounded-md px-3 py-2"
-                  value={exportConfig.region}
-                  onChange={(e) => setExportConfig({...exportConfig, region: e.target.value})}
-                >
-                  <option value="">All Regions</option>
-                  {uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Filter by State</label>
-                <select 
-                  className="w-full border rounded-md px-3 py-2"
-                  value={exportConfig.state}
-                  onChange={(e) => setExportConfig({...exportConfig, state: e.target.value})}
-                >
-                  <option value="">All States</option>
-                  {uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Membership Type</label>
-                <select 
-                  className="w-full border rounded-md px-3 py-2"
-                  value={exportConfig.category}
-                  onChange={(e) => setExportConfig({...exportConfig, category: e.target.value})}
-                >
-                  <option value="">All Categories</option>
-                  {Object.values(MembershipCategory).map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Business Type</label>
-                <select 
-                  className="w-full border rounded-md px-3 py-2"
-                  value={exportConfig.businessType}
-                  onChange={(e) => setExportConfig({...exportConfig, businessType: e.target.value})}
-                >
-                  <option value="">All Business Types</option>
-                  {Object.values(BusinessCategory).map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Machinery Deployed</label>
-                <select 
-                  className="w-full border rounded-md px-3 py-2"
-                  value={exportConfig.machinery}
-                  onChange={(e) => setExportConfig({...exportConfig, machinery: e.target.value})}
-                >
-                   <option value="">All Machinery</option>
-                   {uniqueMachinery.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Region</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.region} onChange={(e) => setExportConfig({...exportConfig, region: e.target.value})}><option value="">All Regions</option>{uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by State</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.state} onChange={(e) => setExportConfig({...exportConfig, state: e.target.value})}><option value="">All States</option>{uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Membership Type</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.category} onChange={(e) => setExportConfig({...exportConfig, category: e.target.value})}><option value="">All Categories</option>{Object.values(MembershipCategory).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Business Type</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.businessType} onChange={(e) => setExportConfig({...exportConfig, businessType: e.target.value})}><option value="">All Business Types</option>{Object.values(BusinessCategory).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Machinery Deployed</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.machinery} onChange={(e) => setExportConfig({...exportConfig, machinery: e.target.value})}><option value="">All Machinery</option>{uniqueMachinery.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
               <div className="pt-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Export Format</label>
                 <div className="flex space-x-4">
-                  <label className="flex items-center">
-                    <input 
-                      type="radio" 
-                      name="format" 
-                      value="Excel" 
-                      checked={exportConfig.format === 'Excel'}
-                      onChange={() => setExportConfig({...exportConfig, format: 'Excel'})}
-                      className="mr-2 text-green-600 focus:ring-green-500"
-                    />
-                    Excel (.csv)
-                  </label>
-                  <label className="flex items-center">
-                    <input 
-                      type="radio" 
-                      name="format" 
-                      value="PDF" 
-                      checked={exportConfig.format === 'PDF'}
-                      onChange={() => setExportConfig({...exportConfig, format: 'PDF'})}
-                      className="mr-2 text-green-600 focus:ring-green-500"
-                    />
-                    PDF (Print Detailed)
-                  </label>
+                  <label className="flex items-center"><input type="radio" name="format" value="Excel" checked={exportConfig.format === 'Excel'} onChange={() => setExportConfig({...exportConfig, format: 'Excel'})} className="mr-2 text-green-600 focus:ring-green-500" />Excel (.csv)</label>
+                  <label className="flex items-center"><input type="radio" name="format" value="PDF" checked={exportConfig.format === 'PDF'} onChange={() => setExportConfig({...exportConfig, format: 'PDF'})} className="mr-2 text-green-600 focus:ring-green-500" />PDF (Print Detailed)</label>
                 </div>
               </div>
-
               <div className="pt-4 flex justify-end space-x-3">
-                <button 
-                  onClick={() => setShowExportModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleExport}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
-                >
-                  <Download className="h-4 w-4 mr-2" /> Download Report
-                </button>
+                <button onClick={() => setShowExportModal(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button onClick={handleExport} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"><Download className="h-4 w-4 mr-2" /> Download Report</button>
               </div>
             </div>
           </div>
@@ -1650,66 +1514,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                <Megaphone className="mr-2 h-5 w-5 text-amber-500" /> New Announcement
-              </h2>
-              <button onClick={() => setShowAnnounceModal(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="h-6 w-6" />
-              </button>
+              <h2 className="text-xl font-bold text-gray-900 flex items-center"><Megaphone className="mr-2 h-5 w-5 text-amber-500" /> New Announcement</h2>
+              <button onClick={() => setShowAnnounceModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
             </div>
-            
             <form onSubmit={handlePostAnnouncement} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-                <input 
-                  type="text" 
-                  required
-                  value={newAnnouncement.title}
-                  onChange={(e) => setNewAnnouncement({...newAnnouncement, title: e.target.value})}
-                  className="w-full border rounded-md px-3 py-2 focus:ring-amber-500 focus:border-amber-500"
-                  placeholder="e.g. AGM 2024 Rescheduled"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Content</label>
-                <textarea 
-                  required
-                  value={newAnnouncement.content}
-                  onChange={(e) => setNewAnnouncement({...newAnnouncement, content: e.target.value})}
-                  rows={4}
-                  className="w-full border rounded-md px-3 py-2 focus:ring-amber-500 focus:border-amber-500"
-                  placeholder="Enter details..."
-                />
-              </div>
-
-              <div className="flex items-center">
-                <input 
-                  type="checkbox" 
-                  id="isImportant"
-                  checked={newAnnouncement.isImportant}
-                  onChange={(e) => setNewAnnouncement({...newAnnouncement, isImportant: e.target.checked})}
-                  className="h-4 w-4 text-amber-600 focus:ring-amber-500 border-gray-300 rounded"
-                />
-                <label htmlFor="isImportant" className="ml-2 block text-sm text-gray-900">
-                  Mark as Important / Urgent
-                </label>
-              </div>
-
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Title</label><input type="text" required value={newAnnouncement.title} onChange={(e) => setNewAnnouncement({...newAnnouncement, title: e.target.value})} className="w-full border rounded-md px-3 py-2 focus:ring-amber-500 focus:border-amber-500" placeholder="e.g. AGM 2024 Rescheduled" /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Content</label><textarea required value={newAnnouncement.content} onChange={(e) => setNewAnnouncement({...newAnnouncement, content: e.target.value})} rows={4} className="w-full border rounded-md px-3 py-2 focus:ring-amber-500 focus:border-amber-500" placeholder="Enter details..." /></div>
+              <div className="flex items-center"><input type="checkbox" id="isImportant" checked={newAnnouncement.isImportant} onChange={(e) => setNewAnnouncement({...newAnnouncement, isImportant: e.target.checked})} className="h-4 w-4 text-amber-600 focus:ring-amber-500 border-gray-300 rounded" /><label htmlFor="isImportant" className="ml-2 block text-sm text-gray-900">Mark as Important / Urgent</label></div>
               <div className="pt-4 flex justify-end space-x-3">
-                <button 
-                  type="button"
-                  onClick={() => setShowAnnounceModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center"
-                >
-                   Post Announcement
-                </button>
+                <button type="button" onClick={() => setShowAnnounceModal(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center">Post Announcement</button>
               </div>
             </form>
           </div>
@@ -1720,19 +1534,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Assign Member ID</h3>
-            <p className="text-sm text-gray-500 mb-4">
-                Updating ID for <span className="font-semibold">{idEditModal.name}</span>.
-            </p>
+            <p className="text-sm text-gray-500 mb-4">Updating ID for <span className="font-semibold">{idEditModal.name}</span>.</p>
             <div className="space-y-3">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">New ID</label>
-                    <input 
-                        type="text" 
-                        value={idEditModal.newId}
-                        onChange={(e) => setIdEditModal({...idEditModal, newId: e.target.value})}
-                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                    />
-                </div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">New ID</label><input type="text" value={idEditModal.newId} onChange={(e) => setIdEditModal({...idEditModal, newId: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500" /></div>
                 <div className="flex justify-end gap-2 pt-2">
                     <button onClick={() => setIdEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
                     <button onClick={handleSaveId} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save ID</button>
@@ -1748,15 +1552,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             <div className="flex items-center mb-4 text-amber-600"><Calendar className="h-5 w-5 mr-2" /><h3 className="text-lg font-bold text-gray-900">Edit Expiry Date</h3></div>
             <p className="text-sm text-gray-500 mb-4">Update membership expiry date for <span className="font-semibold">{expiryEditModal.name}</span>.</p>
             <div className="space-y-3">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">New Expiry Date</label>
-                    <input 
-                        type="date" 
-                        value={expiryEditModal.currentExpiry} 
-                        onChange={(e) => setExpiryEditModal({...expiryEditModal, currentExpiry: e.target.value})} 
-                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                    />
-                </div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">New Expiry Date</label><input type="date" value={expiryEditModal.currentExpiry} onChange={(e) => setExpiryEditModal({...expiryEditModal, currentExpiry: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500" /></div>
                 <div className="flex justify-end gap-2 pt-2">
                     <button onClick={() => setExpiryEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
                     <button onClick={handleSaveExpiry} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save Changes</button>
@@ -1772,16 +1568,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             <div className="flex items-center mb-4 text-blue-600"><Shield className="h-5 w-5 mr-2" /><h3 className="text-lg font-bold text-gray-900">Edit Membership Status</h3></div>
             <p className="text-sm text-gray-500 mb-4">Manually change status for <span className="font-semibold">{statusEditModal.name}</span>.</p>
             <div className="space-y-3">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                    <select 
-                        value={statusEditModal.currentStatus} 
-                        onChange={(e) => setStatusEditModal({...statusEditModal, currentStatus: e.target.value as MembershipStatus})} 
-                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                    >
-                        {Object.values(MembershipStatus).map((status) => (<option key={status} value={status}>{status}</option>))}
-                    </select>
-                </div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Status</label><select value={statusEditModal.currentStatus} onChange={(e) => setStatusEditModal({...statusEditModal, currentStatus: e.target.value as MembershipStatus})} className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500">{Object.values(MembershipStatus).map((status) => (<option key={status} value={status}>{status}</option>))}</select></div>
                 <div className="flex justify-end gap-2 pt-2">
                     <button onClick={() => setStatusEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
                     <button onClick={handleSaveStatus} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save Status</button>
@@ -1795,27 +1582,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
            <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
              <div className="flex justify-between items-center mb-6">
-               <div>
-                 <h2 className="text-xl font-bold text-gray-900 flex items-center"><FileCheck className="mr-2 h-5 w-5 text-green-600" /> Member Documents</h2>
-                 <p className="text-sm text-gray-500">Manage ID Card & Certificate for {docModal.name}</p>
-               </div>
+               <div><h2 className="text-xl font-bold text-gray-900 flex items-center"><FileCheck className="mr-2 h-5 w-5 text-green-600" /> Member Documents</h2><p className="text-sm text-gray-500">Manage ID Card & Certificate for {docModal.name}</p></div>
                <button onClick={() => setDocModal(null)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
              </div>
-             
              <div className="space-y-6">
                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                     <h3 className="font-bold text-blue-800 mb-3 text-sm uppercase flex items-center"><UserIcon className="h-4 w-4 mr-1"/> Registration Submissions</h3>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center">
                             <span className="text-xs font-semibold text-gray-500 mb-2">Profile Image</span>
-                            {docModal.profileImage ? (
-                                <>
-                                    <img src={docModal.profileImage} alt="Profile" className="h-20 w-20 object-cover rounded-full mb-2 border border-gray-200"/>
-                                    <a href={docModal.profileImage} download="Profile_Image" className="text-xs text-blue-600 hover:underline flex items-center"><Download className="h-3 w-3 mr-1"/> Download</a>
-                                </>
-                            ) : (
-                                <span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>
-                            )}
+                            {docModal.profileImage ? (<><img src={docModal.profileImage} alt="Profile" className="h-20 w-20 object-cover rounded-full mb-2 border border-gray-200"/><a href={docModal.profileImage} download="Profile_Image" className="text-xs text-blue-600 hover:underline flex items-center"><Download className="h-3 w-3 mr-1"/> Download</a></>) : (<span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>)}
                         </div>
                         <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center justify-center space-y-2">
                              {docModal.cac && <a href={docModal.cac} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View CAC Cert</a>}
@@ -1825,45 +1601,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </div>
                     </div>
                 </div>
-                
                 <div className="border-t border-gray-200 my-4"></div>
                 <h3 className="font-bold text-gray-800 mb-1 text-sm uppercase">Issue Documents</h3>
-                
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                    <div className="flex justify-between items-start mb-3">
                       <label className="block text-sm font-bold text-gray-800">Membership ID Card</label>
-                      {uploadingDocs.idCard ? (
-                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>
-                      ) : docModal.idCard && (
-                          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>
-                      )}
+                      {uploadingDocs.idCard ? (<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>) : docModal.idCard && (<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>)}
                    </div>
                    <div className="flex items-center space-x-3">
-                      <div className="flex-1">
-                          <input type="file" onChange={(e) => handleDocFileChange(e, 'idCard')} disabled={uploadingDocs.idCard} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50"/>
-                      </div>
+                      <div className="flex-1"><input type="file" onChange={(e) => handleDocFileChange(e, 'idCard')} disabled={uploadingDocs.idCard} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50"/></div>
                       {docModal.idCard && (<a href={docModal.idCard} download="ID_Card" className="text-blue-600 hover:text-blue-800 text-xs underline shrink-0">View Current</a>)}
                    </div>
                 </div>
-                
                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                    <div className="flex justify-between items-start mb-3">
                       <label className="block text-sm font-bold text-gray-800">Membership Certificate</label>
-                      {uploadingDocs.certificate ? (
-                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>
-                      ) : docModal.certificate && (
-                          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>
-                      )}
+                      {uploadingDocs.certificate ? (<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>) : docModal.certificate && (<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>)}
                    </div>
                    <div className="flex items-center space-x-3">
-                      <div className="flex-1">
-                          <input type="file" onChange={(e) => handleDocFileChange(e, 'certificate')} disabled={uploadingDocs.certificate} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50"/>
-                      </div>
+                      <div className="flex-1"><input type="file" onChange={(e) => handleDocFileChange(e, 'certificate')} disabled={uploadingDocs.certificate} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50"/></div>
                       {docModal.certificate && (<a href={docModal.certificate} download="Certificate" className="text-blue-600 hover:text-blue-800 text-xs underline shrink-0">View Current</a>)}
                    </div>
                 </div>
              </div>
-             
              <div className="pt-6 flex justify-end space-x-3 border-t border-gray-100 mt-4">
                 <button onClick={() => setDocModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
                 <button onClick={handleSaveDocs} disabled={uploadingDocs.idCard || uploadingDocs.certificate} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center disabled:opacity-50"><Save className="h-4 w-4 mr-2" /> Save Documents</button>
@@ -1879,27 +1639,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                     <h2 className="text-xl font-bold text-gray-900 flex items-center"><CreditCard className="mr-2 h-5 w-5 text-amber-500" /> Manage Payments</h2>
                     <button onClick={() => setPaymentModal(null)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
                 </div>
-                
                 <p className="text-sm text-gray-500 mb-4">Payments for: <span className="font-semibold">{paymentModal.name}</span></p>
-                
                 <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
                     <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50 sticky top-0">
-                            <tr>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
-                            </tr>
-                        </thead>
+                        <thead className="bg-gray-50 sticky top-0"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Action</th></tr></thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {userPayments.length > 0 ? userPayments.map(p => (
                                 <tr key={p.id}>
                                     <td className="px-3 py-2 text-sm text-gray-500">{p.date}</td>
                                     <td className="px-3 py-2 text-sm font-medium">{p.amount.toLocaleString()}</td>
-                                    <td className="px-3 py-2">
-                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${p.status === 'Successful' ? 'bg-green-100 text-green-800' : p.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>{p.status}</span>
-                                    </td>
+                                    <td className="px-3 py-2"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${p.status === 'Successful' ? 'bg-green-100 text-green-800' : p.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>{p.status}</span></td>
                                     <td className="px-3 py-2 text-sm space-x-2 flex items-center">
                                         {p.receipt && (<a href={p.receipt} download={`receipt_${p.reference}`} title="Download Receipt" className="text-blue-600 hover:text-blue-800 inline-block"><Download className="h-4 w-4" /></a>)}
                                         {p.status === 'Pending' && (<button onClick={(e) => handleApprovePayment(e, p.id)} className="text-green-600 hover:text-green-900 font-medium text-xs border border-green-200 px-2 py-0.5 rounded bg-green-50">Approve</button>)}
@@ -1910,37 +1659,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </tbody>
                     </table>
                 </div>
-                
                 {!showAddPaymentForm ? (
-                    <button onClick={() => setShowAddPaymentForm(true)} className="w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-600 hover:border-green-500 hover:text-green-600 font-medium flex justify-center items-center">
-                        <Plus className="h-4 w-4 mr-2" /> Record New Payment Manually
-                    </button>
+                    <button onClick={() => setShowAddPaymentForm(true)} className="w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-600 hover:border-green-500 hover:text-green-600 font-medium flex justify-center items-center"><Plus className="h-4 w-4 mr-2" /> Record New Payment Manually</button>
                 ) : (
                     <form onSubmit={handleSavePayment} className="space-y-4 border-t pt-4 bg-gray-50 p-4 rounded-md animate-in fade-in slide-in-from-bottom-2">
-                        <div className="flex justify-between items-center">
-                            <h4 className="text-sm font-bold text-gray-700">New Payment Entry</h4>
-                            <button type="button" onClick={() => setShowAddPaymentForm(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
-                        </div>
+                        <div className="flex justify-between items-center"><h4 className="text-sm font-bold text-gray-700">New Payment Entry</h4><button type="button" onClick={() => setShowAddPaymentForm(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button></div>
                         <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Date</label>
-                                <input type="date" required value={paymentForm.date} onChange={(e) => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Amount</label>
-                                <select 
-                                    required 
-                                    value={paymentForm.amount} 
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        let desc = paymentForm.description;
-                                        if (val === '80000') desc = 'Corporate Member Dues';
-                                        else if (val === '20000') desc = 'Associate Member Dues';
-                                        else if (val === '200000') desc = 'Patrons Dues';
-                                        setPaymentForm({...paymentForm, amount: val, description: desc});
-                                    }} 
-                                    className="w-full border rounded-md px-2 py-1.5 text-sm bg-white"
-                                >
+                            <div><label className="block text-xs font-medium text-gray-700 mb-1">Date</label><input type="date" required value={paymentForm.date} onChange={(e) => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/></div>
+                            <div><label className="block text-xs font-medium text-gray-700 mb-1">Amount</label>
+                                <select required value={paymentForm.amount} onChange={(e) => { const val = e.target.value; let desc = paymentForm.description; if (val === '80000') desc = 'Corporate Member Dues'; else if (val === '20000') desc = 'Associate Member Dues'; else if (val === '200000') desc = 'Patrons Dues'; setPaymentForm({...paymentForm, amount: val, description: desc}); }} className="w-full border rounded-md px-2 py-1.5 text-sm bg-white">
                                     <option value="">Select Amount</option>
                                     <option value="80000">Corporate Member (₦80,000)</option>
                                     <option value="20000">Associate Member (₦20,000)</option>
@@ -1948,35 +1675,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                                 </select>
                             </div>
                         </div>
-                        <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
-                            <input type="text" required placeholder="e.g. Annual Dues 2024" value={paymentForm.description} onChange={(e) => setPaymentForm({...paymentForm, description: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/>
-                        </div>
+                        <div><label className="block text-xs font-medium text-gray-700 mb-1">Description</label><input type="text" required placeholder="e.g. Annual Dues 2024" value={paymentForm.description} onChange={(e) => setPaymentForm({...paymentForm, description: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/></div>
                         <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
-                                <select value={paymentForm.status} onChange={(e) => setPaymentForm({...paymentForm, status: e.target.value as any})} className="w-full border rounded-md px-2 py-1.5 text-sm">
-                                    <option value="Successful">Successful</option>
-                                    <option value="Pending">Pending</option>
-                                    <option value="Failed">Failed</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Receipt</label>
-                                <div className="relative">
-                                    {isUploadingReceipt ? (
-                                        <div className="flex items-center space-x-2 text-xs text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> <span>Uploading...</span></div>
-                                    ) : (
-                                        <input type="file" accept="image/*,application/pdf" onChange={handlePaymentFileChange} className="block w-full text-xs text-gray-500"/>
-                                    )}
-                                </div>
-                            </div>
+                            <div><label className="block text-xs font-medium text-gray-700 mb-1">Status</label><select value={paymentForm.status} onChange={(e) => setPaymentForm({...paymentForm, status: e.target.value as any})} className="w-full border rounded-md px-2 py-1.5 text-sm"><option value="Successful">Successful</option><option value="Pending">Pending</option><option value="Failed">Failed</option></select></div>
+                            <div><label className="block text-xs font-medium text-gray-700 mb-1">Receipt</label><div className="relative">{isUploadingReceipt ? (<div className="flex items-center space-x-2 text-xs text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> <span>Uploading...</span></div>) : (<input type="file" accept="image/*,application/pdf" onChange={handlePaymentFileChange} className="block w-full text-xs text-gray-500"/>)}</div></div>
                         </div>
-                        <div className="pt-2 flex justify-end">
-                            <button type="submit" disabled={isUploadingReceipt} className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center text-sm disabled:opacity-50">
-                                {isUploadingReceipt ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Payment'}
-                            </button>
-                        </div>
+                        <div className="pt-2 flex justify-end"><button type="submit" disabled={isUploadingReceipt} className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center text-sm disabled:opacity-50">{isUploadingReceipt ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Payment'}</button></div>
                     </form>
                 )}
             </div>
