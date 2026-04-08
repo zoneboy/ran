@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { Menu, X, Recycle, User, LogOut, Users, MessageSquare, Coins } from 'lucide-react';
 import { User as UserType } from '../types';
@@ -32,19 +30,25 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
   useEffect(() => {
      if (user && !isExpired) {
          const checkUnread = async () => {
-             const count = await api.getUnreadCount(user.id);
-             setUnreadCount(count);
+             try {
+                 const count = await api.getUnreadCount(user.id);
+                 setUnreadCount(count);
+             } catch (e) {
+                 // Silently fail
+             }
          };
          checkUnread();
-         // Poll for unread count occasionally
-         const interval = setInterval(checkUnread, 30000);
+         // Poll every 15 seconds for responsiveness
+         const interval = setInterval(checkUnread, 15000);
          return () => clearInterval(interval);
+     } else {
+         setUnreadCount(0);
      }
-  }, [user, isExpired]);
+  }, [user, isExpired, currentPage]);
 
   const navLinks = [
-    { name: 'Benefits', value: 'benefits' }, // Placeholder link
-    { name: 'News', value: 'news' }, // Placeholder link
+    { name: 'Benefits', value: 'benefits' },
+    { name: 'News', value: 'news' },
   ];
 
   const handleNav = (page: string) => {
@@ -52,16 +56,26 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
     setIsOpen(false);
   };
 
+  // Reusable badge component
+  const UnreadBadge: React.FC<{ count: number; className?: string }> = ({ count, className = '' }) => {
+    if (count <= 0) return null;
+    return (
+      <span className={`bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none shadow-sm ${unreadCount > 0 ? 'animate-pulse' : ''} ${className}`}>
+        {count > 99 ? '99+' : count}
+      </span>
+    );
+  };
+
   return (
     <nav className="bg-green-700 text-white shadow-lg sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div 
-    className="flex items-center cursor-pointer" 
-    onClick={() => handleNav(user ? (user.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard') : 'login')}
-  >
-    <img src="/ran-logo.png" alt="RAN Logo" className="h-10 mr-2" />
-  </div>
+            className="flex items-center cursor-pointer" 
+            onClick={() => handleNav(user ? (user.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard') : 'login')}
+          >
+            <img src="/ran-logo.png" alt="RAN Logo" className="h-10 mr-2" />
+          </div>
           
           <div className="hidden md:block">
             <div className="ml-10 flex items-baseline space-x-4">
@@ -96,6 +110,8 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
                     >
                         <Coins className="h-4 w-4 mr-1" /> Pricelist
                     </button>
+
+                    {/* Desktop Messages button with badge */}
                     <button
                         onClick={() => handleNav('messages')}
                         className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center relative ${
@@ -105,8 +121,8 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
                         <MessageSquare className="h-4 w-4 mr-1" /> 
                         Messages
                         {unreadCount > 0 && (
-                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-4 w-4 flex items-center justify-center">
-                                {unreadCount > 9 ? '9+' : unreadCount}
+                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none shadow-sm animate-pulse">
+                                {unreadCount > 99 ? '99+' : unreadCount}
                             </span>
                         )}
                     </button>
@@ -141,12 +157,17 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
             </div>
           </div>
           
-          <div className="-mr-2 flex md:hidden">
+          {/* Mobile hamburger with notification dot */}
+          <div className="-mr-2 flex md:hidden items-center gap-2">
+            {/* Show a small red dot on the hamburger when there are unread messages and menu is closed */}
             <button
               onClick={() => setIsOpen(!isOpen)}
-              className="bg-green-800 inline-flex items-center justify-center p-2 rounded-md text-gray-200 hover:text-white hover:bg-green-600 focus:outline-none"
+              className="bg-green-800 inline-flex items-center justify-center p-2 rounded-md text-gray-200 hover:text-white hover:bg-green-600 focus:outline-none relative"
             >
               {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+              {!isOpen && unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 rounded-full h-3 w-3 border-2 border-green-700 animate-pulse" />
+              )}
             </button>
           </div>
         </div>
@@ -168,23 +189,32 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
              {user && !isExpired && (
                 <>
                     <button 
-                    onClick={() => handleNav('member-directory')} 
-                    className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600"
+                      onClick={() => handleNav('member-directory')} 
+                      className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600"
                     >
-                    Member Directory
+                      Member Directory
                     </button>
                     <button 
-                    onClick={() => handleNav('pricelist')} 
-                    className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600"
+                      onClick={() => handleNav('pricelist')} 
+                      className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600"
                     >
-                    Pricelist
+                      Pricelist
                     </button>
+
+                    {/* Mobile Messages button with inline badge */}
                     <button 
-                    onClick={() => handleNav('messages')} 
-                    className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600 flex items-center justify-between"
+                      onClick={() => handleNav('messages')} 
+                      className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600 flex items-center justify-between"
                     >
-                    Messages
-                    {unreadCount > 0 && <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">{unreadCount} new</span>}
+                      <span className="flex items-center">
+                        <MessageSquare className="h-4 w-4 mr-2" />
+                        Messages
+                      </span>
+                      {unreadCount > 0 && (
+                        <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse shadow-sm">
+                          {unreadCount > 99 ? '99+' : unreadCount} new
+                        </span>
+                      )}
                     </button>
                 </>
              )}
