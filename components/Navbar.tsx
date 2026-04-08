@@ -48,7 +48,6 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
 
   const navLinks = [
     { name: 'Benefits', value: 'benefits' },
-    { name: 'News', value: 'news' },
   ];
 
   const handleNav = (page: string) => {
