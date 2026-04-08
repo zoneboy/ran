@@ -405,8 +405,6 @@ const checkExpiry = async (user) => {
 };
 
 // --- BULK EXPIRY SYNC ---
-// Updates ALL members whose expiry_date has passed but status is still 'Active'.
-// Called once per admin GET /users request so the dashboard always shows real-time status.
 const syncExpiredMembers = async () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -424,7 +422,6 @@ const syncExpiredMembers = async () => {
 };
 
 // --- AUTH MIDDLEWARE ---
-// --- AUTH MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
     const token = req.cookies.token;
     
@@ -437,7 +434,6 @@ const authenticateToken = (req, res, next) => {
             const result = await query('SELECT token_version FROM users WHERE id = $1', [decoded.id]);
             if (result.rows.length === 0) return res.status(403).json({ message: 'User not found' });
             
-            // FIX: Safely handle 'null' database values by defaulting both sides to 0
             const currentVersion = result.rows[0].token_version || 0;
             const tokenVersion = decoded.token_version || 0;
 
@@ -673,16 +669,12 @@ router.post('/upload/public', publicUploadLimiter, async (req, res) => {
 });
 
 router.get('/config/bank-details', authenticateToken, (req, res) => {
-    res.set('Cache-Control', 'public, max-age=300');
+    res.set('Cache-Control', 'private, no-store');
     res.json({ bankName: process.env.BANK_NAME || 'Access Bank PLC', accountNumber: process.env.BANK_ACCOUNT_NUMBER || '0785293332', accountName: process.env.BANK_ACCOUNT_NAME || 'Recyclers Association of Nigeria' });
 });
 
 router.get('/users', authenticateToken, async (req, res) => {
   try {
-    // --- BULK EXPIRY SYNC (Admin only) ---
-    // Before returning users, update any Active members whose expiry has passed.
-    // This ensures the admin dashboard always shows real-time expired status
-    // regardless of whether the member has logged in or not.
     if (req.user.role === 'ADMIN') {
         await syncExpiredMembers();
     }
@@ -763,9 +755,10 @@ router.post('/users/update-id', authenticateToken, requireAdmin, async (req, res
     } catch (e) { if(client) await client.query('ROLLBACK'); res.status(500).json({ message: 'Failed: ' + e.message }); } finally { if(client) client.release(); }
 });
 
-router.get('/announcements', async (req, res) => {
+// --- ANNOUNCEMENTS (NOW LOCKED DOWN) ---
+router.get('/announcements', authenticateToken, async (req, res) => {
   try {
-    res.set('Cache-Control', 'public, max-age=60');
+    res.set('Cache-Control', 'private, no-store');
     const result = await query('SELECT * FROM announcements ORDER BY date DESC');
     res.json(result.rows.map(row => ({ id: row.id, title: row.title, content: row.content, date: row.date, isImportant: row.is_important })));
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
@@ -889,7 +882,7 @@ router.get('/prices', authenticateToken, async (req, res) => {
              const userRes = await query('SELECT status FROM users WHERE id = $1', [req.user.id]);
              if (!userRes.rows.length || userRes.rows[0].status !== 'Active') return res.status(403).json({ message: 'Pricelist available to Active members only.' });
         }
-        res.set('Cache-Control', 'public, max-age=60');
+        res.set('Cache-Control', 'private, no-store');
         const result = await query('SELECT id, material_name, price, co2_rate, last_updated FROM material_prices ORDER BY material_name ASC');
         const prices = result.rows.map(row => ({ 
             id: row.id, 
