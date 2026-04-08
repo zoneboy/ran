@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment, Collection, MaterialPrice, BusinessCategory } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File as FileIcon, BarChart2, Coins, Leaf } from 'lucide-react';
@@ -38,6 +38,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   // Member Table Pagination
   const [memberPage, setMemberPage] = useState(1);
   const MEMBERS_PER_PAGE = 50;
+  const memberTableRef = useRef<HTMLDivElement>(null);
 
   // Collection Filters
   const [collectionFilter, setCollectionFilter] = useState('');
@@ -1077,7 +1078,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
 
         {/* ========== MEMBER MANAGEMENT — CONTAINED & PAGINATED ========== */}
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        <div ref={memberTableRef} className="bg-white rounded-lg shadow-sm overflow-hidden">
             <div className="p-6 border-b border-gray-200 flex flex-col items-center gap-4">
             <div className="w-full flex flex-col md:flex-row justify-between items-center gap-4">
                 <div className="flex items-center gap-3">
@@ -1479,7 +1480,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                             {expiringUsers.length > 0 ? expiringUsers.map(u => {
                                 const expiryDateObj = new Date(u.expiryDate); expiryDateObj.setHours(0, 0, 0, 0);
                                 const daysLeft = Math.ceil((expiryDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                                return (<tr key={u.id} className="hover:bg-gray-50"><td className="px-4 py-3 text-sm font-medium text-gray-900">{u.businessName} <br/><span className="text-xs text-gray-500">{u.firstName} {u.lastName}</span></td><td className="px-4 py-3 text-sm text-gray-600">{u.expiryDate}</td><td className="px-4 py-3 text-sm font-bold text-amber-600">{daysLeft} days</td><td className="px-4 py-3 text-sm"><button onClick={() => { setFilter(u.businessName); setShowExpiringModal(false); }} className="text-blue-600 hover:underline text-xs">View Profile</button></td></tr>);
+                                return (<tr key={u.id} className="hover:bg-gray-50"><td className="px-4 py-3 text-sm font-medium text-gray-900">{u.businessName} <br/><span className="text-xs text-gray-500">{u.firstName} {u.lastName}</span></td><td className="px-4 py-3 text-sm text-gray-600">{u.expiryDate}</td><td className="px-4 py-3 text-sm font-bold text-amber-600">{daysLeft} days</td><td className="px-4 py-3 text-sm"><button onClick={() => { setStatusFilter(''); setCategoryFilter(''); setBusinessTypeFilter(''); setFilter(u.id); setMemberPage(1); setShowExpiringModal(false); setTimeout(() => { memberTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100); }} className="text-blue-600 hover:underline text-xs">View Profile</button></td></tr>);
                             }) : (<tr><td colSpan={4} className="text-center py-8 text-gray-500">No members expiring within 30 days.</td></tr>)}
                         </tbody>
                     </table>
