@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, MembershipStatus, Announcement, Payment, BankDetails, Collection, MaterialPrice } from '../types';
 import { api } from '../services/api';
 import { uploadToCloudinary } from '../services/cloudinary';
+import { renderAnnouncementHtml } from '../utils/sanitizeHtml';
 import { CreditCard, Download, User as UserIcon, Bell, AlertTriangle, Users, Camera, X, Check, Loader2, Clock, UploadCloud, MessageCircle, BarChart2, Plus, FileText, Trash2, Leaf } from 'lucide-react';
 
 interface UserDashboardProps {
@@ -282,7 +283,10 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                                 announcements.map(ann => (
                                     <div key={ann.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
                                         <div className="flex justify-between items-start"><h3 className="font-semibold text-gray-800 sticky top-0 bg-white z-10">{ann.title}</h3>{ann.isImportant && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full shrink-0 ml-2">Important</span>}</div>
-                                        <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">{ann.content}</p>
+                                        <div
+                                          className="text-sm text-gray-600 mt-1 ran-prose"
+                                          dangerouslySetInnerHTML={{ __html: renderAnnouncementHtml(ann.content) }}
+                                        />
                                         <p className="text-xs text-gray-400 mt-1">{ann.date}</p>
                                     </div>
                                 ))

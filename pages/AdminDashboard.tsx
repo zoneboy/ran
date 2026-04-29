@@ -4,6 +4,8 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pi
 import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File as FileIcon, BarChart2, Coins, Leaf } from 'lucide-react';
 import { api } from '../services/api';
 import { uploadToCloudinary } from '../services/cloudinary';
+import RichTextEditor from '../components/RichTextEditor';
+import { sanitizeRichText, htmlToPlainText, renderAnnouncementHtml } from '../utils/sanitizeHtml';
 
 interface AdminDashboardProps {
 }
@@ -193,8 +195,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
   const handlePostAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate that the rich-text content has actual text, not just empty markup.
+    const plainText = htmlToPlainText(newAnnouncement.content);
+    if (!plainText.trim()) {
+      alert('Announcement content cannot be empty.');
+      return;
+    }
+    if (plainText.length > 10000) {
+      alert('Announcement is too long. Please keep it under 10,000 characters of text.');
+      return;
+    }
+
+    // Sanitize before sending. The render path also sanitizes — belt and braces.
+    const sanitizedContent = sanitizeRichText(newAnnouncement.content);
+
     try {
-      await api.createAnnouncement(newAnnouncement);
+      await api.createAnnouncement({ ...newAnnouncement, content: sanitizedContent });
       setShowAnnounceModal(false);
       setNewAnnouncement({ title: '', content: '', isImportant: false, date: new Date().toISOString().split('T')[0] });
       await refreshData();
@@ -1055,18 +1072,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               ) : (
                 filteredAnnouncements.map(ann => (
                   <div key={ann.id} className="flex justify-between items-start p-3 bg-gray-50 rounded border border-gray-100">
-                    <div>
+                    <div className="flex-1 min-w-0">
                       <h4 className="font-semibold text-gray-800 flex items-center">
                         {ann.title}
                         {ann.isImportant && <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-full">Important</span>}
                       </h4>
-                      <p className="text-sm text-gray-600 mt-1">{ann.content}</p>
+                      <div
+                        className="text-sm text-gray-600 mt-1 ran-prose"
+                        dangerouslySetInnerHTML={{ __html: renderAnnouncementHtml(ann.content) }}
+                      />
                       <p className="text-xs text-gray-400 mt-1">Posted: {ann.date}</p>
                     </div>
                     <button 
                       type="button"
                       onClick={(e) => handleDeleteAnnouncement(e, ann.id)}
-                      className="text-gray-400 hover:text-red-500 p-2 rounded hover:bg-gray-100 transition-colors"
+                      className="text-gray-400 hover:text-red-500 p-2 rounded hover:bg-gray-100 transition-colors shrink-0 ml-2"
                       title="Delete Announcement"
                     >
                       <Trash2 className="h-5 w-5 pointer-events-none" />
@@ -1553,16 +1573,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
       {showAnnounceModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 animate-in fade-in zoom-in duration-200 max-h-[95vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-900 flex items-center"><Megaphone className="mr-2 h-5 w-5 text-amber-500" /> New Announcement</h2>
               <button onClick={() => setShowAnnounceModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
             </div>
             <form onSubmit={handlePostAnnouncement} className="space-y-4">
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Title</label><input type="text" required value={newAnnouncement.title} onChange={(e) => setNewAnnouncement({...newAnnouncement, title: e.target.value})} className="w-full border rounded-md px-3 py-2 focus:ring-amber-500 focus:border-amber-500" placeholder="e.g. AGM 2024 Rescheduled" /></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Content</label><textarea required value={newAnnouncement.content} onChange={(e) => setNewAnnouncement({...newAnnouncement, content: e.target.value})} rows={4} className="w-full border rounded-md px-3 py-2 focus:ring-amber-500 focus:border-amber-500" placeholder="Enter details..." /></div>
-              <div className="flex items-center"><input type="checkbox" id="isImportant" checked={newAnnouncement.isImportant} onChange={(e) => setNewAnnouncement({...newAnnouncement, isImportant: e.target.checked})} className="h-4 w-4 text-amber-600 focus:ring-amber-500 border-gray-300 rounded" /><label htmlFor="isImportant" className="ml-2 block text-sm text-gray-900">Mark as Important / Urgent</label></div>
-              <div className="pt-4 flex justify-end space-x-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                <input type="text" required value={newAnnouncement.title} onChange={(e) => setNewAnnouncement({...newAnnouncement, title: e.target.value})} className="w-full border rounded-md px-3 py-2 focus:ring-amber-500 focus:border-amber-500" placeholder="e.g. AGM 2024 Rescheduled" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Content</label>
+                <RichTextEditor
+                  value={newAnnouncement.content}
+                  onChange={(html) => setNewAnnouncement({ ...newAnnouncement, content: html })}
+                  placeholder="Write the announcement... use the toolbar for formatting."
+                  minHeight={220}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Use formatting, links, and lists. Images are not supported.
+                </p>
+              </div>
+              <div className="flex items-center">
+                <input type="checkbox" id="isImportant" checked={newAnnouncement.isImportant} onChange={(e) => setNewAnnouncement({...newAnnouncement, isImportant: e.target.checked})} className="h-4 w-4 text-amber-600 focus:ring-amber-500 border-gray-300 rounded" />
+                <label htmlFor="isImportant" className="ml-2 block text-sm text-gray-900">Mark as Important / Urgent</label>
+              </div>
+              <div className="pt-4 flex justify-end space-x-3 border-t border-gray-100">
                 <button type="button" onClick={() => setShowAnnounceModal(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center">Post Announcement</button>
               </div>
