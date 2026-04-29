@@ -64,6 +64,13 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   // Unread messages count
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Pagination + expand state
+  const [announcementPage, setAnnouncementPage] = useState(1);
+  const ANNOUNCEMENTS_PER_PAGE = 3;
+  const [paymentPage, setPaymentPage] = useState(1);
+  const PAYMENTS_PER_PAGE = 10;
+  const [showAllPayments, setShowAllPayments] = useState(false);
+
   // Expiry Logic - Robust Date comparison
   const todayDate = new Date();
   todayDate.setHours(0, 0, 0, 0);
@@ -262,13 +269,43 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                     <div className="space-y-4">
                         {isLoadingData ? (
                             <div className="animate-pulse space-y-4"><div className="h-10 bg-gray-100 rounded"></div><div className="h-10 bg-gray-100 rounded"></div></div>
-                        ) : payments.length > 0 ? payments.map(pay => (
+                        ) : payments.length > 0 ? payments
+                            .slice((paymentPage - 1) * PAYMENTS_PER_PAGE, paymentPage * PAYMENTS_PER_PAGE)
+                            .map(pay => (
                             <div key={pay.id} className="flex justify-between items-center border-b border-gray-100 pb-3 last:border-0 last:pb-0">
                                 <div><p className="text-sm font-medium text-gray-800">{pay.description}</p><div className="flex items-center gap-2 mt-1"><p className="text-xs text-gray-500">{pay.date}</p>{pay.receipt && (<a href={pay.receipt} target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:underline flex items-center"><Download className="h-3 w-3 mr-1" /> Receipt</a>)}</div></div>
                                 <div className="text-right"><p className="text-sm font-bold text-gray-900">₦{pay.amount.toLocaleString()}</p><span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${pay.status === 'Successful' ? 'bg-green-100 text-green-700' : pay.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{pay.status}</span></div>
                             </div>
                         )) : (<p className="text-sm text-gray-500 text-center py-4">No payment history.</p>)}
                     </div>
+                    {payments.length > PAYMENTS_PER_PAGE && (
+                        <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+                            <p className="text-xs text-gray-500">
+                                Showing {((paymentPage - 1) * PAYMENTS_PER_PAGE) + 1}–{Math.min(paymentPage * PAYMENTS_PER_PAGE, payments.length)} of {payments.length}
+                            </p>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setPaymentPage(p => Math.max(1, p - 1))}
+                                    disabled={paymentPage === 1}
+                                    className="px-3 py-1 text-xs border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    Prev
+                                </button>
+                                <span className="text-xs text-gray-500 px-2">
+                                    Page {paymentPage} of {Math.ceil(payments.length / PAYMENTS_PER_PAGE)}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setPaymentPage(p => Math.min(Math.ceil(payments.length / PAYMENTS_PER_PAGE), p + 1))}
+                                    disabled={paymentPage >= Math.ceil(payments.length / PAYMENTS_PER_PAGE)}
+                                    className="px-3 py-1 text-xs border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         ) : (
@@ -278,11 +315,13 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                 {(announcements.length > 0 || isLoadingData) && (
                     <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-amber-500">
                         <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center"><Bell className="h-5 w-5 mr-2 text-amber-500" /> Announcements & News</h2>
-                        <div className="space-y-4 max-h-80 overflow-y-auto pr-2">
+                        <div className="space-y-4 pr-2">
                             {isLoadingData ? (<AnnouncementSkeleton />) : announcements.length > 0 ? (
-                                announcements.map(ann => (
+                                announcements
+                                  .slice((announcementPage - 1) * ANNOUNCEMENTS_PER_PAGE, announcementPage * ANNOUNCEMENTS_PER_PAGE)
+                                  .map(ann => (
                                     <div key={ann.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                                        <div className="flex justify-between items-start"><h3 className="font-semibold text-gray-800 sticky top-0 bg-white z-10">{ann.title}</h3>{ann.isImportant && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full shrink-0 ml-2">Important</span>}</div>
+                                        <div className="flex justify-between items-start"><h3 className="font-semibold text-gray-800">{ann.title}</h3>{ann.isImportant && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full shrink-0 ml-2">Important</span>}</div>
                                         <div
                                           className="text-sm text-gray-600 mt-1 ran-prose"
                                           dangerouslySetInnerHTML={{ __html: renderAnnouncementHtml(ann.content) }}
@@ -292,6 +331,34 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                                 ))
                             ) : (<p className="text-sm text-gray-400">No announcements.</p>)}
                         </div>
+                        {announcements.length > ANNOUNCEMENTS_PER_PAGE && (
+                            <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+                                <p className="text-xs text-gray-500">
+                                    Showing {((announcementPage - 1) * ANNOUNCEMENTS_PER_PAGE) + 1}–{Math.min(announcementPage * ANNOUNCEMENTS_PER_PAGE, announcements.length)} of {announcements.length}
+                                </p>
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setAnnouncementPage(p => Math.max(1, p - 1))}
+                                        disabled={announcementPage === 1}
+                                        className="px-3 py-1 text-xs border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                        Prev
+                                    </button>
+                                    <span className="text-xs text-gray-500 px-2">
+                                        Page {announcementPage} of {Math.ceil(announcements.length / ANNOUNCEMENTS_PER_PAGE)}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAnnouncementPage(p => Math.min(Math.ceil(announcements.length / ANNOUNCEMENTS_PER_PAGE), p + 1))}
+                                        disabled={announcementPage >= Math.ceil(announcements.length / ANNOUNCEMENTS_PER_PAGE)}
+                                        className="px-3 py-1 text-xs border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                        Next
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -417,13 +484,66 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                             <div className="space-y-4">
                                 {isLoadingData ? (
                                     <div className="space-y-3 animate-pulse"><div className="h-10 bg-gray-100 rounded"></div><div className="h-10 bg-gray-100 rounded"></div></div>
-                                ) : payments.length > 0 ? payments.slice(0, 3).map(pay => (
+                                ) : payments.length > 0 ? (showAllPayments
+                                    ? payments.slice((paymentPage - 1) * PAYMENTS_PER_PAGE, paymentPage * PAYMENTS_PER_PAGE)
+                                    : payments.slice(0, 3)
+                                  ).map(pay => (
                                     <div key={pay.id} className="flex justify-between items-center border-b border-gray-100 pb-3 last:border-0 last:pb-0">
                                         <div><p className="text-sm font-medium text-gray-800">{pay.description}</p><div className="flex items-center gap-2 mt-1"><p className="text-xs text-gray-500">{pay.date}</p>{pay.receipt && (<a href={pay.receipt} target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:underline flex items-center"><Download className="h-3 w-3 mr-1" /> Receipt</a>)}</div></div>
                                         <div className="text-right"><p className="text-sm font-bold text-gray-900">₦{pay.amount.toLocaleString()}</p><span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${pay.status === 'Successful' ? 'bg-green-100 text-green-700' : pay.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{pay.status}</span></div>
                                     </div>
                                 )) : (<p className="text-sm text-gray-500 text-center py-4">No payment history.</p>)}
-                                {payments.length > 3 && (<button className="w-full text-center text-xs text-gray-500 hover:text-green-600 mt-2">View All Transactions</button>)}
+
+                                {!showAllPayments && payments.length > 3 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => { setShowAllPayments(true); setPaymentPage(1); }}
+                                        className="w-full text-center text-xs text-gray-500 hover:text-green-600 mt-2"
+                                    >
+                                        View All Transactions ({payments.length})
+                                    </button>
+                                )}
+                                {showAllPayments && payments.length > PAYMENTS_PER_PAGE && (
+                                    <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowAllPayments(false)}
+                                            className="text-xs text-gray-500 hover:text-green-600"
+                                        >
+                                            Show Less
+                                        </button>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setPaymentPage(p => Math.max(1, p - 1))}
+                                                disabled={paymentPage === 1}
+                                                className="px-2 py-1 text-xs border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                            >
+                                                Prev
+                                            </button>
+                                            <span className="text-xs text-gray-500 px-1">
+                                                {paymentPage} / {Math.ceil(payments.length / PAYMENTS_PER_PAGE)}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPaymentPage(p => Math.min(Math.ceil(payments.length / PAYMENTS_PER_PAGE), p + 1))}
+                                                disabled={paymentPage >= Math.ceil(payments.length / PAYMENTS_PER_PAGE)}
+                                                className="px-2 py-1 text-xs border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                            >
+                                                Next
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                                {showAllPayments && payments.length <= PAYMENTS_PER_PAGE && payments.length > 3 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAllPayments(false)}
+                                        className="w-full text-center text-xs text-gray-500 hover:text-green-600 mt-2"
+                                    >
+                                        Show Less
+                                    </button>
+                                )}
                             </div>
                         </div>
 

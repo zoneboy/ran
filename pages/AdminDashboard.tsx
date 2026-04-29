@@ -7,6 +7,116 @@ import { uploadToCloudinary } from '../services/cloudinary';
 import RichTextEditor from '../components/RichTextEditor';
 import { sanitizeRichText, htmlToPlainText, renderAnnouncementHtml } from '../utils/sanitizeHtml';
 
+// Reusable pagination footer used by member table, collections,
+// pending payments, announcements, and per-user payments.
+interface PaginationProps {
+  currentPage: number;
+  totalItems: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  itemLabel?: string;
+  compact?: boolean;
+}
+
+const Pagination: React.FC<PaginationProps> = ({
+  currentPage,
+  totalItems,
+  pageSize,
+  onPageChange,
+  itemLabel = 'items',
+  compact = false,
+}) => {
+  const totalPages = Math.ceil(totalItems / pageSize);
+  if (totalPages <= 1) return null;
+
+  const start = (currentPage - 1) * pageSize + 1;
+  const end = Math.min(currentPage * pageSize, totalItems);
+
+  const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1)
+    .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 2)
+    .reduce<(number | string)[]>((acc, p, i, arr) => {
+      if (i > 0 && typeof arr[i - 1] === 'number' && (p as number) - (arr[i - 1] as number) > 1) {
+        acc.push('...');
+      }
+      acc.push(p);
+      return acc;
+    }, []);
+
+  const btnBase = compact
+    ? 'px-2 py-1 text-xs border rounded hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
+    : 'px-3 py-1.5 text-sm border rounded-md hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors';
+
+  const activePage = compact
+    ? 'px-2 py-1 text-xs border rounded bg-green-600 text-white border-green-600'
+    : 'px-3 py-1.5 text-sm border rounded-md bg-green-600 text-white border-green-600';
+
+  const containerCls = compact
+    ? 'px-3 py-2 border-t border-gray-200 bg-gray-50 flex flex-col sm:flex-row items-center justify-between gap-2'
+    : 'px-6 py-4 border-t border-gray-200 bg-gray-50 flex flex-col sm:flex-row items-center justify-between gap-3';
+
+  const labelCls = compact ? 'text-xs text-gray-600' : 'text-sm text-gray-600';
+
+  return (
+    <div className={containerCls}>
+      <p className={labelCls}>
+        Showing {start}–{end} of {totalItems} {itemLabel}
+      </p>
+      <div className="flex items-center gap-1 flex-wrap justify-center">
+        <button
+          type="button"
+          onClick={() => onPageChange(1)}
+          disabled={currentPage === 1}
+          className={btnBase}
+        >
+          First
+        </button>
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+          disabled={currentPage === 1}
+          className={btnBase}
+        >
+          Prev
+        </button>
+
+        {pageNumbers.map((p, i) =>
+          typeof p === 'string' ? (
+            <span key={`ellipsis-${i}`} className={compact ? 'px-1 text-gray-400 text-xs' : 'px-2 text-gray-400 text-sm'}>
+              …
+            </span>
+          ) : (
+            <button
+              key={p}
+              type="button"
+              onClick={() => onPageChange(p)}
+              className={currentPage === p ? activePage : btnBase}
+            >
+              {p}
+            </button>
+          )
+        )}
+
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+          disabled={currentPage === totalPages}
+          className={btnBase}
+        >
+          Next
+        </button>
+        <button
+          type="button"
+          onClick={() => onPageChange(totalPages)}
+          disabled={currentPage === totalPages}
+          className={btnBase}
+        >
+          Last
+        </button>
+      </div>
+    </div>
+  );
+};
+
 interface AdminDashboardProps {
 }
 
@@ -42,15 +152,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const MEMBERS_PER_PAGE = 50;
   const memberTableRef = useRef<HTMLDivElement>(null);
 
-  // Collection Filters
+  // Collection Filters & Pagination
   const [collectionFilter, setCollectionFilter] = useState('');
   const [collectionMaterialFilter, setCollectionMaterialFilter] = useState('');
   const [collectionStartDate, setCollectionStartDate] = useState('');
   const [collectionEndDate, setCollectionEndDate] = useState('');
+  const [collectionPage, setCollectionPage] = useState(1);
+  const COLLECTIONS_PER_PAGE = 50;
 
-  // Announcement Filters
+  // Announcement Filters & Pagination
   const [announcementDateFilter, setAnnouncementDateFilter] = useState('');
   const [announcementTypeFilter, setAnnouncementTypeFilter] = useState('All');
+  const [announcementPage, setAnnouncementPage] = useState(1);
+  const ANNOUNCEMENTS_PER_PAGE = 3;
+
+  // Pending Payments Pagination (modal)
+  const [pendingPaymentPage, setPendingPaymentPage] = useState(1);
+  const PENDING_PAYMENTS_PER_PAGE = 20;
+
+  // User Payments Pagination (per-member modal)
+  const [userPaymentPage, setUserPaymentPage] = useState(1);
+  const USER_PAYMENTS_PER_PAGE = 10;
   
   const [showExportModal, setShowExportModal] = useState(false);
   const [showAnnounceModal, setShowAnnounceModal] = useState(false);
@@ -144,6 +266,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   useEffect(() => {
     setMemberPage(1);
   }, [filter, statusFilter, categoryFilter, businessTypeFilter]);
+
+  useEffect(() => {
+    setCollectionPage(1);
+  }, [collectionFilter, collectionMaterialFilter, collectionStartDate, collectionEndDate]);
+
+  useEffect(() => {
+    setAnnouncementPage(1);
+  }, [announcementDateFilter, announcementTypeFilter]);
+
+  // Reset pending payment page when modal is closed
+  useEffect(() => {
+    if (!showPendingPaymentModal) setPendingPaymentPage(1);
+  }, [showPendingPaymentModal]);
+
+  // Reset per-user payment page when payment modal opens for a different user
+  useEffect(() => {
+    setUserPaymentPage(1);
+  }, [paymentModal?.userId]);
 
   const handleUpdatePrice = async (id: string, newPrice: number, newCo2: number) => {
       try {
@@ -661,7 +801,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   });
 
   // Pagination for member table
-  const totalMemberPages = Math.ceil(filteredUsers.length / MEMBERS_PER_PAGE);
   const paginatedUsers = filteredUsers.slice(
     (memberPage - 1) * MEMBERS_PER_PAGE,
     memberPage * MEMBERS_PER_PAGE
@@ -700,6 +839,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             : !ann.isImportant;
     return matchDate && matchType;
   });
+
+  // Paginated slices for non-member lists
+  const paginatedAnnouncements = filteredAnnouncements.slice(
+    (announcementPage - 1) * ANNOUNCEMENTS_PER_PAGE,
+    announcementPage * ANNOUNCEMENTS_PER_PAGE
+  );
+
+  const paginatedCollections = filteredCollections.slice(
+    (collectionPage - 1) * COLLECTIONS_PER_PAGE,
+    collectionPage * COLLECTIONS_PER_PAGE
+  );
+
+  const paginatedPendingPayments = pendingPayments.slice(
+    (pendingPaymentPage - 1) * PENDING_PAYMENTS_PER_PAGE,
+    pendingPaymentPage * PENDING_PAYMENTS_PER_PAGE
+  );
+
+  const paginatedUserPayments = userPayments.slice(
+    (userPaymentPage - 1) * USER_PAYMENTS_PER_PAGE,
+    userPaymentPage * USER_PAYMENTS_PER_PAGE
+  );
 
   const handleExportCollections = () => {
     const headers = ['Date Logged', 'Member ID', 'Business Name', 'Period', 'Material', 'Weight (KG)'];
@@ -1070,7 +1230,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               {filteredAnnouncements.length === 0 ? (
                 <p className="text-gray-500 text-sm">No announcements found matching filters.</p>
               ) : (
-                filteredAnnouncements.map(ann => (
+                paginatedAnnouncements.map(ann => (
                   <div key={ann.id} className="flex justify-between items-start p-3 bg-gray-50 rounded border border-gray-100">
                     <div className="flex-1 min-w-0">
                       <h4 className="font-semibold text-gray-800 flex items-center">
@@ -1095,6 +1255,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 ))
               )}
            </div>
+           <Pagination
+             currentPage={announcementPage}
+             totalItems={filteredAnnouncements.length}
+             pageSize={ANNOUNCEMENTS_PER_PAGE}
+             onPageChange={setAnnouncementPage}
+             itemLabel="announcements"
+             compact
+           />
         </div>
 
         {/* ========== MEMBER MANAGEMENT — CONTAINED & PAGINATED ========== */}
@@ -1272,71 +1440,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
           </div>
 
           {/* Pagination Controls */}
-          {totalMemberPages > 1 && (
-            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <p className="text-sm text-gray-600">
-                Showing {((memberPage - 1) * MEMBERS_PER_PAGE) + 1}–{Math.min(memberPage * MEMBERS_PER_PAGE, filteredUsers.length)} of {filteredUsers.length} members
-              </p>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setMemberPage(1)}
-                  disabled={memberPage === 1}
-                  className="px-3 py-1.5 text-sm border rounded-md hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  First
-                </button>
-                <button
-                  onClick={() => setMemberPage(p => Math.max(1, p - 1))}
-                  disabled={memberPage === 1}
-                  className="px-3 py-1.5 text-sm border rounded-md hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Prev
-                </button>
-                
-                {Array.from({ length: totalMemberPages }, (_, i) => i + 1)
-                  .filter(p => p === 1 || p === totalMemberPages || Math.abs(p - memberPage) <= 2)
-                  .reduce<(number | string)[]>((acc, p, i, arr) => {
-                    if (i > 0 && typeof arr[i - 1] === 'number' && (p as number) - (arr[i - 1] as number) > 1) {
-                      acc.push('...');
-                    }
-                    acc.push(p);
-                    return acc;
-                  }, [])
-                  .map((p, i) =>
-                    typeof p === 'string' ? (
-                      <span key={`ellipsis-${i}`} className="px-2 text-gray-400 text-sm">…</span>
-                    ) : (
-                      <button
-                        key={p}
-                        onClick={() => setMemberPage(p)}
-                        className={`px-3 py-1.5 text-sm border rounded-md transition-colors ${
-                          memberPage === p
-                            ? 'bg-green-600 text-white border-green-600'
-                            : 'hover:bg-white'
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    )
-                  )}
-
-                <button
-                  onClick={() => setMemberPage(p => Math.min(totalMemberPages, p + 1))}
-                  disabled={memberPage === totalMemberPages}
-                  className="px-3 py-1.5 text-sm border rounded-md hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Next
-                </button>
-                <button
-                  onClick={() => setMemberPage(totalMemberPages)}
-                  disabled={memberPage === totalMemberPages}
-                  className="px-3 py-1.5 text-sm border rounded-md hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Last
-                </button>
-              </div>
-            </div>
-          )}
+          <Pagination
+            currentPage={memberPage}
+            totalItems={filteredUsers.length}
+            pageSize={MEMBERS_PER_PAGE}
+            onPageChange={setMemberPage}
+            itemLabel="members"
+          />
         </div>
         {/* ========== END MEMBER MANAGEMENT ========== */}
 
@@ -1407,7 +1517,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {filteredCollections.length > 0 ? filteredCollections.map(col => (
+                        {filteredCollections.length > 0 ? paginatedCollections.map(col => (
                             <tr key={col.id}>
                                 <td className="px-6 py-4 text-sm text-gray-500">{new Date(col.createdAt).toLocaleDateString()}</td>
                                 <td className="px-6 py-4 text-sm font-mono text-gray-500">{col.userId}</td>
@@ -1422,6 +1532,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                     </tbody>
                  </table>
               </div>
+              <Pagination
+                currentPage={collectionPage}
+                totalItems={filteredCollections.length}
+                pageSize={COLLECTIONS_PER_PAGE}
+                onPageChange={setCollectionPage}
+                itemLabel="collections"
+              />
         </div>
       </div>
 
@@ -1517,11 +1634,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 <div><h2 className="text-xl font-bold text-gray-900 flex items-center"><CreditCard className="mr-2 h-5 w-5 text-red-600" /> Pending Payment Requests</h2><p className="text-sm text-gray-500">Review receipts and approve membership payments.</p></div>
                 <button onClick={() => setShowPendingPaymentModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
              </div>
-             <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
+             <div className="flex-1 overflow-y-auto mb-2 border rounded-lg">
                 <table className="min-w-full divide-y divide-gray-200">
                    <thead className="bg-gray-50 sticky top-0"><tr><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receipt</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead>
                    <tbody className="bg-white divide-y divide-gray-200">
-                      {pendingPayments.length > 0 ? pendingPayments.map(p => (
+                      {pendingPayments.length > 0 ? paginatedPendingPayments.map(p => (
                          <tr key={p.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3 text-sm text-gray-600">{p.date}</td>
                             <td className="px-4 py-3 text-sm font-medium text-gray-900">{getUserName(p.userId)}</td>
@@ -1537,7 +1654,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                    </tbody>
                 </table>
              </div>
-             <div className="flex justify-end"><button onClick={() => setShowPendingPaymentModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
+             <Pagination
+               currentPage={pendingPaymentPage}
+               totalItems={pendingPayments.length}
+               pageSize={PENDING_PAYMENTS_PER_PAGE}
+               onPageChange={setPendingPaymentPage}
+               itemLabel="payments"
+               compact
+             />
+             <div className="flex justify-end mt-4"><button onClick={() => setShowPendingPaymentModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
            </div>
         </div>
       )}
@@ -1718,11 +1843,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                     <button onClick={() => setPaymentModal(null)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
                 </div>
                 <p className="text-sm text-gray-500 mb-4">Payments for: <span className="font-semibold">{paymentModal.name}</span></p>
-                <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
+                <div className="flex-1 overflow-y-auto mb-2 border rounded-lg">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50 sticky top-0"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Action</th></tr></thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {userPayments.length > 0 ? userPayments.map(p => (
+                            {userPayments.length > 0 ? paginatedUserPayments.map(p => (
                                 <tr key={p.id}>
                                     <td className="px-3 py-2 text-sm text-gray-500">{p.date}</td>
                                     <td className="px-3 py-2 text-sm font-medium">{p.amount.toLocaleString()}</td>
@@ -1737,6 +1862,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         </tbody>
                     </table>
                 </div>
+                <Pagination
+                  currentPage={userPaymentPage}
+                  totalItems={userPayments.length}
+                  pageSize={USER_PAYMENTS_PER_PAGE}
+                  onPageChange={setUserPaymentPage}
+                  itemLabel="payments"
+                  compact
+                />
+                <div className="mb-4" />
                 {!showAddPaymentForm ? (
                     <button onClick={() => setShowAddPaymentForm(true)} className="w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-600 hover:border-green-500 hover:text-green-600 font-medium flex justify-center items-center"><Plus className="h-4 w-4 mr-2" /> Record New Payment Manually</button>
                 ) : (
