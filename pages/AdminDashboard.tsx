@@ -380,7 +380,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  // Helper: Extend a member's expiry by 1 year and set status to Active
+  // Helper: Activate member and align expiry to the next March 31 cycle end.
+  //
+  // Rule: expiry = the next March 31 STRICTLY AFTER max(today, current expiry).
+  //
+  // Behavior:
+  // - Pay May 11, 2026 (no expiry / expired)   -> March 31, 2027
+  // - Pay Feb 5, 2027 (expired)                 -> March 31, 2027
+  // - Pay on March 31, 2027                     -> March 31, 2028 (cycle closes that day)
+  // - Pay April 1, 2027                         -> March 31, 2028
+  // - Pay mid-cycle (expiry = Mar 31, 2027)     -> March 31, 2028 (skip to following)
   const activateMemberOnPayment = async (userId: string) => {
     const member = users.find(u => u.id === userId);
     if (!member || member.role === UserRole.ADMIN) return;
@@ -388,15 +397,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const currentExpiry = new Date(member.expiryDate);
-    currentExpiry.setHours(0, 0, 0, 0);
+    // Anchor = the later of today and current expiry (if any valid expiry exists).
+    let anchor = today;
+    if (member.expiryDate) {
+      const currentExpiry = new Date(member.expiryDate);
+      currentExpiry.setHours(0, 0, 0, 0);
+      if (!isNaN(currentExpiry.getTime()) && currentExpiry > anchor) {
+        anchor = currentExpiry;
+      }
+    }
 
-    // If membership is already expired, extend 1 year from today.
-    // If still active, extend 1 year from the current expiry date.
-    const baseDate = currentExpiry < today ? today : currentExpiry;
-    const newExpiry = new Date(baseDate);
-    newExpiry.setFullYear(newExpiry.getFullYear() + 1);
-    const newExpiryStr = newExpiry.toISOString().split('T')[0];
+    // Find the next March 31 STRICTLY AFTER the anchor.
+    // Month index 2 = March. Day 31.
+    let cycleYear = anchor.getFullYear();
+    let candidate = new Date(cycleYear, 2, 31);
+    candidate.setHours(0, 0, 0, 0);
+    if (candidate.getTime() <= anchor.getTime()) {
+      cycleYear += 1;
+      candidate = new Date(cycleYear, 2, 31);
+      candidate.setHours(0, 0, 0, 0);
+    }
+
+    // Build YYYY-MM-DD in local time to avoid UTC drift from toISOString().
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const newExpiryStr = `${candidate.getFullYear()}-${pad(candidate.getMonth() + 1)}-${pad(candidate.getDate())}`;
 
     const updatedUser = { ...member, status: MembershipStatus.ACTIVE, expiryDate: newExpiryStr };
     await api.updateUser(updatedUser);
@@ -413,18 +437,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     const payment = pendingPayments.find(p => p.id === paymentId);
     if (!payment) return;
 
-    if(!window.confirm("Confirm approval of this payment? This will also extend the member's membership by 1 year and set their status to Active.")) return;
+    if(!window.confirm("Confirm approval of this payment? This will set the member's status to Active and align their membership expiry to the next March 31 cycle.")) return;
     
     try {
         await api.updatePaymentStatus(paymentId, 'Successful');
 
-        // Auto-activate member and extend expiry
+        // Auto-activate member and align expiry to next March 31
         await activateMemberOnPayment(payment.userId);
 
         setPendingPayments(prev => prev.filter(p => p.id !== paymentId));
         const allPayments = await api.getAllPayments();
         setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
-        alert("Payment approved. Member status set to Active and expiry extended by 1 year.");
+        alert("Payment approved. Member status set to Active and expiry aligned to next March 31 cycle.");
     } catch(e) {
         console.error(e);
         alert("Failed to approve payment.");
@@ -727,17 +751,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     e.stopPropagation();
     if(!paymentModal) return;
 
-    if(!window.confirm("Approve this payment? This will extend the member's membership by 1 year and set their status to Active.")) return;
+    if(!window.confirm("Approve this payment? This will set the member's status to Active and align their membership expiry to the next March 31 cycle.")) return;
 
     try {
         await api.updatePaymentStatus(paymentId, 'Successful');
 
-        // Auto-activate member and extend expiry
+        // Auto-activate member and align expiry to next March 31
         await activateMemberOnPayment(paymentModal.userId);
 
         const updated = await api.getPayments(paymentModal.userId);
         setUserPayments(updated);
-        alert("Payment approved. Member status set to Active and expiry extended by 1 year.");
+        alert("Payment approved. Member status set to Active and expiry aligned to next March 31 cycle.");
     } catch(e) {
         alert("Failed to approve payment.");
     }
