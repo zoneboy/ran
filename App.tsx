@@ -8,31 +8,29 @@ import MemberDirectory from './pages/MemberDirectory';
 import Messages from './pages/Messages';
 import Pricelist from './pages/Pricelist';
 import Benefits from './pages/Benefits';
+import Listings from './pages/Listings';
 import { User } from './types';
 import { api } from './services/api';
 
 function App() {
   const [currentPage, setCurrentPage] = useState('login');
-  const [pageParams, setPageParams] = useState<any>(null); // State to hold parameters passed during navigation
+  const [pageParams, setPageParams] = useState<any>(null);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-// Initialize Session
   useEffect(() => {
     const initSession = async () => {
       let restoredUser = null;
       try {
-        const storedUser = await api.getCurrentUser(); // Gets from Memory
+        const storedUser = await api.getCurrentUser();
         
         if (storedUser) {
-           // Validate against backend to ensure ID exists in Live DB
            try {
              const validUser = await api.getUser(storedUser.id);
              if (validUser) {
                setUser(validUser);
                restoredUser = validUser;
              } else {
-               // User exists in memory but not in DB
                await api.logout();
                setUser(null);
              }
@@ -47,14 +45,12 @@ function App() {
       } finally {
         setIsLoading(false);
         
-        // Handle routing AFTER the session is checked
         const params = new URLSearchParams(window.location.search);
         const page = params.get('page');
         
         if (page) {
             setCurrentPage(page);
         } else if (restoredUser) {
-            // Auto-route to the correct dashboard if they are already logged in
             setCurrentPage(restoredUser.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard');
         }
       }
@@ -98,7 +94,6 @@ function App() {
     return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-green-700">Loading RAN Portal...</div>;
   }
 
-  // Expiry Check Helper - Robust 1-Day Expiration
   const isExpired = () => {
       if (!user) return false;
       if (user.status === 'Expired') return true;
@@ -141,8 +136,10 @@ function App() {
       case 'pricelist':
         if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
         return user ? <Pricelist navigate={navigate} /> : <Login onLogin={handleLogin} navigate={navigate} />;
+      case 'listings':
+        return user ? <Listings navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} />;
       default:
-        return <Login onLogin={handleLogin} navigate={navigate} />; // Fallback to login
+        return <Login onLogin={handleLogin} navigate={navigate} />;
     }
   };
 
@@ -153,7 +150,6 @@ function App() {
         {renderPage()}
       </main>
       
-      {/* Footer */}
       <footer className="bg-gray-800 text-gray-300 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">

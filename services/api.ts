@@ -1,17 +1,10 @@
-
-
-
-
 import { User, Announcement, Payment, Message, BankDetails, Collection, MaterialPrice } from '../types';
 
-// Determine API URL based on environment
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_URL = isLocal 
-    ? 'http://localhost:5000/api'  // Local Backend Server
-    : '/.netlify/functions/api';   // Production Backend (Netlify Functions)
+    ? 'http://localhost:5000/api'
+    : '/.netlify/functions/api';
 
-// In-memory user store (Replaces LocalStorage for security)
-// Note: This means session is lost on refresh.
 let sessionUser: User | null = null;
 
 const handleResponse = async (res: Response) => {
@@ -21,7 +14,6 @@ const handleResponse = async (res: Response) => {
             const errorData = await res.json();
             throw new Error(errorData.message || 'Request failed');
         } else {
-            // Handle non-JSON errors (like 404 HTML pages or 500 server errors)
             const text = await res.text();
             console.error("API Error (Non-JSON):", text);
             if (res.status === 404) {
@@ -40,7 +32,6 @@ const handleResponse = async (res: Response) => {
 };
 
 export const api = {
-  // Authentication
   login: async (email: string, password?: string): Promise<User | { mfaRequired?: boolean, mfaSetupRequired?: boolean }> => {
     const res = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
@@ -49,13 +40,9 @@ export const api = {
         credentials: 'include'
     });
     const data = await handleResponse(res);
-    
-    // Check for MFA instructions
     if (data.mfaRequired || data.mfaSetupRequired) {
         return data;
     }
-
-    // Normal Login Success
     localStorage.setItem('ran_user', JSON.stringify(data));
     sessionUser = data;
     return data;
@@ -103,7 +90,6 @@ export const api = {
         credentials: 'include'
     });
     const user = await handleResponse(res);
-    // Store non-sensitive user data in localStorage (no token)
     localStorage.setItem('ran_user', JSON.stringify(user));
     sessionUser = user;
     return user;
@@ -147,9 +133,7 @@ export const api = {
     return stored ? JSON.parse(stored) : null;
   },
 
-  // User Management
   getUser: async (id: string): Promise<User | null> => {
-    // Using query param ?id=... to handle IDs with slashes safely
     const res = await fetch(`${API_URL}/user?id=${encodeURIComponent(id)}`, {
         credentials: 'include'
     });
@@ -165,18 +149,13 @@ export const api = {
   },
 
   updateUser: async (updatedUser: User): Promise<User> => {
-    // Changed to /user/update?id=... to avoid path param issues with slashes
     const res = await fetch(`${API_URL}/user/update?id=${encodeURIComponent(updatedUser.id)}`, {
         method: 'PUT',
-        headers: { 
-            'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedUser),
         credentials: 'include'
     });
     const data = await handleResponse(res);
-    
-    // Update local storage if updating current user
     const currentUser = JSON.parse(localStorage.getItem('ran_user') || '{}');
     if (currentUser.id === data.id) {
        localStorage.setItem('ran_user', JSON.stringify(data));
@@ -188,16 +167,13 @@ export const api = {
   updateUserId: async (currentId: string, newId: string): Promise<void> => {
      const res = await fetch(`${API_URL}/users/update-id`, {
         method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentId, newId }),
         credentials: 'include'
     });
     await handleResponse(res);
   },
 
-  // Announcements
   getAnnouncements: async (): Promise<Announcement[]> => {
     const res = await fetch(`${API_URL}/announcements`, {
         credentials: 'include'
@@ -208,9 +184,7 @@ export const api = {
   createAnnouncement: async (announcement: Omit<Announcement, 'id'>): Promise<Announcement> => {
     const res = await fetch(`${API_URL}/announcements`, {
         method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(announcement),
         credentials: 'include'
     });
@@ -224,7 +198,6 @@ export const api = {
     });
   },
 
-  // Payments
   getAllPayments: async (): Promise<Payment[]> => {
     const res = await fetch(`${API_URL}/payments`, {
         credentials: 'include'
@@ -233,7 +206,6 @@ export const api = {
   },
 
   getPayments: async (userId: string): Promise<Payment[]> => {
-    // Using query param ?userId=... to handle IDs with slashes safely
     const res = await fetch(`${API_URL}/payments?userId=${encodeURIComponent(userId)}`, {
         credentials: 'include'
     });
@@ -243,9 +215,7 @@ export const api = {
   createPayment: async (paymentData: any): Promise<Payment> => {
     const res = await fetch(`${API_URL}/payments`, {
         method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(paymentData),
         credentials: 'include'
     });
@@ -255,9 +225,7 @@ export const api = {
   updatePaymentStatus: async (paymentId: string, status: 'Successful' | 'Pending' | 'Failed'): Promise<void> => {
     await fetch(`${API_URL}/payments/${encodeURIComponent(paymentId)}`, {
         method: 'PUT',
-        headers: { 
-            'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
         credentials: 'include'
     });
@@ -270,7 +238,6 @@ export const api = {
     });
   },
 
-  // Collections
   getCollections: async (userId?: string): Promise<Collection[]> => {
     let url = `${API_URL}/collections`;
     if (userId) {
@@ -285,16 +252,13 @@ export const api = {
   createCollection: async (data: Partial<Collection>): Promise<Collection> => {
     const res = await fetch(`${API_URL}/collections`, {
         method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
         credentials: 'include'
     });
     return await handleResponse(res);
   },
 
-  // Configuration
   getBankDetails: async (): Promise<BankDetails> => {
     const res = await fetch(`${API_URL}/config/bank-details`, {
         credentials: 'include'
@@ -302,9 +266,7 @@ export const api = {
     return await handleResponse(res);
   },
 
-  // Messaging
   getConversations: async (userId: string): Promise<User[]> => {
-    // Using query param ?userId=...
     const res = await fetch(`${API_URL}/messages/conversations?userId=${encodeURIComponent(userId)}&t=${Date.now()}`, {
         credentials: 'include'
     });
@@ -312,7 +274,6 @@ export const api = {
   },
 
   getMessages: async (userId: string, otherUserId: string): Promise<Message[]> => {
-    // Using query params to handle IDs with slashes
     const res = await fetch(`${API_URL}/messages/chat?userId=${encodeURIComponent(userId)}&otherUserId=${encodeURIComponent(otherUserId)}`, {
         credentials: 'include'
     });
@@ -322,9 +283,7 @@ export const api = {
   sendMessage: async (senderId: string, receiverId: string, content: string): Promise<Message> => {
     const res = await fetch(`${API_URL}/messages`, {
         method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ senderId, receiverId, content }),
         credentials: 'include'
     });
@@ -334,9 +293,7 @@ export const api = {
   markMessagesRead: async (userId: string, otherUserId: string): Promise<void> => {
     await fetch(`${API_URL}/messages/read`, {
         method: 'PUT',
-        headers: { 
-            'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, otherUserId }),
         credentials: 'include'
     });
@@ -344,7 +301,6 @@ export const api = {
   
   getUnreadCount: async (userId: string): Promise<number> => {
       try {
-          // Using query param ?userId=...
           const res = await fetch(`${API_URL}/messages/unread?userId=${encodeURIComponent(userId)}`, {
               credentials: 'include'
           });
@@ -356,7 +312,6 @@ export const api = {
       }
   },
 
-  // Material Prices
   getPrices: async (): Promise<MaterialPrice[]> => {
     const res = await fetch(`${API_URL}/prices`, {
         credentials: 'include'
@@ -371,5 +326,57 @@ export const api = {
         body: JSON.stringify({ price, co2Rate }),
         credentials: 'include'
     });
-  }
+  },
+
+  getListings: async (filters?: { type?: string; material?: string; state?: string; status?: string; search?: string; scope?: string }): Promise<any[]> => {
+    const params = new URLSearchParams();
+    if (filters) {
+        Object.entries(filters).forEach(([k, v]) => {
+            if (v) params.append(k, v);
+        });
+    }
+    const res = await fetch(`${API_URL}/listings?${params.toString()}`, { credentials: 'include' });
+    return await handleResponse(res);
+  },
+
+  getListing: async (id: string): Promise<any> => {
+    const res = await fetch(`${API_URL}/listings/${encodeURIComponent(id)}`, { credentials: 'include' });
+    return await handleResponse(res);
+  },
+
+  createListing: async (data: any): Promise<any> => {
+    const res = await fetch(`${API_URL}/listings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  updateListing: async (id: string, data: any): Promise<any> => {
+    const res = await fetch(`${API_URL}/listings/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  closeListing: async (id: string): Promise<any> => {
+    const res = await fetch(`${API_URL}/listings/${encodeURIComponent(id)}/close`, {
+        method: 'POST',
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  deleteListing: async (id: string): Promise<any> => {
+    const res = await fetch(`${API_URL}/listings/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
 };

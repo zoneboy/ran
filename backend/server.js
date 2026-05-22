@@ -16,44 +16,37 @@ require('dotenv').config();
 
 const app = express();
 
-
-// Configure Cloudinary using the Netlify Environment Variables
 cloudinary.config({ 
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
   api_key: process.env.CLOUDINARY_API_KEY, 
   api_secret: process.env.CLOUDINARY_API_SECRET 
 });
 
-// Trust Proxy for secure cookies behind load balancers (Netlify/Heroku)
 app.set('trust proxy', 1);
 
-// Middleware
 app.use(helmet());
 app.use(helmet.contentSecurityPolicy({
     directives: {
-        defaultSrc: ["'none'"], // API shouldn't load anything by default
-        scriptSrc: ["'none'"],  // API shouldn't execute scripts
-        styleSrc: ["'none'"],   // API has no styles
-        imgSrc: ["'none'"],     // API renders no images
+        defaultSrc: ["'none'"],
+        scriptSrc: ["'none'"],
+        styleSrc: ["'none'"],
+        imgSrc: ["'none'"],
         connectSrc: ["'self'"], 
-        frameAncestors: ["'none'"], // Prevents Clickjacking
+        frameAncestors: ["'none'"],
         formAction: ["'none'"]
     }
 }));
 app.use(cookieParser());
 
-// --- STRICT CORS CONFIGURATION ---
 const allowedOrigins = [
-    'http://localhost:3000',         // Local Vite development
-    'https://ranified.netlify.app',   // Production Netlify app
-    'https://portal.recyclersassociation.org' //Live site
+    'http://localhost:3000',
+    'https://ranified.netlify.app',
+    'https://portal.recyclersassociation.org'
 ];
 
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (e.g., Postman, curl, or server-to-server)
         if (!origin) return callback(null, true);
-        
         if (allowedOrigins.includes(origin)) {
             return callback(null, true);
         } else {
@@ -61,25 +54,22 @@ app.use(cors({
             return callback(new Error(msg), false);
         }
     },
-    credentials: true // Still required so your JWT cookies work
+    credentials: true
 }));
 
 app.use(bodyParser.json({ limit: '50mb' }));
 
-// Database Connection - SERVERLESS OPTIMIZATION
-// Database Connection - SERVERLESS OPTIMIZATION
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false
   },
-  max: 1, // Keep this at 1: Each serverless container gets exactly 1 connection
-  idleTimeoutMillis: 1000, // Aggressively drop idle connections after 1 second (down from 3s)
-  connectionTimeoutMillis: 5000, // Fail fast if the DB is unreachable
-  allowExitOnIdle: true, // CRITICAL: Allows the Node.js event loop to clear so the Lambda can freeze gracefully
+  max: 1,
+  idleTimeoutMillis: 1000,
+  connectionTimeoutMillis: 5000,
+  allowExitOnIdle: true,
 });
 
-// --- SMART QUERY WRAPPER WITH RETRY LOGIC ---
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const query = async (text, params) => {
@@ -88,7 +78,6 @@ const query = async (text, params) => {
     try {
       return await pool.query(text, params);
     } catch (err) {
-      // Error codes: 53300 (too_many_connections), 57P03 (cannot_connect_now), or timeouts
       if (['53300', '57P03', '08006', '08001', 'ECONNREFUSED', 'ETIMEDOUT'].includes(err.code) || err.message.includes('timeout')) {
         retries--;
         if (retries === 0) throw err; 
@@ -101,7 +90,6 @@ const query = async (text, params) => {
   }
 };
 
-// Email Config
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -110,7 +98,6 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Verify Email Configuration
 transporter.verify(function (error, success) {
     if (error) {
         console.error("Email Service Error:", error);
@@ -125,25 +112,30 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
-// Rate Limiter
 const resetLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
+    windowMs: 60 * 60 * 1000,
     max: 5, 
     message: { message: 'Too many reset attempts. Please try again after an hour.' },
     standardHeaders: true, 
     legacyHeaders: false, 
 });
 
-// Rate Limiter for Public Uploads (Registration)
 const publicUploadLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 10, // Max 10 uploads per IP per hour to prevent spam
+    windowMs: 60 * 60 * 1000,
+    max: 10,
     message: { message: 'Upload limit reached. Please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,
 });
 
-// Database Initialization
+const listingCreateLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 20,
+    message: { message: 'Listing creation limit reached. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 let dbInitialized = false;
 const initDb = async () => {
     if (dbInitialized) return;
@@ -247,6 +239,25 @@ const initDb = async () => {
             co2_rate NUMERIC DEFAULT 0,
             last_updated TEXT
         );
+        CREATE TABLE IF NOT EXISTS listings (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+            type TEXT NOT NULL,
+            material TEXT NOT NULL,
+            quantity_kg NUMERIC NOT NULL,
+            location_state TEXT NOT NULL,
+            location_city TEXT,
+            price_per_kg NUMERIC,
+            description TEXT,
+            status TEXT DEFAULT 'OPEN',
+            expires_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
+        CREATE INDEX IF NOT EXISTS idx_listings_user ON listings(user_id);
+        CREATE INDEX IF NOT EXISTS idx_listings_state ON listings(location_state);
+        CREATE INDEX IF NOT EXISTS idx_listings_expires ON listings(expires_at);
       `;
       
       await client.query(schema);
@@ -280,7 +291,6 @@ const initDb = async () => {
         }
       }
 
-      // Synchronized with the UserDashboard collection types
       const requiredMaterials = [
         'PET Plastics', 'HDPE', 'PVC', 'PP', 'PS', 'Other Plastics', 
         'Paper/Cartons', 'UBC', 'Aluminium', 'Copper', 'Metals', 'Glass', 
@@ -404,7 +414,6 @@ const checkExpiry = async (user) => {
     return user;
 };
 
-// --- BULK EXPIRY SYNC ---
 const syncExpiredMembers = async () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -421,7 +430,55 @@ const syncExpiredMembers = async () => {
     );
 };
 
-// --- AUTH MIDDLEWARE ---
+const NIGERIAN_STATES_SERVER = [
+    "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
+    "Cross River","Delta","Ebonyi","Edo","Ekiti","Enugu","FCT - Abuja","Gombe",
+    "Imo","Jigawa","Kaduna","Kano","Katsina","Kebbi","Kogi","Kwara","Lagos",
+    "Nasarawa","Niger","Ogun","Ondo","Osun","Oyo","Plateau","Rivers","Sokoto",
+    "Taraba","Yobe","Zamfara"
+];
+
+const mapListing = (row) => {
+    if (!row) return null;
+    return {
+        id: row.id,
+        userId: row.user_id,
+        type: row.type,
+        material: row.material,
+        quantityKg: Number(row.quantity_kg),
+        locationState: row.location_state,
+        locationCity: row.location_city,
+        pricePerKg: row.price_per_kg !== null ? Number(row.price_per_kg) : null,
+        description: row.description,
+        status: row.status,
+        expiresAt: row.expires_at,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        businessName: row.business_name,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        profileImage: row.profile_image,
+        businessCategory: row.business_category
+    };
+};
+
+const sanitizeListingText = (text, maxLen = 500) => {
+    if (!text) return '';
+    let clean = String(text).replace(/<[^>]*>/g, '');
+    clean = clean.replace(/javascript:/gi, '');
+    if (clean.length > maxLen) clean = clean.substring(0, maxLen);
+    return clean.trim();
+};
+
+const syncExpiredListings = async () => {
+    const now = new Date().toISOString();
+    await query(
+        `UPDATE listings SET status = 'EXPIRED', updated_at = $1 
+         WHERE status = 'OPEN' AND expires_at < $1`,
+        [now]
+    );
+};
+
 const authenticateToken = (req, res, next) => {
     const token = req.cookies.token;
     
@@ -472,7 +529,6 @@ const router = express.Router();
 
 router.get('/', (req, res) => { res.json({ message: "RAN Portal API is running." }); });
 
-// --- AUTH (Public) ---
 router.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -620,7 +676,6 @@ router.post('/auth/register', async (req, res) => {
   } catch (error) { res.status(500).json({ message: 'Registration failed. ' + error.message }); }
 });
 
-// --- SECURE FILE UPLOAD ROUTE ---
 router.post('/upload', authenticateToken, async (req, res) => {
     try {
         const { file } = req.body;
@@ -629,12 +684,11 @@ router.post('/upload', authenticateToken, async (req, res) => {
             return res.status(400).json({ message: 'No file provided' });
         }
 
-        // Upload to Cloudinary securely from the backend
         const result = await cloudinary.uploader.upload(file, {
-            folder: 'ran_portal_secure', // Keeps the RAN portal uploads organized
-            resource_type: 'auto',       // Automatically handles images or PDFs
-            use_filename: false,         // Ignore original file names
-            unique_filename: true        // Generate unguessable, secure URLs
+            folder: 'ran_portal_secure',
+            resource_type: 'auto',
+            use_filename: false,
+            unique_filename: true
         });
 
         res.status(200).json({ secure_url: result.secure_url });
@@ -644,7 +698,6 @@ router.post('/upload', authenticateToken, async (req, res) => {
     }
 });
 
-// --- PUBLIC FILE UPLOAD ROUTE (FOR REGISTRATION) ---
 router.post('/upload/public', publicUploadLimiter, async (req, res) => {
     try {
         const { file } = req.body;
@@ -653,7 +706,6 @@ router.post('/upload/public', publicUploadLimiter, async (req, res) => {
             return res.status(400).json({ message: 'No file provided' });
         }
 
-        // Upload to a specific registration folder
         const result = await cloudinary.uploader.upload(file, {
             folder: 'ran_portal_registration', 
             resource_type: 'auto',       
@@ -755,7 +807,6 @@ router.post('/users/update-id', authenticateToken, requireAdmin, async (req, res
     } catch (e) { if(client) await client.query('ROLLBACK'); res.status(500).json({ message: 'Failed: ' + e.message }); } finally { if(client) client.release(); }
 });
 
-// --- ANNOUNCEMENTS (NOW LOCKED DOWN) ---
 router.get('/announcements', authenticateToken, async (req, res) => {
   try {
     res.set('Cache-Control', 'private, no-store');
@@ -875,7 +926,6 @@ router.post('/messages', authenticateToken, verifyOwnership, async (req, res) =>
     try { await query('INSERT INTO messages (id, sender_id, receiver_id, content, timestamp, is_read) VALUES ($1, $2, $3, $4, $5, $6)', [id, senderId, receiverId, content, timestamp, false]); res.status(201).json({ id, senderId, receiverId, content, timestamp, isRead: false }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// --- PRICES & CO2e RATES ---
 router.get('/prices', authenticateToken, async (req, res) => {
     try {
         if (req.user.role !== 'ADMIN') {
@@ -903,6 +953,213 @@ router.put('/prices/:id', authenticateToken, requireAdmin, async (req, res) => {
         await query('UPDATE material_prices SET price = $1, co2_rate = $2, last_updated = $3 WHERE id = $4', [price, co2Rate, today, id]);
         res.json({ message: 'Price and CO2e rate updated successfully' });
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// --- LISTINGS ROUTES ---
+
+router.get('/listings', authenticateToken, async (req, res) => {
+    try {
+        await syncExpiredListings();
+
+        const { type, material, state, status, search, scope } = req.query;
+        let q = `
+            SELECT l.*, u.business_name, u.first_name, u.last_name, u.profile_image, u.business_category
+            FROM listings l
+            JOIN users u ON l.user_id = u.id
+            WHERE 1=1
+        `;
+        const params = [];
+        let idx = 1;
+
+        if (scope === 'mine') {
+            q += ` AND l.user_id = $${idx}`;
+            params.push(req.user.id);
+            idx++;
+        }
+
+        if (type && ['WANTED', 'AVAILABLE'].includes(type)) {
+            q += ` AND l.type = $${idx}`;
+            params.push(type);
+            idx++;
+        }
+        if (material) {
+            q += ` AND LOWER(l.material) LIKE LOWER($${idx})`;
+            params.push(`%${material}%`);
+            idx++;
+        }
+        if (state) {
+            q += ` AND l.location_state = $${idx}`;
+            params.push(state);
+            idx++;
+        }
+        if (status && ['OPEN', 'CLOSED', 'EXPIRED'].includes(status)) {
+            q += ` AND l.status = $${idx}`;
+            params.push(status);
+            idx++;
+        } else if (scope !== 'mine') {
+            q += ` AND l.status = 'OPEN'`;
+        }
+        if (search) {
+            q += ` AND (LOWER(l.material) LIKE LOWER($${idx}) OR LOWER(u.business_name) LIKE LOWER($${idx}) OR LOWER(l.location_city) LIKE LOWER($${idx}))`;
+            params.push(`%${search}%`);
+            idx++;
+        }
+
+        q += ` ORDER BY l.created_at DESC LIMIT 200`;
+
+        const result = await query(q, params);
+        res.json(result.rows.map(mapListing));
+    } catch (e) {
+        console.error('GET /listings error:', e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.get('/listings/:id', authenticateToken, async (req, res) => {
+    try {
+        const q = `
+            SELECT l.*, u.business_name, u.first_name, u.last_name, u.profile_image, u.business_category
+            FROM listings l
+            JOIN users u ON l.user_id = u.id
+            WHERE l.id = $1
+        `;
+        const result = await query(q, [req.params.id]);
+        if (result.rows.length === 0) return res.status(404).json({ message: 'Listing not found' });
+        res.json(mapListing(result.rows[0]));
+    } catch (e) {
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.post('/listings', authenticateToken, listingCreateLimiter, async (req, res) => {
+    try {
+        const userRes = await query('SELECT status FROM users WHERE id = $1', [req.user.id]);
+        if (!userRes.rows.length || (userRes.rows[0].status !== 'Active' && req.user.role !== 'ADMIN')) {
+            return res.status(403).json({ message: 'Only Active members can post listings.' });
+        }
+
+        const activeCount = await query(
+            `SELECT COUNT(*) FROM listings WHERE user_id = $1 AND status = 'OPEN'`,
+            [req.user.id]
+        );
+        if (parseInt(activeCount.rows[0].count) >= 10 && req.user.role !== 'ADMIN') {
+            return res.status(400).json({ message: 'You have reached the maximum of 10 active listings.' });
+        }
+
+        const { type, material, quantityKg, locationState, locationCity, pricePerKg, description } = req.body;
+
+        if (!['WANTED', 'AVAILABLE'].includes(type)) {
+            return res.status(400).json({ message: 'Invalid listing type.' });
+        }
+        const cleanMaterial = sanitizeListingText(material, 100);
+        if (!cleanMaterial) return res.status(400).json({ message: 'Material is required.' });
+
+        const qty = Number(quantityKg);
+        if (!qty || qty <= 0 || qty > 10000000) {
+            return res.status(400).json({ message: 'Invalid quantity.' });
+        }
+        if (!NIGERIAN_STATES_SERVER.includes(locationState)) {
+            return res.status(400).json({ message: 'Invalid state.' });
+        }
+
+        const cleanCity = sanitizeListingText(locationCity, 100);
+        const cleanDesc = sanitizeListingText(description, 500);
+
+        let price = null;
+        if (pricePerKg !== null && pricePerKg !== undefined && pricePerKg !== '') {
+            price = Number(pricePerKg);
+            if (isNaN(price) || price < 0) return res.status(400).json({ message: 'Invalid price.' });
+        }
+
+        const id = `list-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const now = new Date().toISOString();
+        const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+        await query(
+            `INSERT INTO listings (id, user_id, type, material, quantity_kg, location_state, location_city, price_per_kg, description, status, expires_at, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'OPEN', $10, $11, $11)`,
+            [id, req.user.id, type, cleanMaterial, qty, locationState, cleanCity, price, cleanDesc, expires, now]
+        );
+
+        res.status(201).json({ id, message: 'Listing posted successfully' });
+    } catch (e) {
+        console.error('POST /listings error:', e);
+        res.status(500).json({ message: 'Failed to create listing' });
+    }
+});
+
+router.put('/listings/:id', authenticateToken, async (req, res) => {
+    try {
+        const existing = await query('SELECT * FROM listings WHERE id = $1', [req.params.id]);
+        if (existing.rows.length === 0) return res.status(404).json({ message: 'Listing not found' });
+
+        const listing = existing.rows[0];
+        if (listing.user_id !== req.user.id && req.user.role !== 'ADMIN') {
+            return res.status(403).json({ message: 'You can only edit your own listings.' });
+        }
+        if (listing.status !== 'OPEN') {
+            return res.status(400).json({ message: 'Only OPEN listings can be edited.' });
+        }
+
+        const { material, quantityKg, locationState, locationCity, pricePerKg, description } = req.body;
+
+        const cleanMaterial = sanitizeListingText(material, 100);
+        if (!cleanMaterial) return res.status(400).json({ message: 'Material is required.' });
+
+        const qty = Number(quantityKg);
+        if (!qty || qty <= 0) return res.status(400).json({ message: 'Invalid quantity.' });
+        if (!NIGERIAN_STATES_SERVER.includes(locationState)) return res.status(400).json({ message: 'Invalid state.' });
+
+        const cleanCity = sanitizeListingText(locationCity, 100);
+        const cleanDesc = sanitizeListingText(description, 500);
+
+        let price = null;
+        if (pricePerKg !== null && pricePerKg !== undefined && pricePerKg !== '') {
+            price = Number(pricePerKg);
+            if (isNaN(price) || price < 0) return res.status(400).json({ message: 'Invalid price.' });
+        }
+
+        const now = new Date().toISOString();
+        await query(
+            `UPDATE listings SET material = $1, quantity_kg = $2, location_state = $3, location_city = $4, price_per_kg = $5, description = $6, updated_at = $7 WHERE id = $8`,
+            [cleanMaterial, qty, locationState, cleanCity, price, cleanDesc, now, req.params.id]
+        );
+
+        res.json({ message: 'Listing updated' });
+    } catch (e) {
+        console.error('PUT /listings error:', e);
+        res.status(500).json({ message: 'Failed to update listing' });
+    }
+});
+
+router.post('/listings/:id/close', authenticateToken, async (req, res) => {
+    try {
+        const existing = await query('SELECT * FROM listings WHERE id = $1', [req.params.id]);
+        if (existing.rows.length === 0) return res.status(404).json({ message: 'Listing not found' });
+
+        const listing = existing.rows[0];
+        if (listing.user_id !== req.user.id && req.user.role !== 'ADMIN') {
+            return res.status(403).json({ message: 'You can only close your own listings.' });
+        }
+        if (listing.status !== 'OPEN') {
+            return res.status(400).json({ message: 'Listing is not open.' });
+        }
+
+        const now = new Date().toISOString();
+        await query(`UPDATE listings SET status = 'CLOSED', updated_at = $1 WHERE id = $2`, [now, req.params.id]);
+        res.json({ message: 'Listing closed' });
+    } catch (e) {
+        res.status(500).json({ message: 'Failed to close listing' });
+    }
+});
+
+router.delete('/listings/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        await query('DELETE FROM listings WHERE id = $1', [req.params.id]);
+        res.json({ message: 'Listing deleted' });
+    } catch (e) {
+        res.status(500).json({ message: 'Failed to delete listing' });
+    }
 });
 
 app.use('/.netlify/functions/api', router);

@@ -42,7 +42,7 @@ export interface User {
   businessState: string;
   businessCity?: string;
   businessCommencement?: string;
-  businessCategory?: string; // String to allow custom "Other" values
+  businessCategory?: string;
   statesOfOperation: string;
   materialTypes: string[];
   machineryDeployed: string[];
@@ -55,10 +55,9 @@ export interface User {
   dateJoined: string;
   expiryDate: string;
   profileImage?: string;
-  // Security fields
   resetToken?: string;
-  resetTokenExpiry?: number; // Timestamp
-  token?: string; // JWT Token
+  resetTokenExpiry?: number;
+  token?: string;
   documents?: {
     cac?: string;
     logo?: string;
@@ -85,7 +84,7 @@ export interface Payment {
   description: string;
   status: 'Successful' | 'Pending' | 'Failed';
   reference: string;
-  receipt?: string; // Base64 string of the uploaded receipt
+  receipt?: string;
 }
 
 export interface Message {
@@ -93,7 +92,7 @@ export interface Message {
   senderId: string;
   receiverId: string;
   content: string;
-  timestamp: string; // ISO String
+  timestamp: string;
   isRead: boolean;
 }
 
@@ -117,7 +116,7 @@ export interface BankDetails {
 export interface Collection {
   id: string;
   userId: string;
-  userName?: string; 
+  userName?: string;
   businessName?: string;
   month: string;
   year: string;
@@ -131,6 +130,38 @@ export interface MaterialPrice {
   id: string;
   materialName: string;
   price: number;
-  co2Rate: number; // Added CO2e Rate
+  co2Rate: number;
   lastUpdated: string;
+}
+
+export enum ListingType {
+  WANTED = 'WANTED',
+  AVAILABLE = 'AVAILABLE',
+}
+
+export enum ListingStatus {
+  OPEN = 'OPEN',
+  CLOSED = 'CLOSED',
+  EXPIRED = 'EXPIRED',
+}
+
+export interface Listing {
+  id: string;
+  userId: string;
+  type: ListingType;
+  material: string;
+  quantityKg: number;
+  locationState: string;
+  locationCity?: string;
+  pricePerKg: number | null;
+  description?: string;
+  status: ListingStatus;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+  businessName?: string;
+  firstName?: string;
+  lastName?: string;
+  profileImage?: string;
+  businessCategory?: string;
 }

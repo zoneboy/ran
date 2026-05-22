@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, X, Recycle, User, LogOut, Users, MessageSquare, Coins } from 'lucide-react';
+import { Menu, X, Recycle, User, LogOut, Users, MessageSquare, Coins, Package } from 'lucide-react';
 import { User as UserType } from '../types';
 import { api } from '../services/api';
 
@@ -14,7 +14,6 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Check expiry status
   const isExpired = React.useMemo(() => {
       if (!user) return false;
       if (user.status === 'Expired') return true;
@@ -34,11 +33,9 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
                  const count = await api.getUnreadCount(user.id);
                  setUnreadCount(count);
              } catch (e) {
-                 // Silently fail
              }
          };
          checkUnread();
-         // Poll every 15 seconds for responsiveness
          const interval = setInterval(checkUnread, 15000);
          return () => clearInterval(interval);
      } else {
@@ -53,16 +50,6 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
   const handleNav = (page: string) => {
     navigate(page);
     setIsOpen(false);
-  };
-
-  // Reusable badge component
-  const UnreadBadge: React.FC<{ count: number; className?: string }> = ({ count, className = '' }) => {
-    if (count <= 0) return null;
-    return (
-      <span className={`bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none shadow-sm ${unreadCount > 0 ? 'animate-pulse' : ''} ${className}`}>
-        {count > 99 ? '99+' : count}
-      </span>
-    );
   };
 
   return (
@@ -90,7 +77,6 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
                 </button>
               ))}
 
-              {/* Authenticated Links */}
               {user && !isExpired && (
                  <>
                     <button
@@ -109,23 +95,35 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
                     >
                         <Coins className="h-4 w-4 mr-1" /> Pricelist
                     </button>
-
-                    {/* Desktop Messages button with badge */}
-                    <button
-                        onClick={() => handleNav('messages')}
-                        className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center relative ${
-                        currentPage === 'messages' ? 'bg-green-800 text-white' : 'hover:bg-green-600'
-                        }`}
-                    >
-                        <MessageSquare className="h-4 w-4 mr-1" /> 
-                        Messages
-                        {unreadCount > 0 && (
-                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none shadow-sm animate-pulse">
-                                {unreadCount > 99 ? '99+' : unreadCount}
-                            </span>
-                        )}
-                    </button>
                   </>
+              )}
+
+              {user && (
+                <button
+                    onClick={() => handleNav('listings')}
+                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center ${
+                    currentPage === 'listings' ? 'bg-green-800 text-white' : 'hover:bg-green-600'
+                    }`}
+                >
+                    <Package className="h-4 w-4 mr-1" /> Listings
+                </button>
+              )}
+
+              {user && !isExpired && (
+                <button
+                    onClick={() => handleNav('messages')}
+                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center relative ${
+                    currentPage === 'messages' ? 'bg-green-800 text-white' : 'hover:bg-green-600'
+                    }`}
+                >
+                    <MessageSquare className="h-4 w-4 mr-1" /> 
+                    Messages
+                    {unreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none shadow-sm animate-pulse">
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                        </span>
+                    )}
+                </button>
               )}
 
               {!user && (
@@ -156,9 +154,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
             </div>
           </div>
           
-          {/* Mobile hamburger with notification dot */}
           <div className="-mr-2 flex md:hidden items-center gap-2">
-            {/* Show a small red dot on the hamburger when there are unread messages and menu is closed */}
             <button
               onClick={() => setIsOpen(!isOpen)}
               className="bg-green-800 inline-flex items-center justify-center p-2 rounded-md text-gray-200 hover:text-white hover:bg-green-600 focus:outline-none relative"
@@ -172,7 +168,6 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
         </div>
       </div>
 
-      {/* Mobile Menu */}
       {isOpen && (
         <div className="md:hidden bg-green-700 pb-3">
           <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
@@ -199,23 +194,33 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, navigate, currentPage }
                     >
                       Pricelist
                     </button>
-
-                    {/* Mobile Messages button with inline badge */}
-                    <button 
-                      onClick={() => handleNav('messages')} 
-                      className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600 flex items-center justify-between"
-                    >
-                      <span className="flex items-center">
-                        <MessageSquare className="h-4 w-4 mr-2" />
-                        Messages
-                      </span>
-                      {unreadCount > 0 && (
-                        <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse shadow-sm">
-                          {unreadCount > 99 ? '99+' : unreadCount} new
-                        </span>
-                      )}
-                    </button>
                 </>
+             )}
+
+             {user && (
+                <button 
+                  onClick={() => handleNav('listings')} 
+                  className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600"
+                >
+                  Listings
+                </button>
+             )}
+
+             {user && !isExpired && (
+                <button 
+                  onClick={() => handleNav('messages')} 
+                  className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-green-600 flex items-center justify-between"
+                >
+                  <span className="flex items-center">
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    Messages
+                  </span>
+                  {unreadCount > 0 && (
+                    <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse shadow-sm">
+                      {unreadCount > 99 ? '99+' : unreadCount} new
+                    </span>
+                  )}
+                </button>
              )}
             {!user && (
               <>
