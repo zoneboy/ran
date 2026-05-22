@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Listing, ListingType, ListingStatus } from '../types';
 import { api } from '../services/api';
-import { Search, MapPin, Tag, Plus, X, Loader2, Package, MessageSquare, Edit, CheckCircle, Clock, AlertCircle, Trash2 } from 'lucide-react';
+import { Search, MapPin, Tag, Plus, X, Loader2, Package, MessageSquare, Edit, CheckCircle, Clock, AlertCircle, Trash2, Archive } from 'lucide-react';
 
 interface ListingsProps {
   navigate: (page: string, params?: any) => void;
@@ -19,7 +19,7 @@ const NIGERIAN_STATES = [
 const Listings: React.FC<ListingsProps> = ({ navigate, currentUser }) => {
   const [listings, setListings] = useState<Listing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'AVAILABLE' | 'WANTED' | 'MINE'>('AVAILABLE');
+  const [activeTab, setActiveTab] = useState<'AVAILABLE' | 'WANTED' | 'MINE' | 'CLOSED'>('AVAILABLE');
   const [searchTerm, setSearchTerm] = useState('');
   const [materialFilter, setMaterialFilter] = useState('');
   const [stateFilter, setStateFilter] = useState('');
@@ -48,6 +48,9 @@ const Listings: React.FC<ListingsProps> = ({ navigate, currentUser }) => {
       const filters: any = {};
       if (activeTab === 'MINE') {
         filters.scope = 'mine';
+      } else if (activeTab === 'CLOSED') {
+        // Show both CLOSED and EXPIRED in the archive tab.
+        // Backend accepts a single status, so we'll fetch CLOSED and EXPIRED separately and merge.
       } else {
         filters.type = activeTab;
       }
@@ -55,7 +58,19 @@ const Listings: React.FC<ListingsProps> = ({ navigate, currentUser }) => {
       if (stateFilter) filters.state = stateFilter;
       if (searchTerm) filters.search = searchTerm;
 
-      const data = await api.getListings(filters);
+      let data: Listing[] = [];
+      if (activeTab === 'CLOSED') {
+        const [closed, expired] = await Promise.all([
+          api.getListings({ ...filters, status: 'CLOSED' }),
+          api.getListings({ ...filters, status: 'EXPIRED' })
+        ]);
+        data = [...closed, ...expired].sort((a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+      } else {
+        data = await api.getListings(filters);
+      }
+
       setListings(data);
     } catch (e) {
       console.error('Failed to load listings', e);
@@ -223,12 +238,12 @@ const Listings: React.FC<ListingsProps> = ({ navigate, currentUser }) => {
           </div>
         )}
 
-        <div className="bg-white rounded-lg shadow-sm p-2 inline-flex w-full md:w-auto">
-          {(['AVAILABLE', 'WANTED', 'MINE'] as const).map(tab => (
+        <div className="bg-white rounded-lg shadow-sm p-2 inline-flex w-full md:w-auto overflow-x-auto">
+          {(['AVAILABLE', 'WANTED', 'MINE', 'CLOSED'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 md:flex-initial px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              className={`flex-1 md:flex-initial px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === tab
                   ? 'bg-green-600 text-white shadow-sm'
                   : 'text-gray-600 hover:bg-gray-50'
@@ -237,9 +252,17 @@ const Listings: React.FC<ListingsProps> = ({ navigate, currentUser }) => {
               {tab === 'AVAILABLE' && '📦 Available'}
               {tab === 'WANTED' && '🔍 Wanted'}
               {tab === 'MINE' && '👤 My Listings'}
+              {tab === 'CLOSED' && '📁 Archive'}
             </button>
           ))}
         </div>
+
+        {activeTab === 'CLOSED' && (
+          <div className="bg-blue-50 border-l-4 border-blue-400 p-3 rounded text-sm text-blue-800 flex items-start">
+            <Archive className="h-4 w-4 mr-2 mt-0.5 shrink-0" />
+            <span>Archive of closed and expired listings. These are read-only and kept for reference.</span>
+          </div>
+        )}
 
         <div className="bg-white p-4 rounded-lg shadow-sm grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="relative">
@@ -281,15 +304,24 @@ const Listings: React.FC<ListingsProps> = ({ navigate, currentUser }) => {
           </div>
         ) : listings.length === 0 ? (
           <div className="bg-white rounded-lg shadow-sm p-12 text-center">
-            <Package className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 mb-4">No listings found.</p>
-            {isActive && activeTab !== 'MINE' && (
-              <button
-                onClick={() => handleOpenPostModal()}
-                className="text-green-600 hover:text-green-700 font-bold"
-              >
-                Be the first to post
-              </button>
+            {activeTab === 'CLOSED' ? (
+              <>
+                <Archive className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500">No closed or expired listings yet.</p>
+              </>
+            ) : (
+              <>
+                <Package className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 mb-4">No listings found.</p>
+                {isActive && activeTab !== 'MINE' && (
+                  <button
+                    onClick={() => handleOpenPostModal()}
+                    className="text-green-600 hover:text-green-700 font-bold"
+                  >
+                    Be the first to post
+                  </button>
+                )}
+              </>
             )}
           </div>
         ) : (
@@ -303,7 +335,7 @@ const Listings: React.FC<ListingsProps> = ({ navigate, currentUser }) => {
                 <div
                   key={listing.id}
                   className={`bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow border ${
-                    isClosed ? 'border-gray-200 opacity-70' : 'border-gray-100'
+                    isClosed ? 'border-gray-200 opacity-80' : 'border-gray-100'
                   } overflow-hidden flex flex-col`}
                 >
                   <div className="p-5 flex-1">
@@ -332,6 +364,12 @@ const Listings: React.FC<ListingsProps> = ({ navigate, currentUser }) => {
                         <div className="flex items-center text-xs text-gray-500">
                           <Clock className="h-3 w-3 mr-2" />
                           {daysLeft > 0 ? `${daysLeft} days left` : 'Expiring today'}
+                        </div>
+                      )}
+                      {isClosed && (
+                        <div className="flex items-center text-xs text-gray-500">
+                          <Clock className="h-3 w-3 mr-2" />
+                          {listing.status === 'CLOSED' ? 'Closed' : 'Expired'} on {new Date(listing.updatedAt).toLocaleDateString()}
                         </div>
                       )}
                     </div>
