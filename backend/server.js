@@ -967,6 +967,124 @@ router.post('/processed', authenticateToken, verifyOwnership, async (req, res) =
     }
 });
 
+// Monthly stockpile breakdown — sector or per-user, grouped by member-reported month+year
+router.get('/stockpile/monthly', authenticateToken, async (req, res) => {
+    try {
+        const { userId } = req.query;
+        const isAdmin = req.user.role === 'ADMIN';
+        const targetUserId = isAdmin && userId ? userId : (isAdmin ? null : req.user.id);
+
+        if (!isAdmin && userId && userId !== req.user.id) {
+            return res.status(403).json({ message: 'Forbidden' });
+        }
+
+        let collectedQuery, processedQuery, params;
+
+        if (targetUserId) {
+            collectedQuery = `
+                SELECT year, month, material, COALESCE(SUM(weight), 0) AS total
+                FROM collections
+                WHERE user_id = $1 AND year IS NOT NULL AND month IS NOT NULL
+                GROUP BY year, month, material
+            `;
+            processedQuery = `
+                SELECT year, month, material, COALESCE(SUM(weight), 0) AS total
+                FROM processed_materials
+                WHERE user_id = $1 AND year IS NOT NULL AND month IS NOT NULL
+                GROUP BY year, month, material
+            `;
+            params = [targetUserId];
+        } else {
+            collectedQuery = `
+                SELECT year, month, material, COALESCE(SUM(weight), 0) AS total
+                FROM collections
+                WHERE year IS NOT NULL AND month IS NOT NULL
+                GROUP BY year, month, material
+            `;
+            processedQuery = `
+                SELECT year, month, material, COALESCE(SUM(weight), 0) AS total
+                FROM processed_materials
+                WHERE year IS NOT NULL AND month IS NOT NULL
+                GROUP BY year, month, material
+            `;
+            params = [];
+        }
+
+        const [collectedRes, processedRes] = await Promise.all([
+            query(collectedQuery, params),
+            query(processedQuery, params)
+        ]);
+
+        // Build a map keyed by "year|month" -> Map of material -> {collected, processed}
+        const monthMap = new Map();
+
+        const getMonthEntry = (year, month) => {
+            const key = `${year}|${month}`;
+            if (!monthMap.has(key)) {
+                monthMap.set(key, { year, month, materials: new Map() });
+            }
+            return monthMap.get(key);
+        };
+
+        const getMaterialEntry = (monthEntry, material) => {
+            if (!monthEntry.materials.has(material)) {
+                monthEntry.materials.set(material, { material, collected: 0, processed: 0 });
+            }
+            return monthEntry.materials.get(material);
+        };
+
+        collectedRes.rows.forEach(row => {
+            const monthEntry = getMonthEntry(row.year, row.month);
+            const matEntry = getMaterialEntry(monthEntry, row.material);
+            matEntry.collected = Number(row.total);
+        });
+
+        processedRes.rows.forEach(row => {
+            const monthEntry = getMonthEntry(row.year, row.month);
+            const matEntry = getMaterialEntry(monthEntry, row.material);
+            matEntry.processed = Number(row.total);
+        });
+
+        // Convert to array, compute inStock per material, sort by year/month desc
+        const MONTH_ORDER = {
+            'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
+            'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12
+        };
+
+        const result = Array.from(monthMap.values()).map(entry => {
+            const materials = Array.from(entry.materials.values())
+                .map(m => ({
+                    material: m.material,
+                    collected: m.collected,
+                    processed: m.processed,
+                    inStock: m.collected - m.processed
+                }))
+                .sort((a, b) => a.material.localeCompare(b.material));
+
+            const totalCollected = materials.reduce((acc, m) => acc + m.collected, 0);
+            const totalProcessed = materials.reduce((acc, m) => acc + m.processed, 0);
+
+            return {
+                year: entry.year,
+                month: entry.month,
+                materials,
+                totalCollected,
+                totalProcessed,
+                totalInStock: totalCollected - totalProcessed
+            };
+        }).sort((a, b) => {
+            const yearDiff = Number(b.year) - Number(a.year);
+            if (yearDiff !== 0) return yearDiff;
+            return (MONTH_ORDER[b.month] || 0) - (MONTH_ORDER[a.month] || 0);
+        });
+
+        res.json(result);
+    } catch (e) {
+        console.error('GET /stockpile/monthly error:', e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
 // Stockpile = sum(collected) - sum(processed) per material, per user
 router.get('/stockpile', authenticateToken, async (req, res) => {
     try {

@@ -1,4 +1,4 @@
-import { User, Announcement, Payment, Message, BankDetails, Collection, MaterialPrice, ProcessedMaterial, StockpileEntry } from '../types';
+import { User, Announcement, Payment, Message, BankDetails, Collection, MaterialPrice, ProcessedMaterial, StockpileEntry, MonthlyStockpile } from '../types';
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_URL = isLocal 
@@ -282,6 +282,17 @@ export const api = {
 
   getStockpile: async (userId?: string): Promise<StockpileEntry[]> => {
     let url = `${API_URL}/stockpile`;
+    if (userId) {
+        url += `?userId=${encodeURIComponent(userId)}`;
+    }
+    const res = await fetch(url, {
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  getStockpileMonthly: async (userId?: string): Promise<MonthlyStockpile[]> => {
+    let url = `${API_URL}/stockpile/monthly`;
     if (userId) {
         url += `?userId=${encodeURIComponent(userId)}`;
     }

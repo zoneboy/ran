@@ -185,3 +185,12 @@ export interface StockpileEntry {
   processed: number;
   inStock: number;
 }
+
+export interface MonthlyStockpile {
+  year: string;
+  month: string;
+  materials: StockpileEntry[];
+  totalCollected: number;
+  totalProcessed: number;
+  totalInStock: number;
+}
