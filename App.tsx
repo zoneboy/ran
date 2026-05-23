@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Register from './pages/Register';
 import Login from './pages/Login';
@@ -12,144 +13,148 @@ import Listings from './pages/Listings';
 import { User } from './types';
 import { api } from './services/api';
 
-function App() {
-  const [currentPage, setCurrentPage] = useState('login');
-  const [pageParams, setPageParams] = useState<any>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+// Map between legacy page names (used everywhere in the codebase) and real URLs.
+const pageToPath = (page: string, params?: any): string => {
+  switch (page) {
+    case 'login': return '/login';
+    case 'register': return '/register';
+    case 'benefits': return '/benefits';
+    case 'dashboard': return '/dashboard';
+    case 'admin-dashboard': return '/admin';
+    case 'member-directory': return '/directory';
+    case 'messages':
+      if (params?.targetUserId) return `/messages?to=${encodeURIComponent(params.targetUserId)}`;
+      return '/messages';
+    case 'pricelist': return '/pricelist';
+    case 'listings': return '/listings';
+    default: return '/login';
+  }
+};
 
-  useEffect(() => {
-    const initSession = async () => {
-      let restoredUser = null;
-      try {
-        const storedUser = await api.getCurrentUser();
-        
-        if (storedUser) {
-           try {
-             const validUser = await api.getUser(storedUser.id);
-             if (validUser) {
-               setUser(validUser);
-               restoredUser = validUser;
-             } else {
-               await api.logout();
-               setUser(null);
-             }
-           } catch (e) {
-             console.warn("Backend validation failed (offline?), using stored session.");
-             setUser(storedUser);
-             restoredUser = storedUser;
-           }
-        }
-      } catch (error) {
-        console.error('Session restore failed', error);
-      } finally {
-        setIsLoading(false);
-        
-        const params = new URLSearchParams(window.location.search);
-        const page = params.get('page');
-        
-        if (page) {
-            setCurrentPage(page);
-        } else if (restoredUser) {
-            setCurrentPage(restoredUser.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard');
-        }
-      }
-    };
-    
-    initSession();
-  }, []);
+const pathToPage = (pathname: string): string => {
+  if (pathname.startsWith('/login')) return 'login';
+  if (pathname.startsWith('/register')) return 'register';
+  if (pathname.startsWith('/benefits')) return 'benefits';
+  if (pathname.startsWith('/dashboard')) return 'dashboard';
+  if (pathname.startsWith('/admin')) return 'admin-dashboard';
+  if (pathname.startsWith('/directory')) return 'member-directory';
+  if (pathname.startsWith('/messages')) return 'messages';
+  if (pathname.startsWith('/pricelist')) return 'pricelist';
+  if (pathname.startsWith('/listings')) return 'listings';
+  return 'login';
+};
 
+interface AppShellProps {
+  user: User | null;
+  setUser: (u: User | null) => void;
+  handleLogin: (u: User) => void;
+  handleLogout: () => Promise<void>;
+  handleUpdateUser: (u: User) => Promise<void>;
+}
+
+// Inner component so we can use react-router hooks (must be inside <BrowserRouter>)
+const AppShell: React.FC<AppShellProps> = ({ user, setUser, handleLogin, handleLogout, handleUpdateUser }) => {
+  const routerNavigate = useNavigate();
+  const location = useLocation();
+
+  // Adapter so existing pages can keep calling `navigate('dashboard')` etc.
   const navigate = (page: string, params?: any) => {
-    setPageParams(params);
-    setCurrentPage(page);
+    const path = pageToPath(page, params);
+    routerNavigate(path);
     window.scrollTo(0, 0);
   };
 
-  const handleLogin = (userData: User) => {
-    setUser(userData);
-    if (userData.role === 'ADMIN') {
-      navigate('admin-dashboard');
-    } else {
-      navigate('dashboard');
-    }
-  };
-
-  const handleLogout = async () => {
-    await api.logout();
-    setUser(null);
-    navigate('login');
-  };
-
-  const handleUpdateUser = async (updatedUser: User) => {
-    try {
-      const result = await api.updateUser(updatedUser);
-      setUser(result);
-    } catch (error) {
-      console.error('Update failed', error);
-      alert('Failed to update profile');
-    }
-  };
-
-  if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-green-700">Loading RAN Portal...</div>;
-  }
+  const currentPage = pathToPage(location.pathname);
 
   const isExpired = () => {
-      if (!user) return false;
-      if (user.status === 'Expired') return true;
-      if (user.role === 'ADMIN') return false;
-      
-      if (!user.expiryDate) return false;
+    if (!user) return false;
+    if (user.status === 'Expired') return true;
+    if (user.role === 'ADMIN') return false;
+    if (!user.expiryDate) return false;
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const expiry = new Date(user.expiryDate);
-      expiry.setHours(0, 0, 0, 0);
-      
-      const diffTime = today.getTime() - expiry.getTime();
-      const daysPastExpiry = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-      return daysPastExpiry >= 1;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expiry = new Date(user.expiryDate);
+    expiry.setHours(0, 0, 0, 0);
+    const diffTime = today.getTime() - expiry.getTime();
+    const daysPastExpiry = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    return daysPastExpiry >= 1;
   };
 
- const renderPage = () => {
-    const expired = isExpired();
+  const expired = isExpired();
 
-    switch (currentPage) {
-      case 'benefits':
-        return <Benefits navigate={navigate} user={user} />;
-      case 'register':
-        return <Register navigate={navigate} />;
-      case 'login':
-        return <Login onLogin={handleLogin} navigate={navigate} />;
-      case 'dashboard':
-        return user ? <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} /> : <Login onLogin={handleLogin} navigate={navigate} />;
-      case 'admin-dashboard':
-        return user && user.role === 'ADMIN' ? <AdminDashboard /> : <Login onLogin={handleLogin} navigate={navigate} />;
-      case 'member-directory':
-        if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
-        return user ? <MemberDirectory navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} />;
-      case 'messages':
-        if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
-        return user ? <Messages currentUser={user} navigate={navigate} targetUserId={pageParams?.targetUserId} /> : <Login onLogin={handleLogin} navigate={navigate} />;
-      case 'pricelist':
-        if (user && expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
-        return user ? <Pricelist navigate={navigate} /> : <Login onLogin={handleLogin} navigate={navigate} />;
-      case 'listings':
-        return user ? <Listings navigate={navigate} currentUser={user} /> : <Login onLogin={handleLogin} navigate={navigate} />;
-      default:
-        return <Login onLogin={handleLogin} navigate={navigate} />;
-    }
+  // Helper components for protected routes
+  const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    if (!user) return <Navigate to="/login" replace />;
+    return <>{children}</>;
+  };
+
+  const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    if (!user) return <Navigate to="/login" replace />;
+    if (user.role !== 'ADMIN') return <Navigate to="/dashboard" replace />;
+    return <>{children}</>;
+  };
+
+  const BlockExpired: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    if (!user) return <Navigate to="/login" replace />;
+    if (expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
+    return <>{children}</>;
+  };
+
+  // Wrapper to read ?to= query param for Messages
+  const MessagesRoute: React.FC = () => {
+    const [searchParams] = useSearchParams();
+    const targetUserId = searchParams.get('to');
+    if (!user) return <Navigate to="/login" replace />;
+    if (expired) return <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />;
+    return <Messages currentUser={user} navigate={navigate} targetUserId={targetUserId} />;
+  };
+
+  // Root redirect
+  const RootRedirect: React.FC = () => {
+    if (!user) return <Navigate to="/login" replace />;
+    return <Navigate to={user.role === 'ADMIN' ? '/admin' : '/dashboard'} replace />;
   };
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
       <Navbar user={user} onLogout={handleLogout} navigate={navigate} currentPage={currentPage} />
       <main>
-        {renderPage()}
+        <Routes>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/login" element={<Login onLogin={handleLogin} navigate={navigate} />} />
+          <Route path="/register" element={<Register navigate={navigate} />} />
+          <Route path="/benefits" element={<Benefits navigate={navigate} user={user} />} />
+          <Route path="/dashboard" element={
+            <RequireAuth>
+              {user && <UserDashboard user={user} navigate={navigate} onUpdateUser={handleUpdateUser} />}
+            </RequireAuth>
+          } />
+          <Route path="/admin" element={
+            <RequireAdmin>
+              <AdminDashboard />
+            </RequireAdmin>
+          } />
+          <Route path="/directory" element={
+            <BlockExpired>
+              {user && <MemberDirectory navigate={navigate} currentUser={user} />}
+            </BlockExpired>
+          } />
+          <Route path="/messages" element={<MessagesRoute />} />
+          <Route path="/pricelist" element={
+            <BlockExpired>
+              <Pricelist navigate={navigate} />
+            </BlockExpired>
+          } />
+          <Route path="/listings" element={
+            <RequireAuth>
+              {user && <Listings navigate={navigate} currentUser={user} />}
+            </RequireAuth>
+          } />
+          <Route path="*" element={<RootRedirect />} />
+        </Routes>
       </main>
-      
+
       <footer className="bg-gray-800 text-gray-300 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
@@ -161,15 +166,15 @@ function App() {
             </div>
             <div>
               <h4 className="text-white font-semibold mb-4">Quick Links</h4>
-             <ul className="space-y-2 text-sm">
+              <ul className="space-y-2 text-sm">
                 <li>
                   <a href="https://recyclersassociation.org" className="hover:text-white transition-colors">
                     Home
                   </a>
                 </li>
                 <li>
-                  <button 
-                    onClick={() => navigate(user ? (user.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard') : 'login')} 
+                  <button
+                    onClick={() => navigate(user ? (user.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard') : 'login')}
                     className="hover:text-white transition-colors"
                   >
                     {user ? 'My Dashboard' : 'Portal Login'}
@@ -183,8 +188,8 @@ function App() {
                   </li>
                 )}
                 <li>
-                  <a 
-                    href="mailto:membership@recyclersassociation.org?subject=RAN%20Portal%20Support%20Request" 
+                  
+                    href="mailto:membership@recyclersassociation.org?subject=RAN%20Portal%20Support%20Request"
                     className="hover:text-white transition-colors"
                   >
                     Contact Support
@@ -208,6 +213,81 @@ function App() {
         </div>
       </footer>
     </div>
+  );
+};
+
+function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const initSession = async () => {
+      try {
+        const storedUser = await api.getCurrentUser();
+
+        if (storedUser) {
+          try {
+            const validUser = await api.getUser(storedUser.id);
+            if (validUser) {
+              setUser(validUser);
+            } else {
+              await api.logout();
+              setUser(null);
+            }
+          } catch (e) {
+            console.warn("Backend validation failed (offline?), using stored session.");
+            setUser(storedUser);
+          }
+        }
+      } catch (error) {
+        console.error('Session restore failed', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initSession();
+  }, []);
+
+  const handleLogin = (userData: User) => {
+    setUser(userData);
+    const target = userData.role === 'ADMIN' ? '/admin' : '/dashboard';
+    window.history.pushState({}, '', target);
+    // Trigger a popstate so react-router picks it up
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  const handleLogout = async () => {
+    await api.logout();
+    setUser(null);
+    window.history.pushState({}, '', '/login');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  const handleUpdateUser = async (updatedUser: User) => {
+    try {
+      const result = await api.updateUser(updatedUser);
+      setUser(result);
+    } catch (error) {
+      console.error('Update failed', error);
+      alert('Failed to update profile');
+    }
+  };
+
+  if (isLoading) {
+    return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-green-700">Loading RAN Portal...</div>;
+  }
+
+  return (
+    <BrowserRouter>
+      <AppShell
+        user={user}
+        setUser={setUser}
+        handleLogin={handleLogin}
+        handleLogout={handleLogout}
+        handleUpdateUser={handleUpdateUser}
+      />
+    </BrowserRouter>
   );
 }
 
