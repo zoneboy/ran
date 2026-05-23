@@ -106,6 +106,282 @@ const StockpileModal: React.FC<StockpileModalProps> = ({ stockpile, onClose }) =
     });
   };
 
+  const downloadCsv = (filename: string, rows: string[][]) => {
+    const csvContent = rows.map(r => r.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportAllTime = () => {
+    const headers = ['Material', 'Collected (kg)', 'Processed (kg)', 'In Stock (kg)', 'Throughput (%)'];
+    const rows = [headers];
+    stockpile.forEach(s => {
+      const throughput = s.collected > 0 ? ((s.processed / s.collected) * 100).toFixed(1) : '0.0';
+      rows.push([
+        `"${s.material}"`,
+        s.collected.toString(),
+        s.processed.toString(),
+        s.inStock.toString(),
+        throughput
+      ]);
+    });
+    const totalC = stockpile.reduce((acc, s) => acc + s.collected, 0);
+    const totalP = stockpile.reduce((acc, s) => acc + s.processed, 0);
+    const totalS = stockpile.reduce((acc, s) => acc + s.inStock, 0);
+    const totalThroughput = totalC > 0 ? ((totalP / totalC) * 100).toFixed(1) : '0.0';
+    rows.push(['"TOTAL"', totalC.toString(), totalP.toString(), totalS.toString(), totalThroughput]);
+
+    const date = new Date().toISOString().split('T')[0];
+    downloadCsv(`ran_stockpile_all_time_${date}.csv`, rows);
+  };
+
+  const exportSingleMonth = (monthEntry: MonthlyStockpile) => {
+    const headers = ['Year', 'Month', 'Material', 'Collected (kg)', 'Processed (kg)', 'In Stock (kg)', 'Throughput (%)'];
+    const rows = [headers];
+    monthEntry.materials.forEach(m => {
+      const throughput = m.collected > 0 ? ((m.processed / m.collected) * 100).toFixed(1) : '0.0';
+      rows.push([
+        monthEntry.year,
+        monthEntry.month,
+        `"${m.material}"`,
+        m.collected.toString(),
+        m.processed.toString(),
+        m.inStock.toString(),
+        throughput
+      ]);
+    });
+    const totalThroughput = monthEntry.totalCollected > 0
+      ? ((monthEntry.totalProcessed / monthEntry.totalCollected) * 100).toFixed(1)
+      : '0.0';
+    rows.push([
+      monthEntry.year,
+      monthEntry.month,
+      '"TOTAL"',
+      monthEntry.totalCollected.toString(),
+      monthEntry.totalProcessed.toString(),
+      monthEntry.totalInStock.toString(),
+      totalThroughput
+    ]);
+
+    const safeMonth = monthEntry.month.replace(/\s+/g, '_');
+    downloadCsv(`ran_stockpile_${safeMonth}_${monthEntry.year}.csv`, rows);
+  };
+
+  const exportAllMonths = () => {
+    const headers = ['Year', 'Month', 'Material', 'Collected (kg)', 'Processed (kg)', 'In Stock (kg)', 'Throughput (%)'];
+    const rows = [headers];
+    monthlyData.forEach(monthEntry => {
+      monthEntry.materials.forEach(m => {
+        const throughput = m.collected > 0 ? ((m.processed / m.collected) * 100).toFixed(1) : '0.0';
+        rows.push([
+          monthEntry.year,
+          monthEntry.month,
+          `"${m.material}"`,
+          m.collected.toString(),
+          m.processed.toString(),
+          m.inStock.toString(),
+          throughput
+        ]);
+      });
+    });
+
+    const date = new Date().toISOString().split('T')[0];
+    downloadCsv(`ran_stockpile_all_months_${date}.csv`, rows);
+  };
+
+  const renderMaterialTable = (materials: StockpileEntry[]) => (
+    <table className="min-w-full divide-y divide-gray-200">
+      <thead className="bg-gray-50 sticky top-0">
+        <tr>
+          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Collected</th>
+          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Processed</th>
+          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">In Stock</th>
+          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Throughput</th>
+        </tr>
+      </thead>
+      <tbody className="bg-white divide-y divide-gray-200">
+        {materials.length > 0 ? materials.map(s => {
+          const throughput = s.collected > 0 ? ((s.processed / s.collected) * 100) : 0;
+          return (
+            <tr key={s.material} className="hover:bg-gray-50">
+              <td className="px-4 py-3 text-sm font-medium text-gray-900">{s.material}</td>
+              <td className="px-4 py-3 text-sm text-right text-green-700 font-bold">{s.collected.toLocaleString()} kg</td>
+              <td className="px-4 py-3 text-sm text-right text-teal-700 font-bold">{s.processed.toLocaleString()} kg</td>
+              <td className={`px-4 py-3 text-sm text-right font-bold ${s.inStock < 0 ? 'text-red-600' : s.inStock === 0 ? 'text-gray-400' : 'text-gray-900'}`}>{s.inStock.toLocaleString()} kg</td>
+              <td className="px-4 py-3 text-sm text-right">
+                <span className={`px-2 py-0.5 rounded text-xs font-bold ${throughput >= 80 ? 'bg-green-100 text-green-700' : throughput >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                  {throughput.toFixed(1)}%
+                </span>
+              </td>
+            </tr>
+          );
+        }) : (<tr><td colSpan={5} className="text-center py-6 text-gray-500 text-sm">No data.</td></tr>)}
+      </tbody>
+      {materials.length > 0 && (
+        <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+          <tr>
+            <td className="px-4 py-3 text-sm font-bold text-gray-900">TOTAL</td>
+            <td className="px-4 py-3 text-sm text-right font-bold text-green-700">{materials.reduce((acc, s) => acc + s.collected, 0).toLocaleString()} kg</td>
+            <td className="px-4 py-3 text-sm text-right font-bold text-teal-700">{materials.reduce((acc, s) => acc + s.processed, 0).toLocaleString()} kg</td>
+            <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">{materials.reduce((acc, s) => acc + s.inStock, 0).toLocaleString()} kg</td>
+            <td className="px-4 py-3"></td>
+          </tr>
+        </tfoot>
+      )}
+    </table>
+  );
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 flex items-center"><Package className="mr-2 h-5 w-5 text-blue-600" /> Sector-Wide Stockpile</h2>
+            <p className="text-sm text-gray-500">Aggregate of all member inventory. Collected − Processed = In Stock.</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
+        </div>
+
+        {/* View toggle + Export buttons */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="bg-gray-100 rounded-lg p-1 inline-flex gap-1">
+            <button
+              onClick={() => setView('all-time')}
+              className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${view === 'all-time' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+            >
+              📊 All-Time
+            </button>
+            <button
+              onClick={() => setView('monthly')}
+              className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${view === 'monthly' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+            >
+              📅 Monthly Breakdown
+            </button>
+          </div>
+
+          {view === 'all-time' ? (
+            <button
+              onClick={exportAllTime}
+              disabled={stockpile.length === 0}
+              className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700 flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className="h-4 w-4 mr-1.5" /> Export All-Time CSV
+            </button>
+          ) : (
+            <button
+              onClick={exportAllMonths}
+              disabled={monthlyData.length === 0 || isLoadingMonthly}
+              className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700 flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className="h-4 w-4 mr-1.5" /> Export All Months CSV
+            </button>
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
+          {view === 'all-time' ? (
+            renderMaterialTable(stockpile)
+          ) : (
+            <div className="divide-y divide-gray-200">
+              {isLoadingMonthly ? (
+                <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 text-blue-600 animate-spin" /></div>
+              ) : monthlyData.length === 0 ? (
+                <div className="text-center py-12 text-gray-500 text-sm">
+                  No monthly activity data yet. Members need to log collections and processed materials with month + year.
+                </div>
+              ) : (
+                monthlyData.map(monthEntry => {
+                  const key = `${monthEntry.year}|${monthEntry.month}`;
+                  const isExpanded = expandedMonths.has(key);
+                  const throughput = monthEntry.totalCollected > 0
+                    ? ((monthEntry.totalProcessed / monthEntry.totalCollected) * 100)
+                    : 0;
+
+                  return (
+                    <div key={key}>
+                      <button
+                        type="button"
+                        onClick={() => toggleMonth(key)}
+                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={`text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                          <span className="font-bold text-gray-900">{monthEntry.month} {monthEntry.year}</span>
+                          <span className="text-xs text-gray-500">({monthEntry.materials.length} materials)</span>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs">
+                          <span className="text-green-700 font-medium">{monthEntry.totalCollected.toLocaleString()} kg in</span>
+                          <span className="text-teal-700 font-medium">{monthEntry.totalProcessed.toLocaleString()} kg out</span>
+                          <span className={`px-2 py-0.5 rounded font-bold ${throughput >= 80 ? 'bg-green-100 text-green-700' : throughput >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                            {throughput.toFixed(0)}%
+                          </span>
+                        </div>
+                      </button>
+                      {isExpanded && (
+                        <div className="bg-gray-50 px-2 pb-3">
+                          <div className="flex justify-end mb-2 px-2 pt-2">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); exportSingleMonth(monthEntry); }}
+                              className="bg-teal-600 text-white px-3 py-1 rounded text-xs hover:bg-teal-700 flex items-center"
+                            >
+                              <Download className="h-3 w-3 mr-1.5" /> Download {monthEntry.month} {monthEntry.year} CSV
+                            </button>
+                          </div>
+                          <div className="bg-white border border-gray-200 rounded overflow-x-auto">
+                            {renderMaterialTable(monthEntry.materials)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end">
+          <button onClick={onClose} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const StockpileModal: React.FC<StockpileModalProps> = ({ stockpile, onClose }) => {
+  const [view, setView] = useState<'all-time' | 'monthly'>('all-time');
+  const [monthlyData, setMonthlyData] = useState<MonthlyStockpile[]>([]);
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
+  const [isLoadingMonthly, setIsLoadingMonthly] = useState(false);
+
+  useEffect(() => {
+    if (view === 'monthly' && monthlyData.length === 0) {
+      setIsLoadingMonthly(true);
+      api.getStockpileMonthly()
+        .then(setMonthlyData)
+        .catch(e => console.error('Failed to load monthly stockpile', e))
+        .finally(() => setIsLoadingMonthly(false));
+    }
+  }, [view]);
+
+  const toggleMonth = (key: string) => {
+    setExpandedMonths(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const renderMaterialTable = (materials: StockpileEntry[]) => (
     <table className="min-w-full divide-y divide-gray-200">
       <thead className="bg-gray-50 sticky top-0">
