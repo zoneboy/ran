@@ -678,18 +678,31 @@ router.post('/auth/register', async (req, res) => {
 
 router.post('/upload', authenticateToken, async (req, res) => {
     try {
-        const { file } = req.body;
+        const { file, filename } = req.body;
         
         if (!file) {
             return res.status(400).json({ message: 'No file provided' });
         }
 
-        const result = await cloudinary.uploader.upload(file, {
+        const mimeMatch = file.match(/^data:([^;]+);base64,/);
+        const mimeType = mimeMatch ? mimeMatch[1] : '';
+        const isImage = mimeType.startsWith('image/');
+        const resourceType = isImage ? 'image' : 'raw';
+
+        const uploadOptions = {
             folder: 'ran_portal_secure',
-            resource_type: 'auto',
-            use_filename: false,
-            unique_filename: true
-        });
+            resource_type: resourceType,
+            use_filename: true,
+            unique_filename: true,
+            overwrite: false
+        };
+
+        if (!isImage && filename) {
+            const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+            uploadOptions.public_id = `${Date.now()}_${safeName}`;
+        }
+
+        const result = await cloudinary.uploader.upload(file, uploadOptions);
 
         res.status(200).json({ secure_url: result.secure_url });
     } catch (error) {
@@ -700,18 +713,31 @@ router.post('/upload', authenticateToken, async (req, res) => {
 
 router.post('/upload/public', publicUploadLimiter, async (req, res) => {
     try {
-        const { file } = req.body;
+        const { file, filename } = req.body;
         
         if (!file) {
             return res.status(400).json({ message: 'No file provided' });
         }
 
-        const result = await cloudinary.uploader.upload(file, {
-            folder: 'ran_portal_registration', 
-            resource_type: 'auto',       
-            use_filename: false,         
-            unique_filename: true        
-        });
+        const mimeMatch = file.match(/^data:([^;]+);base64,/);
+        const mimeType = mimeMatch ? mimeMatch[1] : '';
+        const isImage = mimeType.startsWith('image/');
+        const resourceType = isImage ? 'image' : 'raw';
+
+        const uploadOptions = {
+            folder: 'ran_portal_registration',
+            resource_type: resourceType,
+            use_filename: true,
+            unique_filename: true,
+            overwrite: false
+        };
+
+        if (!isImage && filename) {
+            const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+            uploadOptions.public_id = `${Date.now()}_${safeName}`;
+        }
+
+        const result = await cloudinary.uploader.upload(file, uploadOptions);
 
         res.status(200).json({ secure_url: result.secure_url });
     } catch (error) {
@@ -954,8 +980,6 @@ router.put('/prices/:id', authenticateToken, requireAdmin, async (req, res) => {
         res.json({ message: 'Price and CO2e rate updated successfully' });
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
-
-// --- LISTINGS ROUTES ---
 
 router.get('/listings', authenticateToken, async (req, res) => {
     try {
