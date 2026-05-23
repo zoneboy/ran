@@ -260,7 +260,7 @@ const Listings: React.FC<ListingsProps> = ({ navigate, currentUser }) => {
         {activeTab === 'CLOSED' && (
           <div className="bg-blue-50 border-l-4 border-blue-400 p-3 rounded text-sm text-blue-800 flex items-start">
             <Archive className="h-4 w-4 mr-2 mt-0.5 shrink-0" />
-            <span>Archive of closed and expired listings. These are read-only and kept for reference.</span>
+            <span>Closed and expired listings.</span>
           </div>
         )}
 
