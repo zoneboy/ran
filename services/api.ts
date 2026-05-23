@@ -1,4 +1,4 @@
-import { User, Announcement, Payment, Message, BankDetails, Collection, MaterialPrice } from '../types';
+import { User, Announcement, Payment, Message, BankDetails, Collection, MaterialPrice, ProcessedMaterial, StockpileEntry } from '../types';
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_URL = isLocal 
@@ -254,6 +254,38 @@ export const api = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  getProcessedMaterials: async (userId?: string): Promise<ProcessedMaterial[]> => {
+    let url = `${API_URL}/processed`;
+    if (userId) {
+        url += `?userId=${encodeURIComponent(userId)}`;
+    }
+    const res = await fetch(url, {
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  createProcessedMaterial: async (data: Partial<ProcessedMaterial>): Promise<ProcessedMaterial> => {
+    const res = await fetch(`${API_URL}/processed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  getStockpile: async (userId?: string): Promise<StockpileEntry[]> => {
+    let url = `${API_URL}/stockpile`;
+    if (userId) {
+        url += `?userId=${encodeURIComponent(userId)}`;
+    }
+    const res = await fetch(url, {
         credentials: 'include'
     });
     return await handleResponse(res);

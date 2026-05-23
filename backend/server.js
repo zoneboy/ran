@@ -258,6 +258,18 @@ const initDb = async () => {
         CREATE INDEX IF NOT EXISTS idx_listings_user ON listings(user_id);
         CREATE INDEX IF NOT EXISTS idx_listings_state ON listings(location_state);
         CREATE INDEX IF NOT EXISTS idx_listings_expires ON listings(expires_at);
+        CREATE TABLE IF NOT EXISTS processed_materials (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+            month TEXT,
+            year TEXT,
+            material TEXT NOT NULL,
+            weight NUMERIC NOT NULL,
+            weighbridge_images TEXT[] NOT NULL,
+            created_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_processed_user ON processed_materials(user_id);
+        CREATE INDEX IF NOT EXISTS idx_processed_material ON processed_materials(material);
       `;
       
       await client.query(schema);
@@ -896,6 +908,127 @@ router.post('/collections', authenticateToken, verifyOwnership, async (req, res)
     const id = `col-${Date.now()}`;
     const createdAt = new Date().toISOString();
     try { await query('INSERT INTO collections (id, user_id, month, year, material, weight, images, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)', [id, data.userId, data.month, data.year, data.material, data.weight, data.images, createdAt]); res.status(201).json({ ...data, id, createdAt }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// --- PROCESSED MATERIALS ROUTES ---
+
+router.get('/processed', authenticateToken, verifyOwnership, async (req, res) => {
+    try {
+        const { userId } = req.query;
+        let q = `SELECT p.*, u.business_name, u.first_name, u.last_name FROM processed_materials p JOIN users u ON p.user_id = u.id`;
+        let params = [];
+        if (req.user.role !== 'ADMIN') { q += ` WHERE p.user_id = $1`; params.push(req.user.id); }
+        else if (userId) { q += ` WHERE p.user_id = $1`; params.push(userId); }
+        q += ` ORDER BY p.created_at DESC`;
+        const result = await query(q, params);
+        res.json(result.rows.map(row => ({
+            id: row.id,
+            userId: row.user_id,
+            userName: `${row.first_name} ${row.last_name}`,
+            businessName: row.business_name,
+            month: row.month,
+            year: row.year,
+            material: row.material,
+            weight: Number(row.weight),
+            weighbridgeImages: row.weighbridge_images || [],
+            createdAt: row.created_at
+        })));
+    } catch (e) {
+        console.error('GET /processed error:', e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.post('/processed', authenticateToken, verifyOwnership, async (req, res) => {
+    const data = req.body;
+    const id = `proc-${Date.now()}`;
+    const createdAt = new Date().toISOString();
+
+    try {
+        if (!data.userId || !data.material || !data.weight) {
+            return res.status(400).json({ message: 'Missing required fields.' });
+        }
+        const weight = Number(data.weight);
+        if (isNaN(weight) || weight <= 0) {
+            return res.status(400).json({ message: 'Invalid weight.' });
+        }
+        if (!Array.isArray(data.weighbridgeImages) || data.weighbridgeImages.length === 0) {
+            return res.status(400).json({ message: 'At least one weighbridge image is required.' });
+        }
+
+        await query(
+            'INSERT INTO processed_materials (id, user_id, month, year, material, weight, weighbridge_images, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+            [id, data.userId, data.month, data.year, data.material, weight, data.weighbridgeImages, createdAt]
+        );
+        res.status(201).json({ ...data, id, createdAt });
+    } catch (e) {
+        console.error('POST /processed error:', e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Stockpile = sum(collected) - sum(processed) per material, per user
+router.get('/stockpile', authenticateToken, async (req, res) => {
+    try {
+        const { userId } = req.query;
+        const isAdmin = req.user.role === 'ADMIN';
+        const targetUserId = isAdmin && userId ? userId : req.user.id;
+
+        // Non-admins can only query their own stockpile
+        if (!isAdmin && userId && userId !== req.user.id) {
+            return res.status(403).json({ message: 'Forbidden' });
+        }
+
+        let collectedQuery, processedQuery, params;
+
+        if (isAdmin && !userId) {
+            // Admin viewing aggregate across all members
+            collectedQuery = `SELECT material, COALESCE(SUM(weight), 0) AS total FROM collections GROUP BY material`;
+            processedQuery = `SELECT material, COALESCE(SUM(weight), 0) AS total FROM processed_materials GROUP BY material`;
+            params = [];
+        } else {
+            collectedQuery = `SELECT material, COALESCE(SUM(weight), 0) AS total FROM collections WHERE user_id = $1 GROUP BY material`;
+            processedQuery = `SELECT material, COALESCE(SUM(weight), 0) AS total FROM processed_materials WHERE user_id = $1 GROUP BY material`;
+            params = [targetUserId];
+        }
+
+        const [collectedRes, processedRes] = await Promise.all([
+            query(collectedQuery, params),
+            query(processedQuery, params)
+        ]);
+
+        const stockpileMap = new Map();
+
+        collectedRes.rows.forEach(row => {
+            stockpileMap.set(row.material, {
+                material: row.material,
+                collected: Number(row.total),
+                processed: 0,
+                inStock: Number(row.total)
+            });
+        });
+
+        processedRes.rows.forEach(row => {
+            const existing = stockpileMap.get(row.material);
+            if (existing) {
+                existing.processed = Number(row.total);
+                existing.inStock = existing.collected - existing.processed;
+            } else {
+                stockpileMap.set(row.material, {
+                    material: row.material,
+                    collected: 0,
+                    processed: Number(row.total),
+                    inStock: -Number(row.total)
+                });
+            }
+        });
+
+        const stockpile = Array.from(stockpileMap.values()).sort((a, b) => a.material.localeCompare(b.material));
+        res.json(stockpile);
+    } catch (e) {
+        console.error('GET /stockpile error:', e);
+        res.status(500).json({ message: 'Server error' });
+    }
 });
 
 router.get('/messages/chat', authenticateToken, verifyOwnership, async (req, res) => {

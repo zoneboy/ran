@@ -165,3 +165,23 @@ export interface Listing {
   profileImage?: string;
   businessCategory?: string;
 }
+
+export interface ProcessedMaterial {
+  id: string;
+  userId: string;
+  userName?: string;
+  businessName?: string;
+  month: string;
+  year: string;
+  material: string;
+  weight: number;
+  weighbridgeImages: string[];
+  createdAt: string;
+}
+
+export interface StockpileEntry {
+  material: string;
+  collected: number;
+  processed: number;
+  inStock: number;
+}

@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment, Collection, MaterialPrice, BusinessCategory } from '../types';
+import { User, MembershipStatus, MembershipCategory, UserRole, Announcement, Payment, Collection, MaterialPrice, BusinessCategory, ProcessedMaterial, StockpileEntry } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File as FileIcon, BarChart2, Coins, Leaf } from 'lucide-react';
+import { Check, X, FileText, Search, Clock, Mail, Download, Filter, Bell, AlertCircle, Calendar, Loader2, Plus, Trash2, Megaphone, Edit, Save, Upload, FileCheck, CreditCard, Shield, ExternalLink, RefreshCw, User as UserIcon, Image as ImageIcon, File as FileIcon, BarChart2, Coins, Leaf, Factory, Package } from 'lucide-react';
 import { api } from '../services/api';
 import { uploadToCloudinary } from '../services/cloudinary';
 import RichTextEditor from '../components/RichTextEditor';
 import { sanitizeRichText, htmlToPlainText, renderAnnouncementHtml } from '../utils/sanitizeHtml';
 
-// Reusable pagination footer used by member table, collections,
-// pending payments, announcements, and per-user payments.
 interface PaginationProps {
   currentPage: number;
   totalItems: number;
@@ -62,63 +60,23 @@ const Pagination: React.FC<PaginationProps> = ({
         Showing {start}–{end} of {totalItems} {itemLabel}
       </p>
       <div className="flex items-center gap-1 flex-wrap justify-center">
-        <button
-          type="button"
-          onClick={() => onPageChange(1)}
-          disabled={currentPage === 1}
-          className={btnBase}
-        >
-          First
-        </button>
-        <button
-          type="button"
-          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-          disabled={currentPage === 1}
-          className={btnBase}
-        >
-          Prev
-        </button>
-
+        <button type="button" onClick={() => onPageChange(1)} disabled={currentPage === 1} className={btnBase}>First</button>
+        <button type="button" onClick={() => onPageChange(Math.max(1, currentPage - 1))} disabled={currentPage === 1} className={btnBase}>Prev</button>
         {pageNumbers.map((p, i) =>
           typeof p === 'string' ? (
-            <span key={`ellipsis-${i}`} className={compact ? 'px-1 text-gray-400 text-xs' : 'px-2 text-gray-400 text-sm'}>
-              …
-            </span>
+            <span key={`ellipsis-${i}`} className={compact ? 'px-1 text-gray-400 text-xs' : 'px-2 text-gray-400 text-sm'}>…</span>
           ) : (
-            <button
-              key={p}
-              type="button"
-              onClick={() => onPageChange(p)}
-              className={currentPage === p ? activePage : btnBase}
-            >
-              {p}
-            </button>
+            <button key={p} type="button" onClick={() => onPageChange(p)} className={currentPage === p ? activePage : btnBase}>{p}</button>
           )
         )}
-
-        <button
-          type="button"
-          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-          disabled={currentPage === totalPages}
-          className={btnBase}
-        >
-          Next
-        </button>
-        <button
-          type="button"
-          onClick={() => onPageChange(totalPages)}
-          disabled={currentPage === totalPages}
-          className={btnBase}
-        >
-          Last
-        </button>
+        <button type="button" onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages} className={btnBase}>Next</button>
+        <button type="button" onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages} className={btnBase}>Last</button>
       </div>
     </div>
   );
 };
 
-interface AdminDashboardProps {
-}
+interface AdminDashboardProps {}
 
 const getRegion = (state: string) => {
   if (!state) return 'Other';
@@ -138,21 +96,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [pendingPayments, setPendingPayments] = useState<Payment[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [processed, setProcessed] = useState<ProcessedMaterial[]>([]);
+  const [stockpile, setStockpile] = useState<StockpileEntry[]>([]);
   const [prices, setPrices] = useState<MaterialPrice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
-  // Member Filters
+
   const [filter, setFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [businessTypeFilter, setBusinessTypeFilter] = useState('');
 
-  // Member Table Pagination
   const [memberPage, setMemberPage] = useState(1);
   const MEMBERS_PER_PAGE = 50;
   const memberTableRef = useRef<HTMLDivElement>(null);
 
-  // Collection Filters & Pagination
   const [collectionFilter, setCollectionFilter] = useState('');
   const [collectionMaterialFilter, setCollectionMaterialFilter] = useState('');
   const [collectionStartDate, setCollectionStartDate] = useState('');
@@ -160,25 +117,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [collectionPage, setCollectionPage] = useState(1);
   const COLLECTIONS_PER_PAGE = 50;
 
-  // Announcement Filters & Pagination
+  const [processedFilter, setProcessedFilter] = useState('');
+  const [processedMaterialFilter, setProcessedMaterialFilter] = useState('');
+  const [processedStartDate, setProcessedStartDate] = useState('');
+  const [processedEndDate, setProcessedEndDate] = useState('');
+  const [processedPage, setProcessedPage] = useState(1);
+  const PROCESSED_PER_PAGE = 50;
+
   const [announcementDateFilter, setAnnouncementDateFilter] = useState('');
   const [announcementTypeFilter, setAnnouncementTypeFilter] = useState('All');
   const [announcementPage, setAnnouncementPage] = useState(1);
   const ANNOUNCEMENTS_PER_PAGE = 3;
 
-  // Pending Payments Pagination (modal)
   const [pendingPaymentPage, setPendingPaymentPage] = useState(1);
   const PENDING_PAYMENTS_PER_PAGE = 20;
 
-  // User Payments Pagination (per-member modal)
   const [userPaymentPage, setUserPaymentPage] = useState(1);
   const USER_PAYMENTS_PER_PAGE = 10;
-  
+
   const [showExportModal, setShowExportModal] = useState(false);
   const [showAnnounceModal, setShowAnnounceModal] = useState(false);
   const [showPendingPaymentModal, setShowPendingPaymentModal] = useState(false);
   const [showExpiringModal, setShowExpiringModal] = useState(false);
   const [showPriceModal, setShowPriceModal] = useState(false);
+  const [showStockpileModal, setShowStockpileModal] = useState(false);
 
   const [exportConfig, setExportConfig] = useState({
     state: '',
@@ -199,16 +161,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [idEditModal, setIdEditModal] = useState<{ isOpen: boolean; userId: string; currentId: string; newId: string; name: string } | null>(null);
   const [expiryEditModal, setExpiryEditModal] = useState<{ isOpen: boolean; userId: string; currentExpiry: string; name: string } | null>(null);
   const [statusEditModal, setStatusEditModal] = useState<{ isOpen: boolean; userId: string; currentStatus: MembershipStatus; name: string } | null>(null);
-  const [docModal, setDocModal] = useState<{ 
-    isOpen: boolean; 
-    userId: string; 
+  const [docModal, setDocModal] = useState<{
+    isOpen: boolean;
+    userId: string;
     name: string;
     profileImage?: string;
     cac?: string;
     logo?: string;
     evidence?: string;
-    idCard?: string; 
-    certificate?: string 
+    idCard?: string;
+    certificate?: string
   } | null>(null);
   const [docFiles, setDocFiles] = useState<{ idCard?: string; certificate?: string }>({});
   const [uploadingDocs, setUploadingDocs] = useState<{ idCard: boolean; certificate: boolean }>({ idCard: false, certificate: false });
@@ -228,8 +190,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   });
   const [showAddPaymentForm, setShowAddPaymentForm] = useState(false);
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
-  
-  // Price Edit State
+
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [newPriceValue, setNewPriceValue] = useState<string>('');
   const [newCo2Value, setNewCo2Value] = useState<string>('');
@@ -238,10 +199,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     try {
       const usersData = await api.getUsers();
       setUsers(usersData);
-      
+
       const allPayments = await api.getAllPayments();
       setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
-      
+
       const pricesData = await api.getPrices();
       setPrices(pricesData);
 
@@ -251,6 +212,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       const allCollections = await api.getCollections();
       setCollections(allCollections);
 
+      const allProcessed = await api.getProcessedMaterials();
+      setProcessed(allProcessed);
+
+      const stockpileData = await api.getStockpile();
+      setStockpile(stockpileData);
     } catch (error) {
       console.error('Failed to load data', error);
     } finally {
@@ -262,7 +228,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     refreshData();
   }, []);
 
-  // Reset pagination when filters change
   useEffect(() => {
     setMemberPage(1);
   }, [filter, statusFilter, categoryFilter, businessTypeFilter]);
@@ -272,28 +237,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   }, [collectionFilter, collectionMaterialFilter, collectionStartDate, collectionEndDate]);
 
   useEffect(() => {
+    setProcessedPage(1);
+  }, [processedFilter, processedMaterialFilter, processedStartDate, processedEndDate]);
+
+  useEffect(() => {
     setAnnouncementPage(1);
   }, [announcementDateFilter, announcementTypeFilter]);
 
-  // Reset pending payment page when modal is closed
   useEffect(() => {
     if (!showPendingPaymentModal) setPendingPaymentPage(1);
   }, [showPendingPaymentModal]);
 
-  // Reset per-user payment page when payment modal opens for a different user
   useEffect(() => {
     setUserPaymentPage(1);
   }, [paymentModal?.userId]);
 
   const handleUpdatePrice = async (id: string, newPrice: number, newCo2: number) => {
-      try {
-          await api.updatePrice(id, newPrice, newCo2);
-          const updatedPrices = await api.getPrices();
-          setPrices(updatedPrices);
-          setEditingPriceId(null);
-      } catch (e) {
-          alert("Failed to update price and CO2e rate");
-      }
+    try {
+      await api.updatePrice(id, newPrice, newCo2);
+      const updatedPrices = await api.getPrices();
+      setPrices(updatedPrices);
+      setEditingPriceId(null);
+    } catch (e) {
+      alert("Failed to update price and CO2e rate");
+    }
   };
 
   const statusData = [
@@ -315,28 +282,28 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const uniqueStates = Array.from(new Set(users.filter(u => u.role !== UserRole.ADMIN).map(u => u.businessState || 'Unknown'))) as string[];
   const uniqueRegions = Array.from(new Set(uniqueStates.map(s => getRegion(s))));
   const uniqueMachinery = Array.from(new Set(users.flatMap(u => u.machineryDeployed || []).filter(m => !!m)));
-  
+
   const uniqueMaterials = Array.from(new Set(collections.map(c => c.material).filter(Boolean))).sort();
+  const uniqueProcessedMaterials = Array.from(new Set(processed.map(p => p.material).filter(Boolean))).sort();
 
   const handleStatusChange = async (userId: string, newStatus: MembershipStatus) => {
     const previousUsers = [...users];
     setUsers(users.map(u => u.id === userId ? { ...u, status: newStatus } : u));
-    
+
     try {
       const userToUpdate = users.find(u => u.id === userId);
       if (userToUpdate) {
         await api.updateUser({ ...userToUpdate, status: newStatus });
       }
     } catch (error) {
-       setUsers(previousUsers);
-       alert('Failed to update status');
+      setUsers(previousUsers);
+      alert('Failed to update status');
     }
   };
 
   const handlePostAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate that the rich-text content has actual text, not just empty markup.
     const plainText = htmlToPlainText(newAnnouncement.content);
     if (!plainText.trim()) {
       alert('Announcement content cannot be empty.');
@@ -347,7 +314,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       return;
     }
 
-    // Sanitize before sending. The render path also sanitizes — belt and braces.
     const sanitizedContent = sanitizeRichText(newAnnouncement.content);
 
     try {
@@ -380,16 +346,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  // Helper: Activate member and align expiry to the next March 31 cycle end.
-  //
-  // Rule: expiry = the next March 31 STRICTLY AFTER max(today, current expiry).
-  //
-  // Behavior:
-  // - Pay May 11, 2026 (no expiry / expired)   -> March 31, 2027
-  // - Pay Feb 5, 2027 (expired)                 -> March 31, 2027
-  // - Pay on March 31, 2027                     -> March 31, 2028 (cycle closes that day)
-  // - Pay April 1, 2027                         -> March 31, 2028
-  // - Pay mid-cycle (expiry = Mar 31, 2027)     -> March 31, 2028 (skip to following)
   const activateMemberOnPayment = async (userId: string) => {
     const member = users.find(u => u.id === userId);
     if (!member || member.role === UserRole.ADMIN) return;
@@ -397,7 +353,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Anchor = the later of today and current expiry (if any valid expiry exists).
     let anchor = today;
     if (member.expiryDate) {
       const currentExpiry = new Date(member.expiryDate);
@@ -407,8 +362,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       }
     }
 
-    // Find the next March 31 STRICTLY AFTER the anchor.
-    // Month index 2 = March. Day 31.
     let cycleYear = anchor.getFullYear();
     let candidate = new Date(cycleYear, 2, 31);
     candidate.setHours(0, 0, 0, 0);
@@ -418,58 +371,53 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       candidate.setHours(0, 0, 0, 0);
     }
 
-    // Build YYYY-MM-DD in local time to avoid UTC drift from toISOString().
     const pad = (n: number) => String(n).padStart(2, '0');
     const newExpiryStr = `${candidate.getFullYear()}-${pad(candidate.getMonth() + 1)}-${pad(candidate.getDate())}`;
 
     const updatedUser = { ...member, status: MembershipStatus.ACTIVE, expiryDate: newExpiryStr };
     await api.updateUser(updatedUser);
 
-    // Update local state immediately
     setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: MembershipStatus.ACTIVE, expiryDate: newExpiryStr } : u));
   };
 
   const handleGlobalApprovePayment = async (e: React.MouseEvent, paymentId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    
-    // Find the payment to get the userId
+
     const payment = pendingPayments.find(p => p.id === paymentId);
     if (!payment) return;
 
-    if(!window.confirm("Confirm approval of this payment? This will set the member's status to Active and align their membership expiry to the next March 31 cycle.")) return;
-    
+    if (!window.confirm("Confirm approval of this payment? This will set the member's status to Active and align their membership expiry to the next March 31 cycle.")) return;
+
     try {
-        await api.updatePaymentStatus(paymentId, 'Successful');
+      await api.updatePaymentStatus(paymentId, 'Successful');
+      await activateMemberOnPayment(payment.userId);
 
-        // Auto-activate member and align expiry to next March 31
-        await activateMemberOnPayment(payment.userId);
-
-        setPendingPayments(prev => prev.filter(p => p.id !== paymentId));
-        const allPayments = await api.getAllPayments();
-        setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
-        alert("Payment approved. Member status set to Active and expiry aligned to next March 31 cycle.");
-    } catch(e) {
-        console.error(e);
-        alert("Failed to approve payment.");
+      setPendingPayments(prev => prev.filter(p => p.id !== paymentId));
+      const allPayments = await api.getAllPayments();
+      setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
+      alert("Payment approved. Member status set to Active and expiry aligned to next March 31 cycle.");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to approve payment.");
     }
   };
 
   const handleGlobalRejectPayment = async (e: React.MouseEvent, paymentId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    
-    if(!window.confirm("Are you sure you want to reject (delete) this payment record?")) return;
-    
+
+    if (!window.confirm("Are you sure you want to reject (delete) this payment record?")) return;
+
     try {
-        await api.deletePayment(paymentId);
-        setPendingPayments(prev => prev.filter(p => p.id !== paymentId));
-        const allPayments = await api.getAllPayments();
-        setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
-        alert("Payment rejected and removed.");
-    } catch(e) {
-        console.error(e);
-        alert("Failed to reject payment.");
+      await api.deletePayment(paymentId);
+      setPendingPayments(prev => prev.filter(p => p.id !== paymentId));
+      const allPayments = await api.getAllPayments();
+      setPendingPayments(allPayments.filter(p => p.status === 'Pending'));
+      alert("Payment rejected and removed.");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to reject payment.");
     }
   };
 
@@ -480,84 +428,84 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
   const handleOpenIdModal = (user: User) => {
     setIdEditModal({
-        isOpen: true,
-        userId: user.id,
-        currentId: user.id,
-        newId: user.id,
-        name: user.businessName
+      isOpen: true,
+      userId: user.id,
+      currentId: user.id,
+      newId: user.id,
+      name: user.businessName
     });
   };
 
   const handleSaveId = async () => {
     if (!idEditModal) return;
     if (!idEditModal.newId.trim()) {
-        alert("ID cannot be empty");
-        return;
+      alert("ID cannot be empty");
+      return;
     }
-    
+
     const existingUser = users.find(u => u.id === idEditModal.newId && u.id !== idEditModal.currentId);
     if (existingUser) {
-        alert(`User ID '${idEditModal.newId}' is already assigned to ${existingUser.businessName}.`);
-        return;
+      alert(`User ID '${idEditModal.newId}' is already assigned to ${existingUser.businessName}.`);
+      return;
     }
 
     try {
-        await api.updateUserId(idEditModal.currentId, idEditModal.newId);
-        setIdEditModal(null);
-        await refreshData();
-        alert(`Successfully updated ID to ${idEditModal.newId}`);
+      await api.updateUserId(idEditModal.currentId, idEditModal.newId);
+      setIdEditModal(null);
+      await refreshData();
+      alert(`Successfully updated ID to ${idEditModal.newId}`);
     } catch (e: any) {
-        alert(e.message || "Failed to update ID");
+      alert(e.message || "Failed to update ID");
     }
   };
 
   const handleOpenExpiryModal = (user: User) => {
     setExpiryEditModal({
-        isOpen: true,
-        userId: user.id,
-        currentExpiry: user.expiryDate,
-        name: user.businessName
+      isOpen: true,
+      userId: user.id,
+      currentExpiry: user.expiryDate,
+      name: user.businessName
     });
   };
 
   const handleSaveExpiry = async () => {
     if (!expiryEditModal) return;
     if (!expiryEditModal.currentExpiry) {
-        alert("Expiry date cannot be empty");
-        return;
+      alert("Expiry date cannot be empty");
+      return;
     }
 
     try {
-        const userToUpdate = users.find(u => u.id === expiryEditModal.userId);
-        if (!userToUpdate) throw new Error("User not found");
+      const userToUpdate = users.find(u => u.id === expiryEditModal.userId);
+      if (!userToUpdate) throw new Error("User not found");
 
-        const updatedUser = { ...userToUpdate, expiryDate: expiryEditModal.currentExpiry };
-        await api.updateUser(updatedUser);
-        
-        setExpiryEditModal(null);
-        await refreshData();
-        alert(`Successfully updated expiry date for ${expiryEditModal.name}`);
+      const updatedUser = { ...userToUpdate, expiryDate: expiryEditModal.currentExpiry };
+      await api.updateUser(updatedUser);
+
+      setExpiryEditModal(null);
+      await refreshData();
+      alert(`Successfully updated expiry date for ${expiryEditModal.name}`);
     } catch (e: any) {
-        alert(e.message || "Failed to update expiry date");
+      alert(e.message || "Failed to update expiry date");
     }
   };
 
   const handleOpenStatusModal = (user: User) => {
     setStatusEditModal({
-        isOpen: true,
-        userId: user.id,
-        currentStatus: user.status,
-        name: user.businessName
+      isOpen: true,
+      userId: user.id,
+      currentStatus: user.status,
+      name: user.businessName
     });
   };
 
   const handleSaveStatus = async () => {
     if (!statusEditModal) return;
     try {
-        await handleStatusChange(statusEditModal.userId, statusEditModal.currentStatus);
-        setStatusEditModal(null);
+      await handleStatusChange(statusEditModal.userId, statusEditModal.currentStatus);
+      setStatusEditModal(null);
     } catch (e) {
-        console.error("Failed to save status", e);
+      console.error("Failed to save status", e);
     }
   };
 
@@ -573,7 +521,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       idCard: user.documents?.membershipIdCard,
       certificate: user.documents?.membershipCertificate
     });
-    setDocFiles({}); 
+    setDocFiles({});
   };
 
   const handleDocFileChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'idCard' | 'certificate') => {
@@ -588,46 +536,46 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     setUploadingDocs(prev => ({ ...prev, [type]: true }));
 
     try {
-        let uploadPayload: File | string = file;
-        if (file.type.startsWith('image/')) {
-            uploadPayload = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        const canvas = document.createElement('canvas');
-                        const MAX_WIDTH = 800;
-                        const scaleSize = MAX_WIDTH / img.width;
-                        if (scaleSize < 1) {
-                            canvas.width = MAX_WIDTH;
-                            canvas.height = img.height * scaleSize;
-                        } else {
-                            canvas.width = img.width;
-                            canvas.height = img.height;
-                        }
-                        const ctx = canvas.getContext('2d');
-                        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        resolve(canvas.toDataURL('image/jpeg', 0.7));
-                    };
-                    img.src = event.target?.result as string;
-                };
-                reader.readAsDataURL(file);
-            });
-        }
+      let uploadPayload: File | string = file;
+      if (file.type.startsWith('image/')) {
+        uploadPayload = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 800;
+              const scaleSize = MAX_WIDTH / img.width;
+              if (scaleSize < 1) {
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * scaleSize;
+              } else {
+                canvas.width = img.width;
+                canvas.height = img.height;
+              }
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+              resolve(canvas.toDataURL('image/jpeg', 0.7));
+            };
+            img.src = event.target?.result as string;
+          };
+          reader.readAsDataURL(file);
+        });
+      }
 
-        const url = await uploadToCloudinary(uploadPayload);
-        setDocFiles(prev => ({ ...prev, [type]: url }));
+      const url = await uploadToCloudinary(uploadPayload);
+      setDocFiles(prev => ({ ...prev, [type]: url }));
     } catch (err) {
-        console.error(err);
-        alert(`Failed to upload ${type}.`);
+      console.error(err);
+      alert(`Failed to upload ${type}.`);
     } finally {
-        setUploadingDocs(prev => ({ ...prev, [type]: false }));
+      setUploadingDocs(prev => ({ ...prev, [type]: false }));
     }
   };
 
   const handleSaveDocs = async () => {
     if (!docModal) return;
-    
+
     try {
       const userToUpdate = users.find(u => u.id === docModal.userId);
       if (!userToUpdate) throw new Error("User not found");
@@ -657,21 +605,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       name: user.businessName
     });
     setShowAddPaymentForm(false);
-    
+
     try {
-        const data = await api.getPayments(user.id);
-        setUserPayments(data);
+      const data = await api.getPayments(user.id);
+      setUserPayments(data);
     } catch (e) {
-        console.error("Failed to fetch payments");
-        setUserPayments([]);
+      console.error("Failed to fetch payments");
+      setUserPayments([]);
     }
 
     setPaymentForm({
-        amount: '',
-        date: new Date().toISOString().split('T')[0],
-        description: '',
-        status: 'Successful',
-        receipt: ''
+      amount: '',
+      date: new Date().toISOString().split('T')[0],
+      description: '',
+      status: 'Successful',
+      receipt: ''
     });
   };
 
@@ -679,47 +627,47 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) { 
-        alert("Receipt file is too large. Max 5MB.");
-        return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Receipt file is too large. Max 5MB.");
+      return;
     }
-    
+
     setIsUploadingReceipt(true);
     try {
-        let uploadPayload: File | string = file;
-        if (file.type.startsWith('image/')) {
-            uploadPayload = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        const canvas = document.createElement('canvas');
-                        const MAX_WIDTH = 800; 
-                        const scaleSize = MAX_WIDTH / img.width;
-                        if (scaleSize < 1) {
-                            canvas.width = MAX_WIDTH;
-                            canvas.height = img.height * scaleSize;
-                        } else {
-                            canvas.width = img.width;
-                            canvas.height = img.height;
-                        }
-                        const ctx = canvas.getContext('2d');
-                        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        resolve(canvas.toDataURL('image/jpeg', 0.7));
-                    };
-                    img.src = event.target?.result as string;
-                };
-                reader.readAsDataURL(file);
-            });
-        }
+      let uploadPayload: File | string = file;
+      if (file.type.startsWith('image/')) {
+        uploadPayload = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 800;
+              const scaleSize = MAX_WIDTH / img.width;
+              if (scaleSize < 1) {
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * scaleSize;
+              } else {
+                canvas.width = img.width;
+                canvas.height = img.height;
+              }
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+              resolve(canvas.toDataURL('image/jpeg', 0.7));
+            };
+            img.src = event.target?.result as string;
+          };
+          reader.readAsDataURL(file);
+        });
+      }
 
-        const url = await uploadToCloudinary(uploadPayload);
-        setPaymentForm(prev => ({ ...prev, receipt: url }));
+      const url = await uploadToCloudinary(uploadPayload);
+      setPaymentForm(prev => ({ ...prev, receipt: url }));
     } catch (err) {
-        console.error(err);
-        alert("Failed to upload receipt.");
+      console.error(err);
+      alert("Failed to upload receipt.");
     } finally {
-        setIsUploadingReceipt(false);
+      setIsUploadingReceipt(false);
     }
   };
 
@@ -728,42 +676,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     if (!paymentModal) return;
 
     try {
-        await api.createPayment({
-            userId: paymentModal.userId,
-            amount: Number(paymentForm.amount),
-            description: paymentForm.description,
-            date: paymentForm.date,
-            status: paymentForm.status,
-            receipt: paymentForm.receipt
-        });
-        const updated = await api.getPayments(paymentModal.userId);
-        setUserPayments(updated);
-        
-        setShowAddPaymentForm(false);
-        alert("Payment recorded successfully.");
+      await api.createPayment({
+        userId: paymentModal.userId,
+        amount: Number(paymentForm.amount),
+        description: paymentForm.description,
+        date: paymentForm.date,
+        status: paymentForm.status,
+        receipt: paymentForm.receipt
+      });
+      const updated = await api.getPayments(paymentModal.userId);
+      setUserPayments(updated);
+
+      setShowAddPaymentForm(false);
+      alert("Payment recorded successfully.");
     } catch (e: any) {
-        alert(e.message || "Failed to record payment.");
+      alert(e.message || "Failed to record payment.");
     }
   };
 
   const handleApprovePayment = async (e: React.MouseEvent, paymentId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if(!paymentModal) return;
+    if (!paymentModal) return;
 
-    if(!window.confirm("Approve this payment? This will set the member's status to Active and align their membership expiry to the next March 31 cycle.")) return;
+    if (!window.confirm("Approve this payment? This will set the member's status to Active and align their membership expiry to the next March 31 cycle.")) return;
 
     try {
-        await api.updatePaymentStatus(paymentId, 'Successful');
+      await api.updatePaymentStatus(paymentId, 'Successful');
+      await activateMemberOnPayment(paymentModal.userId);
 
-        // Auto-activate member and align expiry to next March 31
-        await activateMemberOnPayment(paymentModal.userId);
-
-        const updated = await api.getPayments(paymentModal.userId);
-        setUserPayments(updated);
-        alert("Payment approved. Member status set to Active and expiry aligned to next March 31 cycle.");
-    } catch(e) {
-        alert("Failed to approve payment.");
+      const updated = await api.getPayments(paymentModal.userId);
+      setUserPayments(updated);
+      alert("Payment approved. Member status set to Active and expiry aligned to next March 31 cycle.");
+    } catch (e) {
+      alert("Failed to approve payment.");
     }
   };
 
@@ -771,29 +717,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     e.preventDefault();
     e.stopPropagation();
 
-    if(!window.confirm("Are you sure you want to delete this payment record? This cannot be undone.")) {
-        return;
+    if (!window.confirm("Are you sure you want to delete this payment record? This cannot be undone.")) {
+      return;
     }
 
     const previousPayments = [...userPayments];
     setUserPayments(prev => prev.filter(p => p.id !== paymentId));
 
     try {
-        await api.deletePayment(paymentId);
-        if (paymentModal) {
-            const updated = await api.getPayments(paymentModal.userId);
-            setUserPayments(updated);
-        }
-    } catch(e) {
-        console.error("Delete Error", e);
-        alert("Failed to delete payment.");
-        setUserPayments(previousPayments);
+      await api.deletePayment(paymentId);
+      if (paymentModal) {
+        const updated = await api.getPayments(paymentModal.userId);
+        setUserPayments(updated);
+      }
+    } catch (e) {
+      console.error("Delete Error", e);
+      alert("Failed to delete payment.");
+      setUserPayments(previousPayments);
     }
   };
 
   const filteredUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN) return false;
-    
+
     if (statusFilter && u.status !== statusFilter) return false;
     if (categoryFilter && (u.category || '').toLowerCase() !== categoryFilter.toLowerCase()) return false;
     if (businessTypeFilter && (u.businessCategory || '') !== businessTypeFilter) return false;
@@ -812,8 +758,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     const safeId = (u.id || '').toLowerCase();
 
     return (
-      safeFirstName.includes(searchTerm) || 
-      safeLastName.includes(searchTerm) || 
+      safeFirstName.includes(searchTerm) ||
+      safeLastName.includes(searchTerm) ||
       safeBusiness.includes(searchTerm) ||
       safeCategory.includes(searchTerm) ||
       safeBizCategory.includes(searchTerm) ||
@@ -824,7 +770,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     );
   });
 
-  // Pagination for member table
   const paginatedUsers = filteredUsers.slice(
     (memberPage - 1) * MEMBERS_PER_PAGE,
     memberPage * MEMBERS_PER_PAGE
@@ -833,22 +778,46 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const filteredCollections = collections.filter(c => {
     const search = collectionFilter.toLowerCase();
     const matchesSearch = (
-        (c.businessName || '').toLowerCase().includes(search) ||
-        (c.material || '').toLowerCase().includes(search) ||
-        (c.month || '').toLowerCase().includes(search) ||
-        (c.userId || '').toLowerCase().includes(search)
+      (c.businessName || '').toLowerCase().includes(search) ||
+      (c.material || '').toLowerCase().includes(search) ||
+      (c.month || '').toLowerCase().includes(search) ||
+      (c.userId || '').toLowerCase().includes(search)
     );
 
     const matchesMaterial = collectionMaterialFilter ? c.material === collectionMaterialFilter : true;
 
     let matchesDate = true;
     if (collectionStartDate) {
-        matchesDate = matchesDate && new Date(c.createdAt) >= new Date(collectionStartDate);
+      matchesDate = matchesDate && new Date(c.createdAt) >= new Date(collectionStartDate);
     }
     if (collectionEndDate) {
-        const end = new Date(collectionEndDate);
-        end.setHours(23, 59, 59, 999);
-        matchesDate = matchesDate && new Date(c.createdAt) <= end;
+      const end = new Date(collectionEndDate);
+      end.setHours(23, 59, 59, 999);
+      matchesDate = matchesDate && new Date(c.createdAt) <= end;
+    }
+
+    return matchesSearch && matchesMaterial && matchesDate;
+  });
+
+  const filteredProcessed = processed.filter(p => {
+    const search = processedFilter.toLowerCase();
+    const matchesSearch = (
+      (p.businessName || '').toLowerCase().includes(search) ||
+      (p.material || '').toLowerCase().includes(search) ||
+      (p.month || '').toLowerCase().includes(search) ||
+      (p.userId || '').toLowerCase().includes(search)
+    );
+
+    const matchesMaterial = processedMaterialFilter ? p.material === processedMaterialFilter : true;
+
+    let matchesDate = true;
+    if (processedStartDate) {
+      matchesDate = matchesDate && new Date(p.createdAt) >= new Date(processedStartDate);
+    }
+    if (processedEndDate) {
+      const end = new Date(processedEndDate);
+      end.setHours(23, 59, 59, 999);
+      matchesDate = matchesDate && new Date(p.createdAt) <= end;
     }
 
     return matchesSearch && matchesMaterial && matchesDate;
@@ -856,15 +825,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
   const filteredAnnouncements = announcements.filter(ann => {
     const matchDate = announcementDateFilter ? ann.date === announcementDateFilter : true;
-    const matchType = announcementTypeFilter === 'All' 
-        ? true 
-        : announcementTypeFilter === 'Important' 
-            ? ann.isImportant 
-            : !ann.isImportant;
+    const matchType = announcementTypeFilter === 'All'
+      ? true
+      : announcementTypeFilter === 'Important'
+        ? ann.isImportant
+        : !ann.isImportant;
     return matchDate && matchType;
   });
 
-  // Paginated slices for non-member lists
   const paginatedAnnouncements = filteredAnnouncements.slice(
     (announcementPage - 1) * ANNOUNCEMENTS_PER_PAGE,
     announcementPage * ANNOUNCEMENTS_PER_PAGE
@@ -873,6 +841,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const paginatedCollections = filteredCollections.slice(
     (collectionPage - 1) * COLLECTIONS_PER_PAGE,
     collectionPage * COLLECTIONS_PER_PAGE
+  );
+
+  const paginatedProcessed = filteredProcessed.slice(
+    (processedPage - 1) * PROCESSED_PER_PAGE,
+    processedPage * PROCESSED_PER_PAGE
   );
 
   const paginatedPendingPayments = pendingPayments.slice(
@@ -888,12 +861,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const handleExportCollections = () => {
     const headers = ['Date Logged', 'Member ID', 'Business Name', 'Period', 'Material', 'Weight (KG)'];
     const rows = filteredCollections.map(c => [
-       new Date(c.createdAt).toLocaleDateString(),
-       c.userId,
-       `"${c.businessName}"`,
-       `${c.month} ${c.year}`,
-       c.material,
-       c.weight
+      new Date(c.createdAt).toLocaleDateString(),
+      c.userId,
+      `"${c.businessName}"`,
+      `${c.month} ${c.year}`,
+      c.material,
+      c.weight
     ]);
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -901,11 +874,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    
+
     let filename = `ran_collections_${new Date().toISOString().split('T')[0]}`;
     if (collectionMaterialFilter) filename += `_${collectionMaterialFilter.replace(/\s+/g, '_')}`;
     link.setAttribute('download', `${filename}.csv`);
-    
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportProcessed = () => {
+    const headers = ['Date Logged', 'Member ID', 'Business Name', 'Period', 'Material', 'Weight (KG)', 'Weighbridge Images'];
+    const rows = filteredProcessed.map(p => [
+      new Date(p.createdAt).toLocaleDateString(),
+      p.userId,
+      `"${p.businessName}"`,
+      `${p.month} ${p.year}`,
+      p.material,
+      p.weight,
+      `"${p.weighbridgeImages.join(' | ')}"`
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+
+    let filename = `ran_processed_${new Date().toISOString().split('T')[0]}`;
+    if (processedMaterialFilter) filename += `_${processedMaterialFilter.replace(/\s+/g, '_')}`;
+    link.setAttribute('download', `${filename}.csv`);
+
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -917,19 +917,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const expiringUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN || u.status === MembershipStatus.SUSPENDED) return false;
     if (!u.expiryDate) return false;
-    
+
     const expiry = new Date(u.expiryDate);
-    expiry.setHours(0, 0, 0, 0); 
-    
+    expiry.setHours(0, 0, 0, 0);
+
     const diffTime = expiry.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     return diffDays >= 0 && diffDays <= 30;
   });
 
   const handleExport = () => {
     const exportData = users.filter(u => {
-      if(u.role === UserRole.ADMIN) return false;
+      if (u.role === UserRole.ADMIN) return false;
       const matchState = exportConfig.state ? u.businessState === exportConfig.state : true;
       const matchRegion = exportConfig.region ? getRegion(u.businessState) === exportConfig.region : true;
       const matchCat = exportConfig.category ? (u.category || '').toLowerCase() === exportConfig.category.toLowerCase() : true;
@@ -939,181 +939,181 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     });
 
     if (exportConfig.format === 'Excel') {
-        const headers = [
-            'ID', 'Business Name', 'Membership Category', 'Business Type', 'Status', 'Expiry Date',
-            'First Name', 'Last Name', 'Gender', 'Email', 'Phone', 'DOB',
-            'Address', 'City', 'State', 'Region', 'Other States',
-            'Commencement Date', 'Monthly Volume (Tons)', 'Employees',
-            'Materials', 'Machinery',
-            'Interests', 'Related Association'
-        ];
-        
-        const rows = exportData.map(u => {
-             const safeUser = u as any; 
-             return [
-                `"${safeUser.id}"`,
-                `"${safeUser.businessName}"`,
-                `"${safeUser.category}"`,
-                `"${safeUser.businessCategory || 'N/A'}"`,
-                `"${safeUser.status}"`,
-                `"${safeUser.expiryDate}"`,
-                `"${safeUser.firstName}"`,
-                `"${safeUser.lastName}"`,
-                `"${safeUser.gender || ''}"`,
-                `"${safeUser.email}"`,
-                `"${safeUser.phone}"`,
-                `"${safeUser.dob || ''}"`,
-                `"${safeUser.businessAddress}"`,
-                `"${safeUser.businessCity || ''}"`,
-                `"${safeUser.businessState}"`,
-                `"${getRegion(safeUser.businessState)}"`,
-                `"${safeUser.statesOfOperation || ''}"`,
-                `"${safeUser.businessCommencement || ''}"`,
-                `"${safeUser.monthlyVolume}"`,
-                `"${safeUser.employees}"`,
-                `"${(safeUser.materialTypes || []).join(' | ')}"`,
-                `"${(safeUser.machineryDeployed || []).join(' | ')}"`,
-                `"${(safeUser.areasOfInterest || []).join(' | ')}"`,
-                `"${safeUser.relatedAssociation === 'Yes' ? safeUser.relatedAssociationName : 'No'}"`
-            ].join(',');
-        });
+      const headers = [
+        'ID', 'Business Name', 'Membership Category', 'Business Type', 'Status', 'Expiry Date',
+        'First Name', 'Last Name', 'Gender', 'Email', 'Phone', 'DOB',
+        'Address', 'City', 'State', 'Region', 'Other States',
+        'Commencement Date', 'Monthly Volume (Tons)', 'Employees',
+        'Materials', 'Machinery',
+        'Interests', 'Related Association'
+      ];
 
-        const csvContent = [headers.join(','), ...rows].join('\n');
+      const rows = exportData.map(u => {
+        const safeUser = u as any;
+        return [
+          `"${safeUser.id}"`,
+          `"${safeUser.businessName}"`,
+          `"${safeUser.category}"`,
+          `"${safeUser.businessCategory || 'N/A'}"`,
+          `"${safeUser.status}"`,
+          `"${safeUser.expiryDate}"`,
+          `"${safeUser.firstName}"`,
+          `"${safeUser.lastName}"`,
+          `"${safeUser.gender || ''}"`,
+          `"${safeUser.email}"`,
+          `"${safeUser.phone}"`,
+          `"${safeUser.dob || ''}"`,
+          `"${safeUser.businessAddress}"`,
+          `"${safeUser.businessCity || ''}"`,
+          `"${safeUser.businessState}"`,
+          `"${getRegion(safeUser.businessState)}"`,
+          `"${safeUser.statesOfOperation || ''}"`,
+          `"${safeUser.businessCommencement || ''}"`,
+          `"${safeUser.monthlyVolume}"`,
+          `"${safeUser.employees}"`,
+          `"${(safeUser.materialTypes || []).join(' | ')}"`,
+          `"${(safeUser.machineryDeployed || []).join(' | ')}"`,
+          `"${(safeUser.areasOfInterest || []).join(' | ')}"`,
+          `"${safeUser.relatedAssociation === 'Yes' ? safeUser.relatedAssociationName : 'No'}"`
+        ].join(',');
+      });
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', `ran_members_full_export_${new Date().toISOString().split('T')[0]}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+      const csvContent = [headers.join(','), ...rows].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `ran_members_full_export_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } else {
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-            const escapeHtml = (unsafe: string | null | undefined): string => {
-                if (!unsafe) return '';
-                return String(unsafe)
-                    .replace(/&/g, "&amp;")
-                    .replace(/</g, "&lt;")
-                    .replace(/>/g, "&gt;")
-                    .replace(/"/g, "&quot;")
-                    .replace(/'/g, "&#039;");
-            };
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        const escapeHtml = (unsafe: string | null | undefined): string => {
+          if (!unsafe) return '';
+          return String(unsafe)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+        };
 
-            printWindow.document.write(`
-                <html>
-                <head>
-                    <title>RAN Member Profiles</title>
-                    <style>
-                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #f9f9f9; }
-                        .member-card { background: white; border: 1px solid #ddd; margin-bottom: 40px; padding: 30px; border-radius: 8px; page-break-inside: avoid; }
-                        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #16a34a; padding-bottom: 15px; margin-bottom: 20px; }
-                        .header h1 { margin: 0; color: #166534; font-size: 24px; }
-                        .header .meta { text-align: right; font-size: 12px; color: #666; }
-                        .profile-header { display: flex; gap: 20px; margin-bottom: 20px; align-items: start; }
-                        .profile-img { width: 120px; height: 120px; object-fit: cover; border-radius: 50%; border: 4px solid #f0fdf4; box-shadow: 0 2px 4px rgba(0,0,0,0.1); background: #eee; }
-                        .logo-img { width: 100px; height: 100px; object-fit: contain; margin-left: auto; border: 1px solid #eee; padding: 5px; }
-                        .section-title { font-weight: bold; color: #15803d; border-bottom: 1px solid #eee; margin-top: 20px; margin-bottom: 10px; padding-bottom: 5px; font-size: 14px; text-transform: uppercase; }
-                        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
-                        .field { margin-bottom: 5px; }
-                        .label { font-weight: bold; color: #555; display: block; font-size: 11px; }
-                        .value { color: #000; }
-                        .status-active { color: green; font-weight: bold; }
-                        .status-expired { color: red; font-weight: bold; }
-                        .doc-badge { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-right: 5px; border: 1px solid #bae6fd; text-decoration: none; }
-                        .doc-badge:hover { background: #bae6fd; }
-                    </style>
-                </head>
-                <body>
-                    <div style="text-align:center; margin-bottom: 40px;">
-                        <h1 style="color:#166534;">Recyclers Association of Nigeria</h1>
-                        <p>Membership Database Export - Generated: ${escapeHtml(new Date().toLocaleDateString())}</p>
+        printWindow.document.write(`
+          <html>
+          <head>
+            <title>RAN Member Profiles</title>
+            <style>
+              body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #f9f9f9; }
+              .member-card { background: white; border: 1px solid #ddd; margin-bottom: 40px; padding: 30px; border-radius: 8px; page-break-inside: avoid; }
+              .header { display: flex; justify-content: space-between; border-bottom: 2px solid #16a34a; padding-bottom: 15px; margin-bottom: 20px; }
+              .header h1 { margin: 0; color: #166534; font-size: 24px; }
+              .header .meta { text-align: right; font-size: 12px; color: #666; }
+              .profile-header { display: flex; gap: 20px; margin-bottom: 20px; align-items: start; }
+              .profile-img { width: 120px; height: 120px; object-fit: cover; border-radius: 50%; border: 4px solid #f0fdf4; box-shadow: 0 2px 4px rgba(0,0,0,0.1); background: #eee; }
+              .logo-img { width: 100px; height: 100px; object-fit: contain; margin-left: auto; border: 1px solid #eee; padding: 5px; }
+              .section-title { font-weight: bold; color: #15803d; border-bottom: 1px solid #eee; margin-top: 20px; margin-bottom: 10px; padding-bottom: 5px; font-size: 14px; text-transform: uppercase; }
+              .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
+              .field { margin-bottom: 5px; }
+              .label { font-weight: bold; color: #555; display: block; font-size: 11px; }
+              .value { color: #000; }
+              .status-active { color: green; font-weight: bold; }
+              .status-expired { color: red; font-weight: bold; }
+              .doc-badge { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-right: 5px; border: 1px solid #bae6fd; text-decoration: none; }
+              .doc-badge:hover { background: #bae6fd; }
+            </style>
+          </head>
+          <body>
+            <div style="text-align:center; margin-bottom: 40px;">
+              <h1 style="color:#166534;">Recyclers Association of Nigeria</h1>
+              <p>Membership Database Export - Generated: ${escapeHtml(new Date().toLocaleDateString())}</p>
+            </div>
+
+            ${exportData.map(u => {
+          const safeUser = u as any;
+          const region = getRegion(safeUser.businessState);
+          const cleanMaterials = (safeUser.materialTypes || []).map((m: string) => escapeHtml(m)).join(', ');
+          const cleanMachinery = (safeUser.machineryDeployed || []).map((m: string) => escapeHtml(m)).join(', ');
+          const cleanInterests = (safeUser.areasOfInterest || []).map((m: string) => escapeHtml(m)).join(', ');
+
+          return `
+              <div class="member-card">
+                <div class="header">
+                  <div>
+                    <h1>${escapeHtml(safeUser.businessName)}</h1>
+                    <div style="font-size:14px; color:#555;">${escapeHtml(safeUser.category)}</div>
+                  </div>
+                  <div class="meta">
+                    ID: <strong>${escapeHtml(safeUser.id)}</strong><br/>
+                    Status: <span class="${safeUser.status === 'Active' ? 'status-active' : 'status-expired'}">${escapeHtml(safeUser.status)}</span><br/>
+                    Expires: ${escapeHtml(safeUser.expiryDate)}
+                  </div>
+                </div>
+
+                <div class="profile-header">
+                  ${safeUser.profileImage ? `<img src="${safeUser.profileImage}" class="profile-img" crossorigin="anonymous" />` : '<div class="profile-img" style="display:flex;align-items:center;justify-content:center;color:#999;">No Photo</div>'}
+                  <div style="flex:1; padding-left: 10px;">
+                    <div class="grid">
+                      <div class="field"><span class="label">Contact Name</span><span class="value">${escapeHtml(safeUser.firstName)} ${escapeHtml(safeUser.lastName)}</span></div>
+                      <div class="field"><span class="label">Gender</span><span class="value">${escapeHtml(safeUser.gender || 'N/A')}</span></div>
+                      <div class="field"><span class="label">Email</span><span class="value">${escapeHtml(safeUser.email)}</span></div>
+                      <div class="field"><span class="label">Phone</span><span class="value">${escapeHtml(safeUser.phone)}</span></div>
+                      <div class="field"><span class="label">Date of Birth</span><span class="value">${escapeHtml(safeUser.dob || 'N/A')}</span></div>
                     </div>
+                  </div>
+                  ${safeUser.documents?.logo ? `<img src="${safeUser.documents.logo}" class="logo-img" crossorigin="anonymous" />` : ''}
+                </div>
 
-                    ${exportData.map(u => {
-                        const safeUser = u as any;
-                        const region = getRegion(safeUser.businessState);
-                        const cleanMaterials = (safeUser.materialTypes || []).map((m: string) => escapeHtml(m)).join(', ');
-                        const cleanMachinery = (safeUser.machineryDeployed || []).map((m: string) => escapeHtml(m)).join(', ');
-                        const cleanInterests = (safeUser.areasOfInterest || []).map((m: string) => escapeHtml(m)).join(', ');
+                <div class="section-title">Business Information</div>
+                <div class="grid">
+                  <div class="field"><span class="label">Business Type</span><span class="value">${escapeHtml(safeUser.businessCategory || 'N/A')}</span></div>
+                  <div class="field"><span class="label">Address</span><span class="value">${escapeHtml(safeUser.businessAddress)}, ${escapeHtml(safeUser.businessCity || '')}</span></div>
+                  <div class="field"><span class="label">State / Region</span><span class="value">${escapeHtml(safeUser.businessState)} (${escapeHtml(region)})</span></div>
+                  <div class="field"><span class="label">Date Commenced</span><span class="value">${escapeHtml(safeUser.businessCommencement || 'N/A')}</span></div>
+                  <div class="field"><span class="label">Other States</span><span class="value">${escapeHtml(safeUser.statesOfOperation || 'None')}</span></div>
+                </div>
 
-                        return `
-                        <div class="member-card">
-                            <div class="header">
-                                <div>
-                                    <h1>${escapeHtml(safeUser.businessName)}</h1>
-                                    <div style="font-size:14px; color:#555;">${escapeHtml(safeUser.category)}</div>
-                                </div>
-                                <div class="meta">
-                                    ID: <strong>${escapeHtml(safeUser.id)}</strong><br/>
-                                    Status: <span class="${safeUser.status === 'Active' ? 'status-active' : 'status-expired'}">${escapeHtml(safeUser.status)}</span><br/>
-                                    Expires: ${escapeHtml(safeUser.expiryDate)}
-                                </div>
-                            </div>
+                <div class="section-title">Operational Data</div>
+                <div class="grid">
+                  <div class="field"><span class="label">Materials</span><span class="value">${cleanMaterials}</span></div>
+                  <div class="field"><span class="label">Machinery</span><span class="value">${cleanMachinery}</span></div>
+                  <div class="field"><span class="label">Monthly Volume</span><span class="value">${escapeHtml(safeUser.monthlyVolume)} Tons</span></div>
+                  <div class="field"><span class="label">Employees</span><span class="value">${escapeHtml(String(safeUser.employees))}</span></div>
+                </div>
+                
+                <div class="section-title">Other Details</div>
+                <div class="grid">
+                  <div class="field"><span class="label">Areas of Interest</span><span class="value">${cleanInterests}</span></div>
+                  <div class="field"><span class="label">Related Association</span><span class="value">${safeUser.relatedAssociation === 'Yes' ? escapeHtml(safeUser.relatedAssociationName) : 'No'}</span></div>
+                  <div class="field">
+                    <span class="label">Uploaded Documents</span>
+                    <div style="margin-top:2px;">
+                      ${safeUser.documents?.cac ? `<a href="${safeUser.documents.cac}" target="_blank" class="doc-badge">CAC Cert</a>` : ''}
+                      ${safeUser.documents?.evidence ? `<a href="${safeUser.documents.evidence}" target="_blank" class="doc-badge">Evidence</a>` : ''}
+                      ${safeUser.documents?.membershipIdCard ? `<a href="${safeUser.documents.membershipIdCard}" target="_blank" class="doc-badge">ID Card</a>` : ''}
+                      ${safeUser.documents?.membershipCertificate ? `<a href="${safeUser.documents.membershipCertificate}" target="_blank" class="doc-badge">RAN Cert</a>` : ''}
+                      ${(!safeUser.documents?.cac && !safeUser.documents?.evidence && !safeUser.documents?.membershipIdCard && !safeUser.documents?.membershipCertificate) ? '<span style="color:#999;font-style:italic;">None</span>' : ''}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              `
+        }).join('')}
 
-                            <div class="profile-header">
-                                ${safeUser.profileImage ? `<img src="${safeUser.profileImage}" class="profile-img" crossorigin="anonymous" />` : '<div class="profile-img" style="display:flex;align-items:center;justify-content:center;color:#999;">No Photo</div>'}
-                                <div style="flex:1; padding-left: 10px;">
-                                    <div class="grid">
-                                        <div class="field"><span class="label">Contact Name</span><span class="value">${escapeHtml(safeUser.firstName)} ${escapeHtml(safeUser.lastName)}</span></div>
-                                        <div class="field"><span class="label">Gender</span><span class="value">${escapeHtml(safeUser.gender || 'N/A')}</span></div>
-                                        <div class="field"><span class="label">Email</span><span class="value">${escapeHtml(safeUser.email)}</span></div>
-                                        <div class="field"><span class="label">Phone</span><span class="value">${escapeHtml(safeUser.phone)}</span></div>
-                                        <div class="field"><span class="label">Date of Birth</span><span class="value">${escapeHtml(safeUser.dob || 'N/A')}</span></div>
-                                    </div>
-                                </div>
-                                ${safeUser.documents?.logo ? `<img src="${safeUser.documents.logo}" class="logo-img" crossorigin="anonymous" />` : ''}
-                            </div>
-
-                            <div class="section-title">Business Information</div>
-                            <div class="grid">
-                                <div class="field"><span class="label">Business Type</span><span class="value">${escapeHtml(safeUser.businessCategory || 'N/A')}</span></div>
-                                <div class="field"><span class="label">Address</span><span class="value">${escapeHtml(safeUser.businessAddress)}, ${escapeHtml(safeUser.businessCity || '')}</span></div>
-                                <div class="field"><span class="label">State / Region</span><span class="value">${escapeHtml(safeUser.businessState)} (${escapeHtml(region)})</span></div>
-                                <div class="field"><span class="label">Date Commenced</span><span class="value">${escapeHtml(safeUser.businessCommencement || 'N/A')}</span></div>
-                                <div class="field"><span class="label">Other States</span><span class="value">${escapeHtml(safeUser.statesOfOperation || 'None')}</span></div>
-                            </div>
-
-                            <div class="section-title">Operational Data</div>
-                            <div class="grid">
-                                <div class="field"><span class="label">Materials</span><span class="value">${cleanMaterials}</span></div>
-                                <div class="field"><span class="label">Machinery</span><span class="value">${cleanMachinery}</span></div>
-                                <div class="field"><span class="label">Monthly Volume</span><span class="value">${escapeHtml(safeUser.monthlyVolume)} Tons</span></div>
-                                <div class="field"><span class="label">Employees</span><span class="value">${escapeHtml(String(safeUser.employees))}</span></div>
-                            </div>
-                            
-                            <div class="section-title">Other Details</div>
-                            <div class="grid">
-                                <div class="field"><span class="label">Areas of Interest</span><span class="value">${cleanInterests}</span></div>
-                                <div class="field"><span class="label">Related Association</span><span class="value">${safeUser.relatedAssociation === 'Yes' ? escapeHtml(safeUser.relatedAssociationName) : 'No'}</span></div>
-                                <div class="field">
-                                    <span class="label">Uploaded Documents</span>
-                                    <div style="margin-top:2px;">
-                                        ${safeUser.documents?.cac ? `<a href="${safeUser.documents.cac}" target="_blank" class="doc-badge">CAC Cert</a>` : ''}
-                                        ${safeUser.documents?.evidence ? `<a href="${safeUser.documents.evidence}" target="_blank" class="doc-badge">Evidence</a>` : ''}
-                                        ${safeUser.documents?.membershipIdCard ? `<a href="${safeUser.documents.membershipIdCard}" target="_blank" class="doc-badge">ID Card</a>` : ''}
-                                        ${safeUser.documents?.membershipCertificate ? `<a href="${safeUser.documents.membershipCertificate}" target="_blank" class="doc-badge">RAN Cert</a>` : ''}
-                                        ${(!safeUser.documents?.cac && !safeUser.documents?.evidence && !safeUser.documents?.membershipIdCard && !safeUser.documents?.membershipCertificate) ? '<span style="color:#999;font-style:italic;">None</span>' : ''}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        `
-                    }).join('')}
-
-                    <script>
-                        window.onload = function() {
-                            setTimeout(function() {
-                                window.print();
-                            }, 500);
-                        };
-                    </script>
-                </body>
-                </html>
-            `);
-            printWindow.document.close();
-        }
+            <script>
+              window.onload = function() {
+                setTimeout(function() {
+                  window.print();
+                }, 500);
+              };
+            </script>
+          </body>
+          </html>
+        `);
+        printWindow.document.close();
+      }
     }
     setShowExportModal(false);
   };
@@ -1121,57 +1121,63 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-10 w-10 text-green-600 animate-spin" /></div>;
   }
-
   return (
     <div className="min-h-screen bg-gray-100 p-4 sm:p-6 lg:p-8 relative">
       <div className="max-w-7xl mx-auto space-y-8">
-        
+
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
           <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-          
+
           <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
-             <div 
-                onClick={() => setShowExpiringModal(true)}
-                className="relative cursor-pointer bg-white p-2 rounded-full shadow-sm hover:shadow-md transition-shadow" 
-                title="Expiring Members"
-             >
-                <Bell className="h-6 w-6 text-gray-600" />
-                {expiringUsers.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                    {expiringUsers.length}
-                  </span>
-                )}
-             </div>
+            <div
+              onClick={() => setShowExpiringModal(true)}
+              className="relative cursor-pointer bg-white p-2 rounded-full shadow-sm hover:shadow-md transition-shadow"
+              title="Expiring Members"
+            >
+              <Bell className="h-6 w-6 text-gray-600" />
+              {expiringUsers.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                  {expiringUsers.length}
+                </span>
+              )}
+            </div>
 
-             <button 
-                onClick={() => setShowPriceModal(true)}
-                className="flex items-center space-x-2 bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-md font-medium text-sm shadow-sm transition-all"
-             >
-                <Coins className="h-4 w-4" />
-                <span>Manage Rates</span>
-             </button>
+            <button
+              onClick={() => setShowStockpileModal(true)}
+              className="flex items-center space-x-2 bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-md font-medium text-sm shadow-sm transition-all"
+            >
+              <Package className="h-4 w-4" />
+              <span>Sector Stockpile</span>
+            </button>
 
-             <button 
-                onClick={() => setShowPendingPaymentModal(true)}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-md font-medium text-sm shadow-sm transition-all ${
-                   pendingPayments.length > 0 
-                   ? 'bg-red-600 text-white hover:bg-red-700 animate-pulse' 
-                   : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+            <button
+              onClick={() => setShowPriceModal(true)}
+              className="flex items-center space-x-2 bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-md font-medium text-sm shadow-sm transition-all"
+            >
+              <Coins className="h-4 w-4" />
+              <span>Manage Rates</span>
+            </button>
+
+            <button
+              onClick={() => setShowPendingPaymentModal(true)}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-md font-medium text-sm shadow-sm transition-all ${pendingPayments.length > 0
+                ? 'bg-red-600 text-white hover:bg-red-700 animate-pulse'
+                : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
                 }`}
-             >
-                <CreditCard className="h-4 w-4" />
-                <span>Payment Requests</span>
-                {pendingPayments.length > 0 && (
-                   <span className="bg-white text-red-600 px-1.5 py-0.5 rounded-full text-xs font-bold">{pendingPayments.length}</span>
-                )}
-             </button>
+            >
+              <CreditCard className="h-4 w-4" />
+              <span>Payment Requests</span>
+              {pendingPayments.length > 0 && (
+                <span className="bg-white text-red-600 px-1.5 py-0.5 rounded-full text-xs font-bold">{pendingPayments.length}</span>
+              )}
+            </button>
 
-             <button 
-               onClick={() => setShowAnnounceModal(true)}
-               className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center shadow-sm"
-             >
-                <Megaphone className="h-4 w-4 mr-2" /> Make Announcement
-             </button>
+            <button
+              onClick={() => setShowAnnounceModal(true)}
+              className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center shadow-sm"
+            >
+              <Megaphone className="h-4 w-4 mr-2" /> Make Announcement
+            </button>
           </div>
         </div>
 
@@ -1181,18 +1187,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie
-                    data={statusData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                    label
-                  >
-                    {statusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
+                  <Pie data={statusData} cx="50%" cy="50%" outerRadius={80} fill="#8884d8" dataKey="value" label>
+                    {statusData.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}
                   </Pie>
                   <Tooltip />
                 </PieChart>
@@ -1225,128 +1221,80 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
         {/* Announcements */}
         <div className="bg-white rounded-lg shadow-sm p-6">
-           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
-               <h2 className="text-lg font-bold text-gray-900 flex items-center">
-                 <Megaphone className="h-5 w-5 mr-2 text-green-600" /> Active Announcements
-               </h2>
-               <div className="flex items-center space-x-2">
-                  <div className="relative">
-                    <select
-                      value={announcementTypeFilter}
-                      onChange={(e) => setAnnouncementTypeFilter(e.target.value)}
-                      className="appearance-none border rounded-md pl-3 pr-8 py-1 text-sm bg-gray-50 hover:bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
-                    >
-                      <option value="All">All Types</option>
-                      <option value="Important">Important</option>
-                      <option value="General">General</option>
-                    </select>
-                    <Filter className="absolute right-2 top-1.5 h-3 w-3 text-gray-400 pointer-events-none" />
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+            <h2 className="text-lg font-bold text-gray-900 flex items-center">
+              <Megaphone className="h-5 w-5 mr-2 text-green-600" /> Active Announcements
+            </h2>
+            <div className="flex items-center space-x-2">
+              <div className="relative">
+                <select value={announcementTypeFilter} onChange={(e) => setAnnouncementTypeFilter(e.target.value)} className="appearance-none border rounded-md pl-3 pr-8 py-1 text-sm bg-gray-50 hover:bg-white focus:outline-none focus:ring-1 focus:ring-green-500">
+                  <option value="All">All Types</option>
+                  <option value="Important">Important</option>
+                  <option value="General">General</option>
+                </select>
+                <Filter className="absolute right-2 top-1.5 h-3 w-3 text-gray-400 pointer-events-none" />
+              </div>
+              <input type="date" value={announcementDateFilter} onChange={(e) => setAnnouncementDateFilter(e.target.value)} className="border rounded-md px-2 py-1 text-sm text-gray-500 bg-gray-50" />
+            </div>
+          </div>
+          <div className="space-y-3">
+            {filteredAnnouncements.length === 0 ? (
+              <p className="text-gray-500 text-sm">No announcements found matching filters.</p>
+            ) : (
+              paginatedAnnouncements.map(ann => (
+                <div key={ann.id} className="flex justify-between items-start p-3 bg-gray-50 rounded border border-gray-100">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-semibold text-gray-800 flex items-center">
+                      {ann.title}
+                      {ann.isImportant && <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-full">Important</span>}
+                    </h4>
+                    <div className="text-sm text-gray-600 mt-1 ran-prose" dangerouslySetInnerHTML={{ __html: renderAnnouncementHtml(ann.content) }} />
+                    <p className="text-xs text-gray-400 mt-1">Posted: {ann.date}</p>
                   </div>
-                  <input
-                    type="date"
-                    value={announcementDateFilter}
-                    onChange={(e) => setAnnouncementDateFilter(e.target.value)}
-                    className="border rounded-md px-2 py-1 text-sm text-gray-500 bg-gray-50"
-                  />
-               </div>
-           </div>
-           <div className="space-y-3">
-              {filteredAnnouncements.length === 0 ? (
-                <p className="text-gray-500 text-sm">No announcements found matching filters.</p>
-              ) : (
-                paginatedAnnouncements.map(ann => (
-                  <div key={ann.id} className="flex justify-between items-start p-3 bg-gray-50 rounded border border-gray-100">
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-gray-800 flex items-center">
-                        {ann.title}
-                        {ann.isImportant && <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-full">Important</span>}
-                      </h4>
-                      <div
-                        className="text-sm text-gray-600 mt-1 ran-prose"
-                        dangerouslySetInnerHTML={{ __html: renderAnnouncementHtml(ann.content) }}
-                      />
-                      <p className="text-xs text-gray-400 mt-1">Posted: {ann.date}</p>
-                    </div>
-                    <button 
-                      type="button"
-                      onClick={(e) => handleDeleteAnnouncement(e, ann.id)}
-                      className="text-gray-400 hover:text-red-500 p-2 rounded hover:bg-gray-100 transition-colors shrink-0 ml-2"
-                      title="Delete Announcement"
-                    >
-                      <Trash2 className="h-5 w-5 pointer-events-none" />
-                    </button>
-                  </div>
-                ))
-              )}
-           </div>
-           <Pagination
-             currentPage={announcementPage}
-             totalItems={filteredAnnouncements.length}
-             pageSize={ANNOUNCEMENTS_PER_PAGE}
-             onPageChange={setAnnouncementPage}
-             itemLabel="announcements"
-             compact
-           />
+                  <button type="button" onClick={(e) => handleDeleteAnnouncement(e, ann.id)} className="text-gray-400 hover:text-red-500 p-2 rounded hover:bg-gray-100 transition-colors shrink-0 ml-2" title="Delete Announcement">
+                    <Trash2 className="h-5 w-5 pointer-events-none" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+          <Pagination currentPage={announcementPage} totalItems={filteredAnnouncements.length} pageSize={ANNOUNCEMENTS_PER_PAGE} onPageChange={setAnnouncementPage} itemLabel="announcements" compact />
         </div>
 
-        {/* ========== MEMBER MANAGEMENT — CONTAINED & PAGINATED ========== */}
+        {/* Member Management */}
         <div ref={memberTableRef} className="bg-white rounded-lg shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-gray-200 flex flex-col items-center gap-4">
+          <div className="p-6 border-b border-gray-200 flex flex-col items-center gap-4">
             <div className="w-full flex flex-col md:flex-row justify-between items-center gap-4">
-                <div className="flex items-center gap-3">
-                    <h2 className="text-xl font-bold text-gray-900">Member Management</h2>
-                    <span className="text-sm text-gray-500 bg-gray-100 px-2.5 py-0.5 rounded-full font-medium">
-                        {filteredUsers.length} member{filteredUsers.length !== 1 ? 's' : ''}
-                    </span>
-                </div>
-                <button
-                onClick={() => setShowExportModal(true)}
-                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors"
-                >
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-bold text-gray-900">Member Management</h2>
+                <span className="text-sm text-gray-500 bg-gray-100 px-2.5 py-0.5 rounded-full font-medium">{filteredUsers.length} member{filteredUsers.length !== 1 ? 's' : ''}</span>
+              </div>
+              <button onClick={() => setShowExportModal(true)} className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors">
                 <FileText className="h-4 w-4 mr-2" /> Export Data
-                </button>
+              </button>
             </div>
             <div className="w-full grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="relative">
-                <input
-                    type="text"
-                    placeholder="Search name, ID, business..."
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500"
-                />
+              <div className="relative">
+                <input type="text" placeholder="Search name, ID, business..." value={filter} onChange={(e) => setFilter(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500" />
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                </div>
-                <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                >
-                    <option value="">All Statuses</option>
-                    {Object.values(MembershipStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <select
-                    value={categoryFilter}
-                    onChange={(e) => setCategoryFilter(e.target.value)}
-                    className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                >
-                    <option value="">All Memberships</option>
-                    {Object.values(MembershipCategory).map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <select
-                    value={businessTypeFilter}
-                    onChange={(e) => setBusinessTypeFilter(e.target.value)}
-                    className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                >
-                    <option value="">All Business Types</option>
-                    {Object.values(BusinessCategory).map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+              </div>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500">
+                <option value="">All Statuses</option>
+                {Object.values(MembershipStatus).map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500">
+                <option value="">All Memberships</option>
+                {Object.values(MembershipCategory).map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={businessTypeFilter} onChange={(e) => setBusinessTypeFilter(e.target.value)} className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500">
+                <option value="">All Business Types</option>
+                {Object.values(BusinessCategory).map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
           </div>
 
-          {/* Scrollable table container with fixed max height */}
           <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-             <table className="min-w-full divide-y divide-gray-200">
+            <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Business / Name</th>
@@ -1373,342 +1321,344 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         <div className="text-sm font-medium text-gray-900">{user.businessName}</div>
                         <div className="text-sm text-gray-500">{user.firstName} {user.lastName}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 group relative">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex items-center space-x-2">
-                           <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">{user.id}</span>
-                           <button onClick={() => handleOpenIdModal(user)} className="text-gray-400 hover:text-green-600" title="Edit ID">
-                             <Edit className="h-4 w-4" />
-                           </button>
+                          <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">{user.id}</span>
+                          <button onClick={() => handleOpenIdModal(user)} className="text-gray-400 hover:text-green-600" title="Edit ID">
+                            <Edit className="h-4 w-4" />
+                          </button>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.category}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">{user.businessCategory || 'N/A'}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.businessState}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <span className="block font-medium">{getRegion(user.businessState || '')}</span>
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><span className="block font-medium">{getRegion(user.businessState || '')}</span></td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.gender || 'N/A'}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.email}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.phone}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.dob || 'N/A'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-500 max-w-xs break-words">
-                        {(user.materialTypes || []).join(', ')}
-                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500 max-w-xs break-words">{(user.materialTypes || []).join(', ')}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex items-center space-x-2">
-                            <span className={user.status === MembershipStatus.EXPIRED ? 'text-red-600 font-bold' : ''}>{user.expiryDate}</span>
-                            <button onClick={() => handleOpenExpiryModal(user)} className="text-gray-400 hover:text-green-600" title="Edit Expiry Date">
-                                <Edit className="h-4 w-4" />
-                            </button>
+                          <span className={user.status === MembershipStatus.EXPIRED ? 'text-red-600 font-bold' : ''}>{user.expiryDate}</span>
+                          <button onClick={() => handleOpenExpiryModal(user)} className="text-gray-400 hover:text-green-600" title="Edit Expiry Date"><Edit className="h-4 w-4" /></button>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center space-x-2">
-                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                              ${user.status === 'Active' ? 'bg-green-100 text-green-800' : 
-                                user.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' : 
-                                user.status === 'Expired' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
-                              {user.status}
-                            </span>
-                             <button onClick={() => handleOpenStatusModal(user)} className="text-gray-400 hover:text-blue-600" title="Change Status">
-                                <Edit className="h-4 w-4" />
-                             </button>
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${user.status === 'Active' ? 'bg-green-100 text-green-800' : user.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' : user.status === 'Expired' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>{user.status}</span>
+                          <button onClick={() => handleOpenStatusModal(user)} className="text-gray-400 hover:text-blue-600" title="Change Status"><Edit className="h-4 w-4" /></button>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2 flex items-center">
-                        <button
-                          onClick={() => handleOpenDocModal(user)}
-                          className="text-gray-500 hover:text-green-600 bg-gray-50 p-1.5 rounded"
-                          title="Manage Documents (ID/Cert)"
-                        >
-                          <FileCheck className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={() => handleOpenPaymentModal(user)}
-                          className="text-amber-500 hover:text-amber-600 bg-amber-50 p-1.5 rounded"
-                          title="Manage Payments"
-                        >
-                          <CreditCard className="h-5 w-5" />
-                        </button>
-                        {user.status === MembershipStatus.PENDING && (
-                          <button 
-                            onClick={() => handleStatusChange(user.id, MembershipStatus.ACTIVE)}
-                            className="text-green-600 hover:text-green-900 bg-green-50 p-1 rounded" title="Approve">
-                            <Check className="h-5 w-5" />
-                          </button>
-                        )}
-                        {user.status !== MembershipStatus.SUSPENDED && (
-                          <button 
-                            onClick={() => handleStatusChange(user.id, MembershipStatus.SUSPENDED)}
-                            className="text-red-600 hover:text-red-900 bg-red-50 p-1 rounded" title="Suspend">
-                            <X className="h-5 w-5" />
-                          </button>
-                        )}
-                         {user.status === MembershipStatus.SUSPENDED && (
-                          <button 
-                            onClick={() => handleStatusChange(user.id, MembershipStatus.ACTIVE)}
-                            className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1 rounded" title="Reactivate">
-                            <Check className="h-5 w-5" />
-                          </button>
-                        )}
+                        <button onClick={() => handleOpenDocModal(user)} className="text-gray-500 hover:text-green-600 bg-gray-50 p-1.5 rounded" title="Manage Documents (ID/Cert)"><FileCheck className="h-5 w-5" /></button>
+                        <button onClick={() => handleOpenPaymentModal(user)} className="text-amber-500 hover:text-amber-600 bg-amber-50 p-1.5 rounded" title="Manage Payments"><CreditCard className="h-5 w-5" /></button>
+                        {user.status === MembershipStatus.PENDING && (<button onClick={() => handleStatusChange(user.id, MembershipStatus.ACTIVE)} className="text-green-600 hover:text-green-900 bg-green-50 p-1 rounded" title="Approve"><Check className="h-5 w-5" /></button>)}
+                        {user.status !== MembershipStatus.SUSPENDED && (<button onClick={() => handleStatusChange(user.id, MembershipStatus.SUSPENDED)} className="text-red-600 hover:text-red-900 bg-red-50 p-1 rounded" title="Suspend"><X className="h-5 w-5" /></button>)}
+                        {user.status === MembershipStatus.SUSPENDED && (<button onClick={() => handleStatusChange(user.id, MembershipStatus.ACTIVE)} className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1 rounded" title="Reactivate"><Check className="h-5 w-5" /></button>)}
                       </td>
                     </tr>
                   ))
-                ) : (
-                  <tr>
-                    <td colSpan={14} className="px-6 py-4 text-center text-gray-500">No members found matching your search.</td>
-                  </tr>
-                )}
+                ) : (<tr><td colSpan={14} className="px-6 py-4 text-center text-gray-500">No members found matching your search.</td></tr>)}
               </tbody>
             </table>
           </div>
 
-          {/* Pagination Controls */}
-          <Pagination
-            currentPage={memberPage}
-            totalItems={filteredUsers.length}
-            pageSize={MEMBERS_PER_PAGE}
-            onPageChange={setMemberPage}
-            itemLabel="members"
-          />
+          <Pagination currentPage={memberPage} totalItems={filteredUsers.length} pageSize={MEMBERS_PER_PAGE} onPageChange={setMemberPage} itemLabel="members" />
         </div>
-        {/* ========== END MEMBER MANAGEMENT ========== */}
 
-        {/* Collection Logs Section */}
+        {/* Collection Logs */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden mt-8">
-              <div className="p-6 border-b border-gray-200 space-y-4">
-                <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                    <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                        <BarChart2 className="h-5 w-5 mr-2 text-green-600" /> Collection Activity Logs
-                    </h2>
-                    <button 
-                        onClick={handleExportCollections}
-                        className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors text-sm"
-                    >
-                        <Download className="h-4 w-4 mr-2" /> Export CSV
-                    </button>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="relative">
-                        <input
-                            type="text"
-                            placeholder="Search collections..."
-                            value={collectionFilter}
-                            onChange={(e) => setCollectionFilter(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500 text-sm"
-                        />
-                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                    </div>
-                    <select
-                        value={collectionMaterialFilter}
-                        onChange={(e) => setCollectionMaterialFilter(e.target.value)}
-                        className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500 text-sm"
-                    >
-                        <option value="">All Materials</option>
-                        {uniqueMaterials.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                    <div className="flex items-center">
-                        <span className="text-gray-500 text-xs mr-2">From:</span>
-                        <input
-                            type="date"
-                            value={collectionStartDate}
-                            onChange={(e) => setCollectionStartDate(e.target.value)}
-                            className="w-full border rounded-md px-2 py-2 focus:ring-green-500 focus:border-green-500 text-sm"
-                        />
-                    </div>
-                    <div className="flex items-center">
-                        <span className="text-gray-500 text-xs mr-2">To:</span>
-                        <input
-                            type="date"
-                            value={collectionEndDate}
-                            onChange={(e) => setCollectionEndDate(e.target.value)}
-                            className="w-full border rounded-md px-2 py-2 focus:ring-green-500 focus:border-green-500 text-sm"
-                        />
-                    </div>
-                </div>
+          <div className="p-6 border-b border-gray-200 space-y-4">
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center"><BarChart2 className="h-5 w-5 mr-2 text-green-600" /> Collection Activity Logs</h2>
+              <button onClick={handleExportCollections} className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center shrink-0 transition-colors text-sm"><Download className="h-4 w-4 mr-2" /> Export CSV</button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="relative">
+                <input type="text" placeholder="Search collections..." value={collectionFilter} onChange={(e) => setCollectionFilter(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-green-500 focus:border-green-500 text-sm" />
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
               </div>
-              
-              <div className="overflow-x-auto max-h-[500px]">
-                 <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50 sticky top-0">
-                        <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member ID</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Business Name</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                        {filteredCollections.length > 0 ? paginatedCollections.map(col => (
-                            <tr key={col.id}>
-                                <td className="px-6 py-4 text-sm text-gray-500">{new Date(col.createdAt).toLocaleDateString()}</td>
-                                <td className="px-6 py-4 text-sm font-mono text-gray-500">{col.userId}</td>
-                                <td className="px-6 py-4 text-sm font-medium text-gray-900">{col.businessName || 'N/A'}</td>
-                                <td className="px-6 py-4 text-sm text-gray-600">{col.month} {col.year}</td>
-                                <td className="px-6 py-4 text-sm text-gray-600">{col.material}</td>
-                                <td className="px-6 py-4 text-sm font-bold text-gray-900">{col.weight}</td>
-                            </tr>
-                        )) : (
-                            <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">No collection records found.</td></tr>
-                        )}
-                    </tbody>
-                 </table>
+              <select value={collectionMaterialFilter} onChange={(e) => setCollectionMaterialFilter(e.target.value)} className="w-full border rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500 text-sm">
+                <option value="">All Materials</option>
+                {uniqueMaterials.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <div className="flex items-center"><span className="text-gray-500 text-xs mr-2">From:</span><input type="date" value={collectionStartDate} onChange={(e) => setCollectionStartDate(e.target.value)} className="w-full border rounded-md px-2 py-2 focus:ring-green-500 focus:border-green-500 text-sm" /></div>
+              <div className="flex items-center"><span className="text-gray-500 text-xs mr-2">To:</span><input type="date" value={collectionEndDate} onChange={(e) => setCollectionEndDate(e.target.value)} className="w-full border rounded-md px-2 py-2 focus:ring-green-500 focus:border-green-500 text-sm" /></div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto max-h-[500px]">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member ID</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Business Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredCollections.length > 0 ? paginatedCollections.map(col => (
+                  <tr key={col.id}>
+                    <td className="px-6 py-4 text-sm text-gray-500">{new Date(col.createdAt).toLocaleDateString()}</td>
+                    <td className="px-6 py-4 text-sm font-mono text-gray-500">{col.userId}</td>
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{col.businessName || 'N/A'}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{col.month} {col.year}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{col.material}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-gray-900">{col.weight.toLocaleString()}</td>
+                  </tr>
+                )) : (<tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">No collection records found.</td></tr>)}
+              </tbody>
+            </table>
+          </div>
+          <Pagination currentPage={collectionPage} totalItems={filteredCollections.length} pageSize={COLLECTIONS_PER_PAGE} onPageChange={setCollectionPage} itemLabel="collections" />
+        </div>
+
+        {/* Processed Materials Logs */}
+        <div className="bg-white rounded-lg shadow-sm overflow-hidden mt-8">
+          <div className="p-6 border-b border-gray-200 space-y-4">
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center"><Factory className="h-5 w-5 mr-2 text-teal-600" /> Processed Material Logs</h2>
+              <button onClick={handleExportProcessed} className="bg-teal-600 text-white px-4 py-2 rounded-md hover:bg-teal-700 flex items-center shrink-0 transition-colors text-sm"><Download className="h-4 w-4 mr-2" /> Export CSV</button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="relative">
+                <input type="text" placeholder="Search processed..." value={processedFilter} onChange={(e) => setProcessedFilter(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-teal-500 focus:border-teal-500 text-sm" />
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
               </div>
-              <Pagination
-                currentPage={collectionPage}
-                totalItems={filteredCollections.length}
-                pageSize={COLLECTIONS_PER_PAGE}
-                onPageChange={setCollectionPage}
-                itemLabel="collections"
-              />
+              <select value={processedMaterialFilter} onChange={(e) => setProcessedMaterialFilter(e.target.value)} className="w-full border rounded-md px-3 py-2 focus:ring-teal-500 focus:border-teal-500 text-sm">
+                <option value="">All Materials</option>
+                {uniqueProcessedMaterials.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <div className="flex items-center"><span className="text-gray-500 text-xs mr-2">From:</span><input type="date" value={processedStartDate} onChange={(e) => setProcessedStartDate(e.target.value)} className="w-full border rounded-md px-2 py-2 focus:ring-teal-500 focus:border-teal-500 text-sm" /></div>
+              <div className="flex items-center"><span className="text-gray-500 text-xs mr-2">To:</span><input type="date" value={processedEndDate} onChange={(e) => setProcessedEndDate(e.target.value)} className="w-full border rounded-md px-2 py-2 focus:ring-teal-500 focus:border-teal-500 text-sm" /></div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto max-h-[500px]">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member ID</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Business Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weighbridge</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredProcessed.length > 0 ? paginatedProcessed.map(p => (
+                  <tr key={p.id}>
+                    <td className="px-6 py-4 text-sm text-gray-500">{new Date(p.createdAt).toLocaleDateString()}</td>
+                    <td className="px-6 py-4 text-sm font-mono text-gray-500">{p.userId}</td>
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{p.businessName || 'N/A'}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{p.month} {p.year}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{p.material}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-gray-900">{p.weight.toLocaleString()}</td>
+                    <td className="px-6 py-4 text-sm">
+                      <div className="flex gap-1 flex-wrap">
+                        {p.weighbridgeImages.map((img, i) => (
+                          <a key={i} href={img} target="_blank" rel="noopener noreferrer" className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded hover:bg-teal-100 border border-teal-200">#{i + 1}</a>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )) : (<tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500">No processed material records found.</td></tr>)}
+              </tbody>
+            </table>
+          </div>
+          <Pagination currentPage={processedPage} totalItems={filteredProcessed.length} pageSize={PROCESSED_PER_PAGE} onPageChange={setProcessedPage} itemLabel="processed entries" />
         </div>
       </div>
 
-      {/* --- PRICE MODAL --- */}
+      {/* Stockpile Modal */}
+      {showStockpileModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 flex items-center"><Package className="mr-2 h-5 w-5 text-blue-600" /> Sector-Wide Stockpile</h2>
+                <p className="text-sm text-gray-500">Aggregate of all member inventory across Nigeria. Collected − Processed = In Stock.</p>
+              </div>
+              <button onClick={() => setShowStockpileModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Collected</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Processed</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">In Stock</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Throughput</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {stockpile.length > 0 ? stockpile.map(s => {
+                    const throughput = s.collected > 0 ? ((s.processed / s.collected) * 100) : 0;
+                    return (
+                      <tr key={s.material} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{s.material}</td>
+                        <td className="px-4 py-3 text-sm text-right text-green-700 font-bold">{s.collected.toLocaleString()} kg</td>
+                        <td className="px-4 py-3 text-sm text-right text-teal-700 font-bold">{s.processed.toLocaleString()} kg</td>
+                        <td className={`px-4 py-3 text-sm text-right font-bold ${s.inStock < 0 ? 'text-red-600' : s.inStock === 0 ? 'text-gray-400' : 'text-gray-900'}`}>{s.inStock.toLocaleString()} kg</td>
+                        <td className="px-4 py-3 text-sm text-right">
+                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${throughput >= 80 ? 'bg-green-100 text-green-700' : throughput >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                            {throughput.toFixed(1)}%
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  }) : (<tr><td colSpan={5} className="text-center py-8 text-gray-500">No stockpile data yet.</td></tr>)}
+                </tbody>
+                {stockpile.length > 0 && (
+                  <tfoot className="bg-gray-50 border-t-2 border-gray-300 sticky bottom-0">
+                    <tr>
+                      <td className="px-4 py-3 text-sm font-bold text-gray-900">TOTAL</td>
+                      <td className="px-4 py-3 text-sm text-right font-bold text-green-700">{stockpile.reduce((acc, s) => acc + s.collected, 0).toLocaleString()} kg</td>
+                      <td className="px-4 py-3 text-sm text-right font-bold text-teal-700">{stockpile.reduce((acc, s) => acc + s.processed, 0).toLocaleString()} kg</td>
+                      <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">{stockpile.reduce((acc, s) => acc + s.inStock, 0).toLocaleString()} kg</td>
+                      <td className="px-4 py-3"></td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+            <div className="flex justify-end"><button onClick={() => setShowStockpileModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
+          </div>
+        </div>
+      )}
+
+      {/* Price Modal */}
       {showPriceModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                        <Coins className="mr-2 h-5 w-5 text-amber-500" /> Manage Rates & Impact
-                    </h2>
-                    <button onClick={() => setShowPriceModal(false)} className="text-gray-400 hover:text-gray-600">
-                        <X className="h-6 w-6" />
-                    </button>
-                </div>
-                
-                <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50 sticky top-0">
-                            <tr>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price (NGN)</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase flex items-center">
-                                  <Leaf className="h-3 w-3 mr-1 text-green-600"/> CO₂e Saved (kg/kg)
-                                </th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Update</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {prices.map(price => (
-                                <tr key={price.id} className="hover:bg-gray-50">
-                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{price.materialName}</td>
-                                    <td className="px-4 py-3 text-sm text-green-700 font-bold">
-                                        {editingPriceId === price.id ? (
-                                            <input type="number" value={newPriceValue} onChange={(e) => setNewPriceValue(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm focus:ring-green-500 focus:border-green-500" autoFocus />
-                                        ) : (`₦${price.price.toLocaleString()}`)}
-                                    </td>
-                                    <td className="px-4 py-3 text-sm text-teal-700 font-bold">
-                                        {editingPriceId === price.id ? (
-                                            <input type="number" step="0.01" value={newCo2Value} onChange={(e) => setNewCo2Value(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm focus:ring-teal-500 focus:border-teal-500" />
-                                        ) : (`${price.co2Rate} kg`)}
-                                    </td>
-                                    <td className="px-4 py-3 text-sm text-gray-500 text-xs">{price.lastUpdated}</td>
-                                    <td className="px-4 py-3 text-sm">
-                                        {editingPriceId === price.id ? (
-                                            <div className="flex items-center space-x-2">
-                                                <button onClick={() => handleUpdatePrice(price.id, Number(newPriceValue), Number(newCo2Value))} className="bg-green-600 text-white p-1 rounded hover:bg-green-700"><Check className="h-4 w-4" /></button>
-                                                <button onClick={() => setEditingPriceId(null)} className="bg-gray-200 text-gray-600 p-1 rounded hover:bg-gray-300"><X className="h-4 w-4" /></button>
-                                            </div>
-                                        ) : (
-                                            <button onClick={() => { setEditingPriceId(price.id); setNewPriceValue(price.price.toString()); setNewCo2Value(price.co2Rate.toString()); }} className="text-blue-600 hover:text-blue-800"><Edit className="h-4 w-4" /></button>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-                <div className="flex justify-end"><button onClick={() => setShowPriceModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center"><Coins className="mr-2 h-5 w-5 text-amber-500" /> Manage Rates & Impact</h2>
+              <button onClick={() => setShowPriceModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
             </div>
+            <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price (NGN)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase flex items-center"><Leaf className="h-3 w-3 mr-1 text-green-600" /> CO₂e Saved (kg/kg)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Update</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {prices.map(price => (
+                    <tr key={price.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{price.materialName}</td>
+                      <td className="px-4 py-3 text-sm text-green-700 font-bold">
+                        {editingPriceId === price.id ? (<input type="number" value={newPriceValue} onChange={(e) => setNewPriceValue(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm focus:ring-green-500 focus:border-green-500" autoFocus />) : (`₦${price.price.toLocaleString()}`)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-teal-700 font-bold">
+                        {editingPriceId === price.id ? (<input type="number" step="0.01" value={newCo2Value} onChange={(e) => setNewCo2Value(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm focus:ring-teal-500 focus:border-teal-500" />) : (`${price.co2Rate} kg`)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-500 text-xs">{price.lastUpdated}</td>
+                      <td className="px-4 py-3 text-sm">
+                        {editingPriceId === price.id ? (
+                          <div className="flex items-center space-x-2">
+                            <button onClick={() => handleUpdatePrice(price.id, Number(newPriceValue), Number(newCo2Value))} className="bg-green-600 text-white p-1 rounded hover:bg-green-700"><Check className="h-4 w-4" /></button>
+                            <button onClick={() => setEditingPriceId(null)} className="bg-gray-200 text-gray-600 p-1 rounded hover:bg-gray-300"><X className="h-4 w-4" /></button>
+                          </div>
+                        ) : (
+                          <button onClick={() => { setEditingPriceId(price.id); setNewPriceValue(price.price.toString()); setNewCo2Value(price.co2Rate.toString()); }} className="text-blue-600 hover:text-blue-800"><Edit className="h-4 w-4" /></button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end"><button onClick={() => setShowPriceModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
+          </div>
         </div>
       )}
 
       {showExpiringModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-gray-900 flex items-center"><Bell className="mr-2 h-5 w-5 text-amber-500" /> Members Expiring Soon</h2>
-                    <button onClick={() => setShowExpiringModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
-                </div>
-                <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50 sticky top-0"><tr><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry Date</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Days Left</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th></tr></thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {expiringUsers.length > 0 ? expiringUsers.map(u => {
-                                const expiryDateObj = new Date(u.expiryDate); expiryDateObj.setHours(0, 0, 0, 0);
-                                const daysLeft = Math.ceil((expiryDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                                return (<tr key={u.id} className="hover:bg-gray-50"><td className="px-4 py-3 text-sm font-medium text-gray-900">{u.businessName} <br/><span className="text-xs text-gray-500">{u.firstName} {u.lastName}</span></td><td className="px-4 py-3 text-sm text-gray-600">{u.expiryDate}</td><td className="px-4 py-3 text-sm font-bold text-amber-600">{daysLeft} days</td><td className="px-4 py-3 text-sm"><button onClick={() => { setStatusFilter(''); setCategoryFilter(''); setBusinessTypeFilter(''); setFilter(u.id); setMemberPage(1); setShowExpiringModal(false); setTimeout(() => { memberTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100); }} className="text-blue-600 hover:underline text-xs">View Profile</button></td></tr>);
-                            }) : (<tr><td colSpan={4} className="text-center py-8 text-gray-500">No members expiring within 30 days.</td></tr>)}
-                        </tbody>
-                    </table>
-                </div>
-                <div className="flex justify-end"><button onClick={() => setShowExpiringModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center"><Bell className="mr-2 h-5 w-5 text-amber-500" /> Members Expiring Soon</h2>
+              <button onClick={() => setShowExpiringModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
             </div>
+            <div className="flex-1 overflow-y-auto mb-6 border rounded-lg">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0"><tr><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry Date</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Days Left</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th></tr></thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {expiringUsers.length > 0 ? expiringUsers.map(u => {
+                    const expiryDateObj = new Date(u.expiryDate); expiryDateObj.setHours(0, 0, 0, 0);
+                    const daysLeft = Math.ceil((expiryDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                    return (<tr key={u.id} className="hover:bg-gray-50"><td className="px-4 py-3 text-sm font-medium text-gray-900">{u.businessName} <br /><span className="text-xs text-gray-500">{u.firstName} {u.lastName}</span></td><td className="px-4 py-3 text-sm text-gray-600">{u.expiryDate}</td><td className="px-4 py-3 text-sm font-bold text-amber-600">{daysLeft} days</td><td className="px-4 py-3 text-sm"><button onClick={() => { setStatusFilter(''); setCategoryFilter(''); setBusinessTypeFilter(''); setFilter(u.id); setMemberPage(1); setShowExpiringModal(false); setTimeout(() => { memberTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100); }} className="text-blue-600 hover:underline text-xs">View Profile</button></td></tr>);
+                  }) : (<tr><td colSpan={4} className="text-center py-8 text-gray-500">No members expiring within 30 days.</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end"><button onClick={() => setShowExpiringModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
+          </div>
         </div>
       )}
 
       {showPendingPaymentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-           <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
-             <div className="flex justify-between items-center mb-6">
-                <div><h2 className="text-xl font-bold text-gray-900 flex items-center"><CreditCard className="mr-2 h-5 w-5 text-red-600" /> Pending Payment Requests</h2><p className="text-sm text-gray-500">Review receipts and approve membership payments.</p></div>
-                <button onClick={() => setShowPendingPaymentModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
-             </div>
-             <div className="flex-1 overflow-y-auto mb-2 border rounded-lg">
-                <table className="min-w-full divide-y divide-gray-200">
-                   <thead className="bg-gray-50 sticky top-0"><tr><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receipt</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead>
-                   <tbody className="bg-white divide-y divide-gray-200">
-                      {pendingPayments.length > 0 ? paginatedPendingPayments.map(p => (
-                         <tr key={p.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 text-sm text-gray-600">{p.date}</td>
-                            <td className="px-4 py-3 text-sm font-medium text-gray-900">{getUserName(p.userId)}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600">{p.description}</td>
-                            <td className="px-4 py-3 text-sm font-bold text-green-700">{p.amount.toLocaleString()}</td>
-                            <td className="px-4 py-3 text-sm">{p.receipt ? (<a href={p.receipt} download={`receipt_${p.reference}`} className="text-blue-600 hover:underline flex items-center text-xs"><Download className="h-3 w-3 mr-1" /> View/Download</a>) : (<span className="text-red-400 text-xs italic">No receipt</span>)}</td>
-                            <td className="px-4 py-3 text-sm space-x-2">
-                               <button onClick={(e) => handleGlobalApprovePayment(e, p.id)} className="bg-green-100 text-green-700 hover:bg-green-200 px-2 py-1 rounded text-xs font-semibold border border-green-200">Approve</button>
-                               <button onClick={(e) => handleGlobalRejectPayment(e, p.id)} className="bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs font-semibold border border-red-200">Reject</button>
-                            </td>
-                         </tr>
-                      )) : (<tr><td colSpan={6} className="text-center py-8 text-gray-500">No pending payment requests.</td></tr>)}
-                   </tbody>
-                </table>
-             </div>
-             <Pagination
-               currentPage={pendingPaymentPage}
-               totalItems={pendingPayments.length}
-               pageSize={PENDING_PAYMENTS_PER_PAGE}
-               onPageChange={setPendingPaymentPage}
-               itemLabel="payments"
-               compact
-             />
-             <div className="flex justify-end mt-4"><button onClick={() => setShowPendingPaymentModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
-           </div>
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-6">
+              <div><h2 className="text-xl font-bold text-gray-900 flex items-center"><CreditCard className="mr-2 h-5 w-5 text-red-600" /> Pending Payment Requests</h2><p className="text-sm text-gray-500">Review receipts and approve membership payments.</p></div>
+              <button onClick={() => setShowPendingPaymentModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto mb-2 border rounded-lg">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0"><tr><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receipt</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {pendingPayments.length > 0 ? paginatedPendingPayments.map(p => (
+                    <tr key={p.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-600">{p.date}</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{getUserName(p.userId)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{p.description}</td>
+                      <td className="px-4 py-3 text-sm font-bold text-green-700">{p.amount.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-sm">{p.receipt ? (<a href={p.receipt} download={`receipt_${p.reference}`} className="text-blue-600 hover:underline flex items-center text-xs"><Download className="h-3 w-3 mr-1" /> View/Download</a>) : (<span className="text-red-400 text-xs italic">No receipt</span>)}</td>
+                      <td className="px-4 py-3 text-sm space-x-2">
+                        <button onClick={(e) => handleGlobalApprovePayment(e, p.id)} className="bg-green-100 text-green-700 hover:bg-green-200 px-2 py-1 rounded text-xs font-semibold border border-green-200">Approve</button>
+                        <button onClick={(e) => handleGlobalRejectPayment(e, p.id)} className="bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs font-semibold border border-red-200">Reject</button>
+                      </td>
+                    </tr>
+                  )) : (<tr><td colSpan={6} className="text-center py-8 text-gray-500">No pending payment requests.</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+            <Pagination currentPage={pendingPaymentPage} totalItems={pendingPayments.length} pageSize={PENDING_PAYMENTS_PER_PAGE} onPageChange={setPendingPaymentPage} itemLabel="payments" compact />
+            <div className="flex justify-end mt-4"><button onClick={() => setShowPendingPaymentModal(false)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200">Close</button></div>
+          </div>
         </div>
       )}
 
       {showExportModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-             <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-900 flex items-center"><Download className="mr-2 h-5 w-5 text-green-600" /> Export Data</h2>
               <button onClick={() => setShowExportModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
             </div>
             <div className="space-y-4">
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Region</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.region} onChange={(e) => setExportConfig({...exportConfig, region: e.target.value})}><option value="">All Regions</option>{uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by State</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.state} onChange={(e) => setExportConfig({...exportConfig, state: e.target.value})}><option value="">All States</option>{uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Membership Type</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.category} onChange={(e) => setExportConfig({...exportConfig, category: e.target.value})}><option value="">All Categories</option>{Object.values(MembershipCategory).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Business Type</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.businessType} onChange={(e) => setExportConfig({...exportConfig, businessType: e.target.value})}><option value="">All Business Types</option>{Object.values(BusinessCategory).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Machinery Deployed</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.machinery} onChange={(e) => setExportConfig({...exportConfig, machinery: e.target.value})}><option value="">All Machinery</option>{uniqueMachinery.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Region</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.region} onChange={(e) => setExportConfig({ ...exportConfig, region: e.target.value })}><option value="">All Regions</option>{uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by State</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.state} onChange={(e) => setExportConfig({ ...exportConfig, state: e.target.value })}><option value="">All States</option>{uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Membership Type</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.category} onChange={(e) => setExportConfig({ ...exportConfig, category: e.target.value })}><option value="">All Categories</option>{Object.values(MembershipCategory).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Business Type</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.businessType} onChange={(e) => setExportConfig({ ...exportConfig, businessType: e.target.value })}><option value="">All Business Types</option>{Object.values(BusinessCategory).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Machinery Deployed</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.machinery} onChange={(e) => setExportConfig({ ...exportConfig, machinery: e.target.value })}><option value="">All Machinery</option>{uniqueMachinery.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
               <div className="pt-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Export Format</label>
                 <div className="flex space-x-4">
-                  <label className="flex items-center"><input type="radio" name="format" value="Excel" checked={exportConfig.format === 'Excel'} onChange={() => setExportConfig({...exportConfig, format: 'Excel'})} className="mr-2 text-green-600 focus:ring-green-500" />Excel (.csv)</label>
-                  <label className="flex items-center"><input type="radio" name="format" value="PDF" checked={exportConfig.format === 'PDF'} onChange={() => setExportConfig({...exportConfig, format: 'PDF'})} className="mr-2 text-green-600 focus:ring-green-500" />PDF (Print Detailed)</label>
+                  <label className="flex items-center"><input type="radio" name="format" value="Excel" checked={exportConfig.format === 'Excel'} onChange={() => setExportConfig({ ...exportConfig, format: 'Excel' })} className="mr-2 text-green-600 focus:ring-green-500" />Excel (.csv)</label>
+                  <label className="flex items-center"><input type="radio" name="format" value="PDF" checked={exportConfig.format === 'PDF'} onChange={() => setExportConfig({ ...exportConfig, format: 'PDF' })} className="mr-2 text-green-600 focus:ring-green-500" />PDF (Print Detailed)</label>
                 </div>
               </div>
               <div className="pt-4 flex justify-end space-x-3">
@@ -1730,22 +1680,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             <form onSubmit={handlePostAnnouncement} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-                <input type="text" required value={newAnnouncement.title} onChange={(e) => setNewAnnouncement({...newAnnouncement, title: e.target.value})} className="w-full border rounded-md px-3 py-2 focus:ring-amber-500 focus:border-amber-500" placeholder="e.g. AGM 2024 Rescheduled" />
+                <input type="text" required value={newAnnouncement.title} onChange={(e) => setNewAnnouncement({ ...newAnnouncement, title: e.target.value })} className="w-full border rounded-md px-3 py-2 focus:ring-amber-500 focus:border-amber-500" placeholder="e.g. AGM 2024 Rescheduled" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Content</label>
-                <RichTextEditor
-                  value={newAnnouncement.content}
-                  onChange={(html) => setNewAnnouncement({ ...newAnnouncement, content: html })}
-                  placeholder="Write the announcement... use the toolbar for formatting."
-                  minHeight={220}
-                />
-                <p className="mt-1 text-xs text-gray-500">
-                  Use formatting, links, and lists. Images are not supported.
-                </p>
+                <RichTextEditor value={newAnnouncement.content} onChange={(html) => setNewAnnouncement({ ...newAnnouncement, content: html })} placeholder="Write the announcement... use the toolbar for formatting." minHeight={220} />
+                <p className="mt-1 text-xs text-gray-500">Use formatting, links, and lists. Images are not supported.</p>
               </div>
               <div className="flex items-center">
-                <input type="checkbox" id="isImportant" checked={newAnnouncement.isImportant} onChange={(e) => setNewAnnouncement({...newAnnouncement, isImportant: e.target.checked})} className="h-4 w-4 text-amber-600 focus:ring-amber-500 border-gray-300 rounded" />
+                <input type="checkbox" id="isImportant" checked={newAnnouncement.isImportant} onChange={(e) => setNewAnnouncement({ ...newAnnouncement, isImportant: e.target.checked })} className="h-4 w-4 text-amber-600 focus:ring-amber-500 border-gray-300 rounded" />
                 <label htmlFor="isImportant" className="ml-2 block text-sm text-gray-900">Mark as Important / Urgent</label>
               </div>
               <div className="pt-4 flex justify-end space-x-3 border-t border-gray-100">
@@ -1756,18 +1699,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
           </div>
         </div>
       )}
-      
+
       {idEditModal && idEditModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Assign Member ID</h3>
             <p className="text-sm text-gray-500 mb-4">Updating ID for <span className="font-semibold">{idEditModal.name}</span>.</p>
             <div className="space-y-3">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">New ID</label><input type="text" value={idEditModal.newId} onChange={(e) => setIdEditModal({...idEditModal, newId: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500" /></div>
-                <div className="flex justify-end gap-2 pt-2">
-                    <button onClick={() => setIdEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
-                    <button onClick={handleSaveId} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save ID</button>
-                </div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">New ID</label><input type="text" value={idEditModal.newId} onChange={(e) => setIdEditModal({ ...idEditModal, newId: e.target.value })} className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500" /></div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={() => setIdEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
+                <button onClick={handleSaveId} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save ID</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1779,27 +1722,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             <div className="flex items-center mb-4 text-amber-600"><Calendar className="h-5 w-5 mr-2" /><h3 className="text-lg font-bold text-gray-900">Edit Expiry Date</h3></div>
             <p className="text-sm text-gray-500 mb-4">Update membership expiry date for <span className="font-semibold">{expiryEditModal.name}</span>.</p>
             <div className="space-y-3">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">New Expiry Date</label><input type="date" value={expiryEditModal.currentExpiry} onChange={(e) => setExpiryEditModal({...expiryEditModal, currentExpiry: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500" /></div>
-                <div className="flex justify-end gap-2 pt-2">
-                    <button onClick={() => setExpiryEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
-                    <button onClick={handleSaveExpiry} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save Changes</button>
-                </div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">New Expiry Date</label><input type="date" value={expiryEditModal.currentExpiry} onChange={(e) => setExpiryEditModal({ ...expiryEditModal, currentExpiry: e.target.value })} className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500" /></div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={() => setExpiryEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
+                <button onClick={handleSaveExpiry} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save Changes</button>
+              </div>
             </div>
           </div>
         </div>
       )}
-      
+
       {statusEditModal && statusEditModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
             <div className="flex items-center mb-4 text-blue-600"><Shield className="h-5 w-5 mr-2" /><h3 className="text-lg font-bold text-gray-900">Edit Membership Status</h3></div>
             <p className="text-sm text-gray-500 mb-4">Manually change status for <span className="font-semibold">{statusEditModal.name}</span>.</p>
             <div className="space-y-3">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Status</label><select value={statusEditModal.currentStatus} onChange={(e) => setStatusEditModal({...statusEditModal, currentStatus: e.target.value as MembershipStatus})} className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500">{Object.values(MembershipStatus).map((status) => (<option key={status} value={status}>{status}</option>))}</select></div>
-                <div className="flex justify-end gap-2 pt-2">
-                    <button onClick={() => setStatusEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
-                    <button onClick={handleSaveStatus} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save Status</button>
-                </div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Status</label><select value={statusEditModal.currentStatus} onChange={(e) => setStatusEditModal({ ...statusEditModal, currentStatus: e.target.value as MembershipStatus })} className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-green-500 focus:border-green-500">{Object.values(MembershipStatus).map((status) => (<option key={status} value={status}>{status}</option>))}</select></div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={() => setStatusEditModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
+                <button onClick={handleSaveStatus} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm flex items-center"><Save className="h-4 w-4 mr-2" /> Save Status</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1807,120 +1750,113 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
       {docModal && docModal.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
-             <div className="flex justify-between items-center mb-6">
-               <div><h2 className="text-xl font-bold text-gray-900 flex items-center"><FileCheck className="mr-2 h-5 w-5 text-green-600" /> Member Documents</h2><p className="text-sm text-gray-500">Manage ID Card & Certificate for {docModal.name}</p></div>
-               <button onClick={() => setDocModal(null)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
-             </div>
-             <div className="space-y-6">
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                    <h3 className="font-bold text-blue-800 mb-3 text-sm uppercase flex items-center"><UserIcon className="h-4 w-4 mr-1"/> Registration Submissions</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center">
-                            <span className="text-xs font-semibold text-gray-500 mb-2">Profile Image</span>
-                            {docModal.profileImage ? (<><img src={docModal.profileImage} alt="Profile" className="h-20 w-20 object-cover rounded-full mb-2 border border-gray-200"/><a href={docModal.profileImage} download="Profile_Image" className="text-xs text-blue-600 hover:underline flex items-center"><Download className="h-3 w-3 mr-1"/> Download</a></>) : (<span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>)}
-                        </div>
-                        <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center justify-center space-y-2">
-                             {docModal.cac && <a href={docModal.cac} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View CAC Cert</a>}
-                             {docModal.logo && <a href={docModal.logo} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View Logo</a>}
-                             {docModal.evidence && <a href={docModal.evidence} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View Evidence</a>}
-                             {(!docModal.cac && !docModal.logo && !docModal.evidence) && <span className="text-xs text-gray-400 italic">No business docs uploaded</span>}
-                        </div>
-                    </div>
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center mb-6">
+              <div><h2 className="text-xl font-bold text-gray-900 flex items-center"><FileCheck className="mr-2 h-5 w-5 text-green-600" /> Member Documents</h2><p className="text-sm text-gray-500">Manage ID Card & Certificate for {docModal.name}</p></div>
+              <button onClick={() => setDocModal(null)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
+            </div>
+            <div className="space-y-6">
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                <h3 className="font-bold text-blue-800 mb-3 text-sm uppercase flex items-center"><UserIcon className="h-4 w-4 mr-1" /> Registration Submissions</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center">
+                    <span className="text-xs font-semibold text-gray-500 mb-2">Profile Image</span>
+                    {docModal.profileImage ? (<><img src={docModal.profileImage} alt="Profile" className="h-20 w-20 object-cover rounded-full mb-2 border border-gray-200" /><a href={docModal.profileImage} download="Profile_Image" className="text-xs text-blue-600 hover:underline flex items-center"><Download className="h-3 w-3 mr-1" /> Download</a></>) : (<span className="text-xs text-gray-400 italic py-4">Not Uploaded</span>)}
+                  </div>
+                  <div className="bg-white p-3 rounded border border-blue-100 flex flex-col items-center justify-center space-y-2">
+                    {docModal.cac && <a href={docModal.cac} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View CAC Cert</a>}
+                    {docModal.logo && <a href={docModal.logo} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View Logo</a>}
+                    {docModal.evidence && <a href={docModal.evidence} target="_blank" rel="noopener noreferrer" className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded w-full text-center hover:bg-blue-200">View Evidence</a>}
+                    {(!docModal.cac && !docModal.logo && !docModal.evidence) && <span className="text-xs text-gray-400 italic">No business docs uploaded</span>}
+                  </div>
                 </div>
-                <div className="border-t border-gray-200 my-4"></div>
-                <h3 className="font-bold text-gray-800 mb-1 text-sm uppercase">Issue Documents</h3>
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                   <div className="flex justify-between items-start mb-3">
-                      <label className="block text-sm font-bold text-gray-800">Membership ID Card</label>
-                      {uploadingDocs.idCard ? (<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>) : docModal.idCard && (<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>)}
-                   </div>
-                   <div className="flex items-center space-x-3">
-                      <div className="flex-1"><input type="file" onChange={(e) => handleDocFileChange(e, 'idCard')} disabled={uploadingDocs.idCard} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50"/></div>
-                      {docModal.idCard && (<a href={docModal.idCard} download="ID_Card" className="text-blue-600 hover:text-blue-800 text-xs underline shrink-0">View Current</a>)}
-                   </div>
+              </div>
+              <div className="border-t border-gray-200 my-4"></div>
+              <h3 className="font-bold text-gray-800 mb-1 text-sm uppercase">Issue Documents</h3>
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <div className="flex justify-between items-start mb-3">
+                  <label className="block text-sm font-bold text-gray-800">Membership ID Card</label>
+                  {uploadingDocs.idCard ? (<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>) : docModal.idCard && (<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>)}
                 </div>
-                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                   <div className="flex justify-between items-start mb-3">
-                      <label className="block text-sm font-bold text-gray-800">Membership Certificate</label>
-                      {uploadingDocs.certificate ? (<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>) : docModal.certificate && (<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>)}
-                   </div>
-                   <div className="flex items-center space-x-3">
-                      <div className="flex-1"><input type="file" onChange={(e) => handleDocFileChange(e, 'certificate')} disabled={uploadingDocs.certificate} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50"/></div>
-                      {docModal.certificate && (<a href={docModal.certificate} download="Certificate" className="text-blue-600 hover:text-blue-800 text-xs underline shrink-0">View Current</a>)}
-                   </div>
+                <div className="flex items-center space-x-3">
+                  <div className="flex-1"><input type="file" onChange={(e) => handleDocFileChange(e, 'idCard')} disabled={uploadingDocs.idCard} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50" /></div>
+                  {docModal.idCard && (<a href={docModal.idCard} download="ID_Card" className="text-blue-600 hover:text-blue-800 text-xs underline shrink-0">View Current</a>)}
                 </div>
-             </div>
-             <div className="pt-6 flex justify-end space-x-3 border-t border-gray-100 mt-4">
-                <button onClick={() => setDocModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
-                <button onClick={handleSaveDocs} disabled={uploadingDocs.idCard || uploadingDocs.certificate} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center disabled:opacity-50"><Save className="h-4 w-4 mr-2" /> Save Documents</button>
-             </div>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <div className="flex justify-between items-start mb-3">
+                  <label className="block text-sm font-bold text-gray-800">Membership Certificate</label>
+                  {uploadingDocs.certificate ? (<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading...</span>) : docModal.certificate && (<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Uploaded</span>)}
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="flex-1"><input type="file" onChange={(e) => handleDocFileChange(e, 'certificate')} disabled={uploadingDocs.certificate} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 disabled:opacity-50" /></div>
+                  {docModal.certificate && (<a href={docModal.certificate} download="Certificate" className="text-blue-600 hover:text-blue-800 text-xs underline shrink-0">View Current</a>)}
+                </div>
+              </div>
+            </div>
+            <div className="pt-6 flex justify-end space-x-3 border-t border-gray-100 mt-4">
+              <button onClick={() => setDocModal(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+              <button onClick={handleSaveDocs} disabled={uploadingDocs.idCard || uploadingDocs.certificate} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center disabled:opacity-50"><Save className="h-4 w-4 mr-2" /> Save Documents</button>
+            </div>
           </div>
         </div>
       )}
 
       {paymentModal && paymentModal.isOpen && (
-         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold text-gray-900 flex items-center"><CreditCard className="mr-2 h-5 w-5 text-amber-500" /> Manage Payments</h2>
-                    <button onClick={() => setPaymentModal(null)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
-                </div>
-                <p className="text-sm text-gray-500 mb-4">Payments for: <span className="font-semibold">{paymentModal.name}</span></p>
-                <div className="flex-1 overflow-y-auto mb-2 border rounded-lg">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50 sticky top-0"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Action</th></tr></thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {userPayments.length > 0 ? paginatedUserPayments.map(p => (
-                                <tr key={p.id}>
-                                    <td className="px-3 py-2 text-sm text-gray-500">{p.date}</td>
-                                    <td className="px-3 py-2 text-sm font-medium">{p.amount.toLocaleString()}</td>
-                                    <td className="px-3 py-2"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${p.status === 'Successful' ? 'bg-green-100 text-green-800' : p.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>{p.status}</span></td>
-                                    <td className="px-3 py-2 text-sm space-x-2 flex items-center">
-                                        {p.receipt && (<a href={p.receipt} download={`receipt_${p.reference}`} title="Download Receipt" className="text-blue-600 hover:text-blue-800 inline-block"><Download className="h-4 w-4" /></a>)}
-                                        {p.status === 'Pending' && (<button onClick={(e) => handleApprovePayment(e, p.id)} className="text-green-600 hover:text-green-900 font-medium text-xs border border-green-200 px-2 py-0.5 rounded bg-green-50">Approve</button>)}
-                                        <button type="button" onClick={(e) => handleDeletePayment(e, p.id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded ml-2 border border-red-200" title="Delete Payment"><Trash2 className="h-4 w-4 pointer-events-none" /></button>
-                                    </td>
-                                </tr>
-                            )) : (<tr><td colSpan={4} className="text-center py-4 text-sm text-gray-500">No records found.</td></tr>)}
-                        </tbody>
-                    </table>
-                </div>
-                <Pagination
-                  currentPage={userPaymentPage}
-                  totalItems={userPayments.length}
-                  pageSize={USER_PAYMENTS_PER_PAGE}
-                  onPageChange={setUserPaymentPage}
-                  itemLabel="payments"
-                  compact
-                />
-                <div className="mb-4" />
-                {!showAddPaymentForm ? (
-                    <button onClick={() => setShowAddPaymentForm(true)} className="w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-600 hover:border-green-500 hover:text-green-600 font-medium flex justify-center items-center"><Plus className="h-4 w-4 mr-2" /> Record New Payment Manually</button>
-                ) : (
-                    <form onSubmit={handleSavePayment} className="space-y-4 border-t pt-4 bg-gray-50 p-4 rounded-md animate-in fade-in slide-in-from-bottom-2">
-                        <div className="flex justify-between items-center"><h4 className="text-sm font-bold text-gray-700">New Payment Entry</h4><button type="button" onClick={() => setShowAddPaymentForm(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button></div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div><label className="block text-xs font-medium text-gray-700 mb-1">Date</label><input type="date" required value={paymentForm.date} onChange={(e) => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/></div>
-                            <div><label className="block text-xs font-medium text-gray-700 mb-1">Amount</label>
-                                <select required value={paymentForm.amount} onChange={(e) => { const val = e.target.value; let desc = paymentForm.description; if (val === '80000') desc = 'Corporate Member Dues'; else if (val === '20000') desc = 'Associate Member Dues'; else if (val === '200000') desc = 'Patrons Dues'; setPaymentForm({...paymentForm, amount: val, description: desc}); }} className="w-full border rounded-md px-2 py-1.5 text-sm bg-white">
-                                    <option value="">Select Amount</option>
-                                    <option value="80000">Corporate Member (₦80,000)</option>
-                                    <option value="20000">Associate Member (₦20,000)</option>
-                                    <option value="200000">Patrons (₦200,000)</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div><label className="block text-xs font-medium text-gray-700 mb-1">Description</label><input type="text" required placeholder="e.g. Annual Dues 2024" value={paymentForm.description} onChange={(e) => setPaymentForm({...paymentForm, description: e.target.value})} className="w-full border rounded-md px-2 py-1.5 text-sm"/></div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div><label className="block text-xs font-medium text-gray-700 mb-1">Status</label><select value={paymentForm.status} onChange={(e) => setPaymentForm({...paymentForm, status: e.target.value as any})} className="w-full border rounded-md px-2 py-1.5 text-sm"><option value="Successful">Successful</option><option value="Pending">Pending</option><option value="Failed">Failed</option></select></div>
-                            <div><label className="block text-xs font-medium text-gray-700 mb-1">Receipt</label><div className="relative">{isUploadingReceipt ? (<div className="flex items-center space-x-2 text-xs text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> <span>Uploading...</span></div>) : (<input type="file" accept="image/*,application/pdf" onChange={handlePaymentFileChange} className="block w-full text-xs text-gray-500"/>)}</div></div>
-                        </div>
-                        <div className="pt-2 flex justify-end"><button type="submit" disabled={isUploadingReceipt} className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center text-sm disabled:opacity-50">{isUploadingReceipt ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Payment'}</button></div>
-                    </form>
-                )}
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center"><CreditCard className="mr-2 h-5 w-5 text-amber-500" /> Manage Payments</h2>
+              <button onClick={() => setPaymentModal(null)} className="text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
             </div>
-         </div>
+            <p className="text-sm text-gray-500 mb-4">Payments for: <span className="font-semibold">{paymentModal.name}</span></p>
+            <div className="flex-1 overflow-y-auto mb-2 border rounded-lg">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Action</th></tr></thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {userPayments.length > 0 ? paginatedUserPayments.map(p => (
+                    <tr key={p.id}>
+                      <td className="px-3 py-2 text-sm text-gray-500">{p.date}</td>
+                      <td className="px-3 py-2 text-sm font-medium">{p.amount.toLocaleString()}</td>
+                      <td className="px-3 py-2"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${p.status === 'Successful' ? 'bg-green-100 text-green-800' : p.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>{p.status}</span></td>
+                      <td className="px-3 py-2 text-sm space-x-2 flex items-center">
+                        {p.receipt && (<a href={p.receipt} download={`receipt_${p.reference}`} title="Download Receipt" className="text-blue-600 hover:text-blue-800 inline-block"><Download className="h-4 w-4" /></a>)}
+                        {p.status === 'Pending' && (<button onClick={(e) => handleApprovePayment(e, p.id)} className="text-green-600 hover:text-green-900 font-medium text-xs border border-green-200 px-2 py-0.5 rounded bg-green-50">Approve</button>)}
+                        <button type="button" onClick={(e) => handleDeletePayment(e, p.id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded ml-2 border border-red-200" title="Delete Payment"><Trash2 className="h-4 w-4 pointer-events-none" /></button>
+                      </td>
+                    </tr>
+                  )) : (<tr><td colSpan={4} className="text-center py-4 text-sm text-gray-500">No records found.</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+            <Pagination currentPage={userPaymentPage} totalItems={userPayments.length} pageSize={USER_PAYMENTS_PER_PAGE} onPageChange={setUserPaymentPage} itemLabel="payments" compact />
+            <div className="mb-4" />
+            {!showAddPaymentForm ? (
+              <button onClick={() => setShowAddPaymentForm(true)} className="w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-600 hover:border-green-500 hover:text-green-600 font-medium flex justify-center items-center"><Plus className="h-4 w-4 mr-2" /> Record New Payment Manually</button>
+            ) : (
+              <form onSubmit={handleSavePayment} className="space-y-4 border-t pt-4 bg-gray-50 p-4 rounded-md animate-in fade-in slide-in-from-bottom-2">
+                <div className="flex justify-between items-center"><h4 className="text-sm font-bold text-gray-700">New Payment Entry</h4><button type="button" onClick={() => setShowAddPaymentForm(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button></div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Date</label><input type="date" required value={paymentForm.date} onChange={(e) => setPaymentForm({ ...paymentForm, date: e.target.value })} className="w-full border rounded-md px-2 py-1.5 text-sm" /></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Amount</label>
+                    <select required value={paymentForm.amount} onChange={(e) => { const val = e.target.value; let desc = paymentForm.description; if (val === '80000') desc = 'Corporate Member Dues'; else if (val === '20000') desc = 'Associate Member Dues'; else if (val === '200000') desc = 'Patrons Dues'; setPaymentForm({ ...paymentForm, amount: val, description: desc }); }} className="w-full border rounded-md px-2 py-1.5 text-sm bg-white">
+                      <option value="">Select Amount</option>
+                      <option value="80000">Corporate Member (₦80,000)</option>
+                      <option value="20000">Associate Member (₦20,000)</option>
+                      <option value="200000">Patrons (₦200,000)</option>
+                    </select>
+                  </div>
+                </div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Description</label><input type="text" required placeholder="e.g. Annual Dues 2024" value={paymentForm.description} onChange={(e) => setPaymentForm({ ...paymentForm, description: e.target.value })} className="w-full border rounded-md px-2 py-1.5 text-sm" /></div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Status</label><select value={paymentForm.status} onChange={(e) => setPaymentForm({ ...paymentForm, status: e.target.value as any })} className="w-full border rounded-md px-2 py-1.5 text-sm"><option value="Successful">Successful</option><option value="Pending">Pending</option><option value="Failed">Failed</option></select></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Receipt</label><div className="relative">{isUploadingReceipt ? (<div className="flex items-center space-x-2 text-xs text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> <span>Uploading...</span></div>) : (<input type="file" accept="image/*,application/pdf" onChange={handlePaymentFileChange} className="block w-full text-xs text-gray-500" />)}</div></div>
+                </div>
+                <div className="pt-2 flex justify-end"><button type="submit" disabled={isUploadingReceipt} className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 flex items-center text-sm disabled:opacity-50">{isUploadingReceipt ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Payment'}</button></div>
+              </form>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
