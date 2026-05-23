@@ -13,7 +13,6 @@ import Listings from './pages/Listings';
 import { User } from './types';
 import { api } from './services/api';
 
-// Map between legacy page names (used everywhere in the codebase) and real URLs.
 const pageToPath = (page: string, params?: any): string => {
   switch (page) {
     case 'login': return '/login';
@@ -52,12 +51,10 @@ interface AppShellProps {
   handleUpdateUser: (u: User) => Promise<void>;
 }
 
-// Inner component so we can use react-router hooks (must be inside <BrowserRouter>)
 const AppShell: React.FC<AppShellProps> = ({ user, setUser, handleLogin, handleLogout, handleUpdateUser }) => {
   const routerNavigate = useNavigate();
   const location = useLocation();
 
-  // Adapter so existing pages can keep calling `navigate('dashboard')` etc.
   const navigate = (page: string, params?: any) => {
     const path = pageToPath(page, params);
     routerNavigate(path);
@@ -83,7 +80,6 @@ const AppShell: React.FC<AppShellProps> = ({ user, setUser, handleLogin, handleL
 
   const expired = isExpired();
 
-  // Helper components for protected routes
   const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     if (!user) return <Navigate to="/login" replace />;
     return <>{children}</>;
@@ -101,7 +97,6 @@ const AppShell: React.FC<AppShellProps> = ({ user, setUser, handleLogin, handleL
     return <>{children}</>;
   };
 
-  // Wrapper to read ?to= query param for Messages
   const MessagesRoute: React.FC = () => {
     const [searchParams] = useSearchParams();
     const targetUserId = searchParams.get('to');
@@ -110,7 +105,6 @@ const AppShell: React.FC<AppShellProps> = ({ user, setUser, handleLogin, handleL
     return <Messages currentUser={user} navigate={navigate} targetUserId={targetUserId} />;
   };
 
-  // Root redirect
   const RootRedirect: React.FC = () => {
     if (!user) return <Navigate to="/login" replace />;
     return <Navigate to={user.role === 'ADMIN' ? '/admin' : '/dashboard'} replace />;
@@ -168,34 +162,24 @@ const AppShell: React.FC<AppShellProps> = ({ user, setUser, handleLogin, handleL
               <h4 className="text-white font-semibold mb-4">Quick Links</h4>
               <ul className="space-y-2 text-sm">
                 <li>
-                  <a href="https://recyclersassociation.org" className="hover:text-white transition-colors">
-                    Home
-                  </a>
+                  <a href="https://recyclersassociation.org" className="hover:text-white transition-colors">Home</a>
                 </li>
                 <li>
-                  <button
-                    onClick={() => navigate(user ? (user.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard') : 'login')}
-                    className="hover:text-white transition-colors"
-                  >
+                  <button onClick={() => navigate(user ? (user.role === 'ADMIN' ? 'admin-dashboard' : 'dashboard') : 'login')} className="hover:text-white transition-colors">
                     {user ? 'My Dashboard' : 'Portal Login'}
                   </button>
                 </li>
                 {!user && (
                   <li>
-                    <button onClick={() => navigate('register')} className="hover:text-white transition-colors">
-                      Join Us
-                    </button>
+                    <button onClick={() => navigate('register')} className="hover:text-white transition-colors">Join Us</button>
                   </li>
                 )}
                 <li>
-                  
-                    href="mailto:membership@recyclersassociation.org?subject=RAN%20Portal%20Support%20Request"
-                    className="hover:text-white transition-colors"
-                  >
-                    Contact Support
-                  </a>
+                  <a href="mailto:membership@recyclersassociation.org?subject=RAN%20Portal%20Support%20Request" className="hover:text-white transition-colors">Contact Support</a>
                 </li>
-                <li><button className="hover:text-white transition-colors">Privacy Policy</button></li>
+                <li>
+                  <button className="hover:text-white transition-colors">Privacy Policy</button>
+                </li>
               </ul>
             </div>
             <div>
@@ -253,7 +237,6 @@ function App() {
     setUser(userData);
     const target = userData.role === 'ADMIN' ? '/admin' : '/dashboard';
     window.history.pushState({}, '', target);
-    // Trigger a popstate so react-router picks it up
     window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
