@@ -175,7 +175,38 @@ export interface ProcessedMaterial {
   year: string;
   material: string;
   weight: number;
+  pricePerKg?: number;
+  buyer?: string;
   weighbridgeImages: string[];
+  createdAt: string;
+}
+
+export const EXPENSE_CATEGORIES = [
+  'Transport & Logistics',
+  'Labour & Wages',
+  'Equipment & Machinery',
+  'Maintenance & Repairs',
+  'Rent & Utilities',
+  'Fuel & Energy',
+  'Packaging & Supplies',
+  'Permits & Licenses',
+  'Membership Dues',
+  'Marketing',
+  'Other'
+] as const;
+
+export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number];
+
+export interface Expense {
+  id: string;
+  userId: string;
+  month: string;
+  year: string;
+  category: ExpenseCategory | string;
+  amount: number;
+  description?: string;
+  date: string;
+  receipt?: string;
   createdAt: string;
 }
 

@@ -270,14 +270,30 @@ const initDb = async () => {
         );
         CREATE INDEX IF NOT EXISTS idx_processed_user ON processed_materials(user_id);
         CREATE INDEX IF NOT EXISTS idx_processed_material ON processed_materials(material);
+        CREATE TABLE IF NOT EXISTS expenses (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+            month TEXT,
+            year TEXT,
+            category TEXT NOT NULL,
+            amount NUMERIC NOT NULL,
+            description TEXT,
+            date TEXT,
+            receipt TEXT,
+            created_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_expenses_user ON expenses(user_id);
+        CREATE INDEX IF NOT EXISTS idx_expenses_period ON expenses(year, month);
       `;
-      
+
       await client.query(schema);
-      
+
       await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0');
       await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret TEXT');
       await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE');
       await client.query('ALTER TABLE material_prices ADD COLUMN IF NOT EXISTS co2_rate NUMERIC DEFAULT 0');
+      await client.query('ALTER TABLE processed_materials ADD COLUMN IF NOT EXISTS price_per_kg NUMERIC DEFAULT 0');
+      await client.query('ALTER TABLE processed_materials ADD COLUMN IF NOT EXISTS buyer TEXT');
       
       console.log('Database tables checked/created successfully');
       
@@ -930,6 +946,8 @@ router.get('/processed', authenticateToken, verifyOwnership, async (req, res) =>
             year: row.year,
             material: row.material,
             weight: Number(row.weight),
+            pricePerKg: row.price_per_kg != null ? Number(row.price_per_kg) : 0,
+            buyer: row.buyer || '',
             weighbridgeImages: row.weighbridge_images || [],
             createdAt: row.created_at
         })));
@@ -956,13 +974,84 @@ router.post('/processed', authenticateToken, verifyOwnership, async (req, res) =
             return res.status(400).json({ message: 'At least one weighbridge image is required.' });
         }
 
+        const pricePerKg = data.pricePerKg != null && data.pricePerKg !== '' ? Number(data.pricePerKg) : 0;
+        const buyer = (data.buyer || '').toString().trim() || null;
+
         await query(
-            'INSERT INTO processed_materials (id, user_id, month, year, material, weight, weighbridge_images, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-            [id, data.userId, data.month, data.year, data.material, weight, data.weighbridgeImages, createdAt]
+            'INSERT INTO processed_materials (id, user_id, month, year, material, weight, weighbridge_images, price_per_kg, buyer, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+            [id, data.userId, data.month, data.year, data.material, weight, data.weighbridgeImages, pricePerKg, buyer, createdAt]
         );
-        res.status(201).json({ ...data, id, createdAt });
+        res.status(201).json({ ...data, id, pricePerKg, buyer: buyer || '', createdAt });
     } catch (e) {
         console.error('POST /processed error:', e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// --- EXPENSES ROUTES ---
+
+router.get('/expenses', authenticateToken, verifyOwnership, async (req, res) => {
+    try {
+        const { userId } = req.query;
+        let q = `SELECT * FROM expenses`;
+        const params = [];
+        if (req.user.role !== 'ADMIN') { q += ` WHERE user_id = $1`; params.push(req.user.id); }
+        else if (userId) { q += ` WHERE user_id = $1`; params.push(userId); }
+        q += ` ORDER BY date DESC, created_at DESC`;
+        const result = await query(q, params);
+        res.json(result.rows.map(row => ({
+            id: row.id,
+            userId: row.user_id,
+            month: row.month,
+            year: row.year,
+            category: row.category,
+            amount: Number(row.amount),
+            description: row.description || '',
+            date: row.date,
+            receipt: row.receipt || '',
+            createdAt: row.created_at
+        })));
+    } catch (e) {
+        console.error('GET /expenses error:', e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.post('/expenses', authenticateToken, verifyOwnership, async (req, res) => {
+    const data = req.body;
+    const id = `exp-${Date.now()}`;
+    const createdAt = new Date().toISOString();
+    try {
+        if (!data.userId || !data.category || data.amount == null) {
+            return res.status(400).json({ message: 'Missing required fields.' });
+        }
+        const amount = Number(data.amount);
+        if (isNaN(amount) || amount <= 0) {
+            return res.status(400).json({ message: 'Invalid amount.' });
+        }
+        const date = data.date || new Date().toISOString().split('T')[0];
+        await query(
+            'INSERT INTO expenses (id, user_id, month, year, category, amount, description, date, receipt, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+            [id, data.userId, data.month, data.year, data.category, amount, data.description || null, date, data.receipt || null, createdAt]
+        );
+        res.status(201).json({ ...data, id, amount, date, createdAt });
+    } catch (e) {
+        console.error('POST /expenses error:', e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.delete('/expenses/:id', authenticateToken, async (req, res) => {
+    try {
+        const existing = await query('SELECT user_id FROM expenses WHERE id = $1', [req.params.id]);
+        if (existing.rows.length === 0) return res.status(404).json({ message: 'Not found' });
+        if (req.user.role !== 'ADMIN' && existing.rows[0].user_id !== req.user.id) {
+            return res.status(403).json({ message: 'Forbidden' });
+        }
+        await query('DELETE FROM expenses WHERE id = $1', [req.params.id]);
+        res.json({ message: 'Deleted' });
+    } catch (e) {
+        console.error('DELETE /expenses error:', e);
         res.status(500).json({ message: 'Server error' });
     }
 });

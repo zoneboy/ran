@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { User, MembershipStatus, Announcement, Payment, BankDetails, Collection, MaterialPrice, ProcessedMaterial, StockpileEntry } from '../types';
+import { User, MembershipStatus, Announcement, Payment, BankDetails, Collection, MaterialPrice, ProcessedMaterial, StockpileEntry, Expense, EXPENSE_CATEGORIES } from '../types';
 import { api } from '../services/api';
 import { uploadToCloudinary } from '../services/cloudinary';
 import { renderAnnouncementHtml } from '../utils/sanitizeHtml';
-import { CreditCard, Download, User as UserIcon, Bell, AlertTriangle, Users, Camera, X, Check, Loader2, Clock, UploadCloud, MessageCircle, BarChart2, Plus, FileText, Trash2, Leaf, Factory, Archive, AlertCircle } from 'lucide-react';
+import { CreditCard, Download, User as UserIcon, Bell, AlertTriangle, Users, Camera, X, Check, Loader2, Clock, UploadCloud, MessageCircle, BarChart2, Plus, FileText, Trash2, Leaf, Factory, Archive, AlertCircle, Calculator, TrendingUp, TrendingDown, Wallet, Receipt, PieChart, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 
 interface UserDashboardProps {
   user: User;
@@ -70,6 +70,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       year: new Date().getFullYear().toString(),
       material: '',
       weight: '',
+      pricePerKg: '',
+      buyer: '',
       weighbridgeImages: [] as string[]
   });
   const [isUploadingWeighbridge, setIsUploadingWeighbridge] = useState(false);
@@ -77,6 +79,32 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
   // Active section toggle for logs (Collection / Processed)
   const [activeLogTab, setActiveLogTab] = useState<'collection' | 'processed' | 'stockpile'>('collection');
+
+  // Top-level dashboard section
+  const [activeSection, setActiveSection] = useState<'overview' | 'financials'>('overview');
+
+  // Financials state
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [activeFinanceTab, setActiveFinanceTab] = useState<'pnl' | 'balance' | 'cashflow' | 'expenses'>('pnl');
+  const [financeYear, setFinanceYear] = useState<string>('all');
+  const [financeMonth, setFinanceMonth] = useState<string>('all');
+  const [financeMaterial, setFinanceMaterial] = useState<string>('all');
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({
+    month: MONTHS[new Date().getMonth()],
+    year: new Date().getFullYear().toString(),
+    category: EXPENSE_CATEGORIES[0] as string,
+    amount: '',
+    description: '',
+    date: new Date().toISOString().split('T')[0],
+    receipt: ''
+  });
+  const [isSavingExpense, setIsSavingExpense] = useState(false);
+  const [isUploadingExpenseReceipt, setIsUploadingExpenseReceipt] = useState(false);
+  const [openingCashBalance, setOpeningCashBalance] = useState<string>(() => {
+    try { return localStorage.getItem(`ran_opening_cash_${user.id}`) || '0'; }
+    catch { return '0'; }
+  });
 
   // Unread messages
   const [unreadCount, setUnreadCount] = useState(0);
@@ -116,14 +144,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
   const refreshLogsAndStockpile = async () => {
     try {
-      const [colData, procData, stockData] = await Promise.all([
+      const [colData, procData, stockData, expData] = await Promise.all([
         api.getCollections(user.id),
         api.getProcessedMaterials(user.id),
-        api.getStockpile(user.id)
+        api.getStockpile(user.id),
+        api.getExpenses(user.id)
       ]);
       setCollections(colData);
       setProcessed(procData);
       setStockpile(stockData);
+      setExpenses(expData);
     } catch (e) {
       console.error('Refresh failed', e);
     }
@@ -315,6 +345,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         year: processedForm.year,
         material: processedForm.material,
         weight,
+        pricePerKg: processedForm.pricePerKg ? Number(processedForm.pricePerKg) : 0,
+        buyer: processedForm.buyer,
         weighbridgeImages: processedForm.weighbridgeImages
       });
       await refreshLogsAndStockpile();
@@ -324,6 +356,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         year: new Date().getFullYear().toString(),
         material: '',
         weight: '',
+        pricePerKg: '',
+        buyer: '',
         weighbridgeImages: []
       });
       alert('Processed material logged successfully');
@@ -333,6 +367,185 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       setIsSavingProcessed(false);
     }
   };
+
+  const handleExpenseReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingExpenseReceipt(true);
+    try {
+      const url = await uploadToCloudinary(file);
+      setExpenseForm(prev => ({ ...prev, receipt: url }));
+    } catch (err) {
+      alert('Failed to upload receipt.');
+    } finally {
+      setIsUploadingExpenseReceipt(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleExpenseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = Number(expenseForm.amount);
+    if (!amt || amt <= 0) { alert('Please enter a valid amount.'); return; }
+    if (!expenseForm.category) { alert('Please choose a category.'); return; }
+    setIsSavingExpense(true);
+    try {
+      await api.createExpense({
+        userId: user.id,
+        month: expenseForm.month,
+        year: expenseForm.year,
+        category: expenseForm.category,
+        amount: amt,
+        description: expenseForm.description,
+        date: expenseForm.date,
+        receipt: expenseForm.receipt
+      });
+      const fresh = await api.getExpenses(user.id);
+      setExpenses(fresh);
+      setShowExpenseModal(false);
+      setExpenseForm({
+        month: MONTHS[new Date().getMonth()],
+        year: new Date().getFullYear().toString(),
+        category: EXPENSE_CATEGORIES[0],
+        amount: '',
+        description: '',
+        date: new Date().toISOString().split('T')[0],
+        receipt: ''
+      });
+    } catch (err: any) {
+      alert(err.message || 'Failed to save expense.');
+    } finally {
+      setIsSavingExpense(false);
+    }
+  };
+
+  const handleDeleteExpense = async (id: string) => {
+    if (!window.confirm('Delete this expense?')) return;
+    try {
+      await api.deleteExpense(id);
+      setExpenses(prev => prev.filter(x => x.id !== id));
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete.');
+    }
+  };
+
+  const handleOpeningCashChange = (val: string) => {
+    setOpeningCashBalance(val);
+    try { localStorage.setItem(`ran_opening_cash_${user.id}`, val); } catch {}
+  };
+
+  // ============ FINANCIAL CALCULATIONS ============
+  const periodMatches = (month: string, year: string): boolean => {
+    if (financeYear !== 'all' && year !== financeYear) return false;
+    if (financeMonth !== 'all' && month !== financeMonth) return false;
+    return true;
+  };
+
+  const filteredProcessed = processed.filter(p =>
+    periodMatches(p.month, p.year) &&
+    (financeMaterial === 'all' || p.material === financeMaterial)
+  );
+  const filteredCollections = collections.filter(c =>
+    periodMatches(c.month, c.year) &&
+    (financeMaterial === 'all' || c.material === financeMaterial)
+  );
+  const filteredExpenses = expenses.filter(x => periodMatches(x.month, x.year));
+
+  // Revenue per material from processed (price * weight)
+  const revenueByMaterial: Record<string, { weight: number; revenue: number }> = {};
+  filteredProcessed.forEach(p => {
+    const rev = (p.pricePerKg || 0) * p.weight;
+    if (!revenueByMaterial[p.material]) revenueByMaterial[p.material] = { weight: 0, revenue: 0 };
+    revenueByMaterial[p.material].weight += p.weight;
+    revenueByMaterial[p.material].revenue += rev;
+  });
+  const totalRevenue = Object.values(revenueByMaterial).reduce((s, r) => s + r.revenue, 0);
+
+  // Expenses by category
+  const expensesByCategory: Record<string, number> = {};
+  filteredExpenses.forEach(x => {
+    expensesByCategory[x.category] = (expensesByCategory[x.category] || 0) + x.amount;
+  });
+  const totalExpenses = Object.values(expensesByCategory).reduce((s, x) => s + x, 0);
+
+  // Membership dues paid (treated as a separate expense line on P&L)
+  const totalDuesPaid = payments
+    .filter(p => p.status === 'Successful')
+    .reduce((s, p) => s + p.amount, 0);
+
+  const grossProfit = totalRevenue;
+  const operatingExpenses = totalExpenses;
+  const netProfit = grossProfit - operatingExpenses;
+  const netMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+
+  // Balance sheet — inventory value uses market prices (admin set) or avg price from sold
+  const inventoryValue = stockpile.reduce((sum, s) => {
+    const marketPrice = prices.find(p => p.materialName === s.material)?.price || 0;
+    // If user has sold this material recently, prefer their actual price
+    const userSales = processed.filter(p => p.material === s.material && (p.pricePerKg || 0) > 0);
+    const avgUserPrice = userSales.length > 0
+      ? userSales.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userSales.length
+      : 0;
+    const valuationPrice = avgUserPrice > 0 ? avgUserPrice : marketPrice;
+    return sum + Math.max(0, s.inStock) * valuationPrice;
+  }, 0);
+
+  const openingCash = Number(openingCashBalance) || 0;
+  // Cash-on-hand estimate: opening + all-time net (revenue - expenses - dues are paid out)
+  const allTimeRevenue = processed.reduce((s, p) => s + ((p.pricePerKg || 0) * p.weight), 0);
+  const allTimeExpenses = expenses.reduce((s, x) => s + x.amount, 0);
+  const cashOnHand = openingCash + allTimeRevenue - allTimeExpenses - totalDuesPaid;
+
+  const totalAssets = cashOnHand + inventoryValue;
+  // Liabilities — pending payments as accounts payable
+  const pendingDues = payments.filter(p => p.status === 'Pending').reduce((s, p) => s + p.amount, 0);
+  const totalLiabilities = pendingDues;
+  const equity = totalAssets - totalLiabilities;
+
+  // Cash flow rows
+  const cashInflows = filteredProcessed
+    .filter(p => (p.pricePerKg || 0) > 0)
+    .map(p => ({
+      id: p.id,
+      date: p.createdAt,
+      period: `${p.month} ${p.year}`,
+      label: `Sale: ${p.material}${p.buyer ? ` (${p.buyer})` : ''}`,
+      amount: (p.pricePerKg || 0) * p.weight
+    }));
+  const cashOutflowsExp = filteredExpenses.map(x => ({
+    id: x.id,
+    date: x.date || x.createdAt,
+    period: `${x.month} ${x.year}`,
+    label: `${x.category}${x.description ? `: ${x.description}` : ''}`,
+    amount: -x.amount
+  }));
+  const cashOutflowsDues = (financeYear === 'all' && financeMonth === 'all'
+    ? payments.filter(p => p.status === 'Successful')
+    : []
+  ).map(p => ({
+    id: p.id,
+    date: p.date,
+    period: p.date,
+    label: `Dues: ${p.description}`,
+    amount: -p.amount
+  }));
+  const cashFlowRows = [...cashInflows, ...cashOutflowsExp, ...cashOutflowsDues]
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const netCashFlow = cashFlowRows.reduce((s, r) => s + r.amount, 0);
+
+  // Filter option lists
+  const availableYears = Array.from(new Set([
+    ...processed.map(p => p.year),
+    ...expenses.map(e => e.year),
+    new Date().getFullYear().toString()
+  ])).filter(Boolean).sort().reverse();
+  const availableMaterials = Array.from(new Set([
+    ...processed.map(p => p.material),
+    ...collections.map(c => c.material)
+  ])).filter(Boolean).sort();
+
+  const fmtNaira = (n: number) =>
+    `${n < 0 ? '-' : ''}₦${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
   const AnnouncementSkeleton = () => (
     <div className="space-y-4">{[1, 2].map(i => (<div key={i} className="animate-pulse flex flex-col space-y-2"><div className="h-4 bg-gray-200 rounded w-3/4"></div><div className="h-3 bg-gray-100 rounded w-full"></div><div className="h-3 bg-gray-100 rounded w-1/2"></div></div>))}</div>
@@ -413,6 +626,58 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         ) : (
           /* Active view */
           <>
+            {/* Section switcher */}
+            <div className="inline-flex bg-white border border-gray-200 rounded-lg p-1 gap-1 shadow-sm">
+              <button
+                onClick={() => setActiveSection('overview')}
+                className={`px-4 py-2 rounded text-sm font-medium transition-colors flex items-center ${activeSection === 'overview' ? 'bg-green-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                <BarChart2 className="h-4 w-4 mr-2" /> Overview
+              </button>
+              <button
+                onClick={() => setActiveSection('financials')}
+                className={`px-4 py-2 rounded text-sm font-medium transition-colors flex items-center ${activeSection === 'financials' ? 'bg-emerald-700 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                <Calculator className="h-4 w-4 mr-2" /> Financials
+                <span className="ml-2 text-[10px] bg-amber-400 text-amber-900 px-1.5 py-0.5 rounded font-bold uppercase">New</span>
+              </button>
+            </div>
+
+            {activeSection === 'financials' ? (
+              <FinancialsSection
+                year={financeYear} setYear={setFinanceYear}
+                month={financeMonth} setMonth={setFinanceMonth}
+                material={financeMaterial} setMaterial={setFinanceMaterial}
+                availableYears={availableYears}
+                availableMaterials={availableMaterials}
+                activeFinanceTab={activeFinanceTab}
+                setActiveFinanceTab={setActiveFinanceTab}
+                totalRevenue={totalRevenue}
+                revenueByMaterial={revenueByMaterial}
+                expensesByCategory={expensesByCategory}
+                totalExpenses={totalExpenses}
+                netProfit={netProfit}
+                netMargin={netMargin}
+                cashOnHand={cashOnHand}
+                inventoryValue={inventoryValue}
+                totalAssets={totalAssets}
+                totalLiabilities={totalLiabilities}
+                pendingDues={pendingDues}
+                equity={equity}
+                openingCashBalance={openingCashBalance}
+                onOpeningCashChange={handleOpeningCashChange}
+                stockpile={stockpile}
+                prices={prices}
+                processed={processed}
+                filteredExpenses={filteredExpenses}
+                cashFlowRows={cashFlowRows}
+                netCashFlow={netCashFlow}
+                onAddExpense={() => setShowExpenseModal(true)}
+                onDeleteExpense={handleDeleteExpense}
+                fmtNaira={fmtNaira}
+              />
+            ) : (
+              <>
             {/* Announcements */}
             {(announcements.length > 0 || isLoadingData) && (
               <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-amber-500">
@@ -569,16 +834,24 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price ₦/kg</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Buyer</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weighbridge</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
-                            {isLoadingData ? (<tr><td colSpan={5} className="px-6 py-4"><LogSkeleton /></td></tr>) : processed.length > 0 ? processed.map(p => (
+                            {isLoadingData ? (<tr><td colSpan={8} className="px-6 py-4"><LogSkeleton /></td></tr>) : processed.length > 0 ? processed.map(p => (
                               <tr key={p.id}>
                                 <td className="px-6 py-4 text-sm text-gray-900">{p.month} {p.year}</td>
                                 <td className="px-6 py-4 text-sm text-gray-600">{p.material}</td>
                                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{p.weight.toLocaleString()}</td>
+                                <td className="px-6 py-4 text-sm text-gray-600">{p.pricePerKg ? `₦${p.pricePerKg.toLocaleString()}` : '—'}</td>
+                                <td className="px-6 py-4 text-sm font-semibold text-emerald-700">
+                                  {(p.pricePerKg || 0) > 0 ? `₦${((p.pricePerKg || 0) * p.weight).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-600">{p.buyer || '—'}</td>
                                 <td className="px-6 py-4 text-sm">
                                   <div className="flex gap-1 flex-wrap">
                                     {p.weighbridgeImages.map((img, i) => (
@@ -590,7 +863,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                                 </td>
                                 <td className="px-6 py-4 text-sm text-gray-500">{new Date(p.createdAt).toLocaleDateString()}</td>
                               </tr>
-                            )) : (<tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">No processed material logged yet.</td></tr>)}
+                            )) : (<tr><td colSpan={8} className="px-6 py-8 text-center text-gray-500">No processed material logged yet.</td></tr>)}
                           </tbody>
                         </table>
                       </div>
@@ -712,6 +985,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
               </div>
             </div>
+              </>
+            )}
           </>
         )}
       </div>
@@ -806,6 +1081,23 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                 <input type="number" step="0.01" required value={processedForm.weight} onChange={e => setProcessedForm({ ...processedForm, weight: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" />
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Sale Price (₦/kg)</label>
+                  <input type="number" step="0.01" min="0" value={processedForm.pricePerKg} onChange={e => setProcessedForm({ ...processedForm, pricePerKg: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" />
+                  <p className="text-[11px] text-gray-500 mt-1">Leave 0 if not yet sold</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Buyer (optional)</label>
+                  <input type="text" value={processedForm.buyer} onChange={e => setProcessedForm({ ...processedForm, buyer: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="e.g. ABC Recyclers" />
+                </div>
+              </div>
+              {processedForm.weight && processedForm.pricePerKg && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded p-2 text-sm text-emerald-800">
+                  Revenue from this entry: <strong>₦{(Number(processedForm.weight) * Number(processedForm.pricePerKg)).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Weighbridge Tickets <span className="text-red-500">*</span>
@@ -855,6 +1147,429 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         </div>
       )}
 
+      {/* Expense Modal */}
+      {showExpenseModal && !isExpired && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center">
+                <Receipt className="h-5 w-5 mr-2 text-amber-600" /> Log Expense
+              </h3>
+              <button onClick={() => setShowExpenseModal(false)}><X className="h-5 w-5 text-gray-500" /></button>
+            </div>
+
+            <form onSubmit={handleExpenseSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Month</label>
+                  <select className="w-full border rounded px-3 py-2 mt-1" value={expenseForm.month} onChange={e => setExpenseForm({ ...expenseForm, month: e.target.value })}>
+                    {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Year</label>
+                  <select className="w-full border rounded px-3 py-2 mt-1" value={expenseForm.year} onChange={e => setExpenseForm({ ...expenseForm, year: e.target.value })}>
+                    {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Category</label>
+                <select required className="w-full border rounded px-3 py-2 mt-1" value={expenseForm.category} onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value })}>
+                  {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Amount (₦)</label>
+                <input type="number" step="0.01" min="0.01" required value={expenseForm.amount} onChange={e => setExpenseForm({ ...expenseForm, amount: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Date</label>
+                <input type="date" required value={expenseForm.date} onChange={e => setExpenseForm({ ...expenseForm, date: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Description (optional)</label>
+                <input type="text" value={expenseForm.description} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="e.g. Diesel for truck — Lagos run" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Receipt (optional)</label>
+                <div className="border-2 border-dashed border-gray-300 rounded-md p-3 text-center">
+                  {isUploadingExpenseReceipt ? (
+                    <Loader2 className="h-5 w-5 animate-spin mx-auto text-amber-600" />
+                  ) : expenseForm.receipt ? (
+                    <div className="flex items-center justify-between text-sm">
+                      <a href={expenseForm.receipt} target="_blank" rel="noopener noreferrer" className="text-amber-700 hover:underline flex items-center">
+                        <Check className="h-4 w-4 mr-1" /> Receipt attached
+                      </a>
+                      <button type="button" onClick={() => setExpenseForm({ ...expenseForm, receipt: '' })} className="text-red-500 hover:text-red-700"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  ) : (
+                    <input type="file" accept="image/*,.pdf" onChange={handleExpenseReceiptUpload} className="block w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100" />
+                  )}
+                </div>
+              </div>
+
+              <button type="submit" disabled={isSavingExpense} className="w-full bg-amber-600 text-white py-2 rounded font-bold hover:bg-amber-700 disabled:opacity-50">
+                {isSavingExpense ? 'Saving...' : 'Save Expense'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};
+
+interface FinancialsSectionProps {
+  year: string; setYear: (s: string) => void;
+  month: string; setMonth: (s: string) => void;
+  material: string; setMaterial: (s: string) => void;
+  availableYears: string[];
+  availableMaterials: string[];
+  activeFinanceTab: 'pnl' | 'balance' | 'cashflow' | 'expenses';
+  setActiveFinanceTab: (t: 'pnl' | 'balance' | 'cashflow' | 'expenses') => void;
+  totalRevenue: number;
+  revenueByMaterial: Record<string, { weight: number; revenue: number }>;
+  expensesByCategory: Record<string, number>;
+  totalExpenses: number;
+  netProfit: number;
+  netMargin: number;
+  cashOnHand: number;
+  inventoryValue: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  pendingDues: number;
+  equity: number;
+  openingCashBalance: string;
+  onOpeningCashChange: (v: string) => void;
+  stockpile: StockpileEntry[];
+  prices: MaterialPrice[];
+  processed: ProcessedMaterial[];
+  filteredExpenses: Expense[];
+  cashFlowRows: { id: string; date: string; period: string; label: string; amount: number }[];
+  netCashFlow: number;
+  onAddExpense: () => void;
+  onDeleteExpense: (id: string) => void;
+  fmtNaira: (n: number) => string;
+}
+
+const FinancialsSection: React.FC<FinancialsSectionProps> = ({
+  year, setYear, month, setMonth, material, setMaterial,
+  availableYears, availableMaterials,
+  activeFinanceTab, setActiveFinanceTab,
+  totalRevenue, revenueByMaterial, expensesByCategory, totalExpenses,
+  netProfit, netMargin, cashOnHand, inventoryValue,
+  totalAssets, totalLiabilities, pendingDues, equity,
+  openingCashBalance, onOpeningCashChange,
+  stockpile, prices, processed, filteredExpenses,
+  cashFlowRows, netCashFlow,
+  onAddExpense, onDeleteExpense, fmtNaira
+}) => {
+  return (
+    <div className="space-y-6">
+      {/* Header + Filters */}
+      <div className="bg-white rounded-lg shadow-sm p-5">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 flex items-center">
+              <Calculator className="h-6 w-6 mr-2 text-emerald-700" /> Financial Statements
+            </h2>
+            <p className="text-sm text-gray-500">Track your profit, loss, assets and cash flow from your recycling business.</p>
+          </div>
+          <button onClick={onAddExpense} className="inline-flex items-center bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded text-sm font-medium">
+            <Plus className="h-4 w-4 mr-1" /> Log Expense
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-3 items-end border-t border-gray-100 pt-4">
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 uppercase mb-1">Year</label>
+            <select value={year} onChange={e => setYear(e.target.value)} className="border rounded px-3 py-1.5 text-sm bg-white">
+              <option value="all">All Years</option>
+              {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 uppercase mb-1">Month</label>
+            <select value={month} onChange={e => setMonth(e.target.value)} className="border rounded px-3 py-1.5 text-sm bg-white">
+              <option value="all">All Months</option>
+              {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 uppercase mb-1">Material</label>
+            <select value={material} onChange={e => setMaterial(e.target.value)} className="border rounded px-3 py-1.5 text-sm bg-white">
+              <option value="all">All Materials</option>
+              {availableMaterials.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          {(year !== 'all' || month !== 'all' || material !== 'all') && (
+            <button onClick={() => { setYear('all'); setMonth('all'); setMaterial('all'); }} className="text-xs text-gray-500 hover:text-emerald-700 underline">
+              Clear filters
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white rounded-lg p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs uppercase tracking-wider text-emerald-100">Revenue</span>
+            <TrendingUp className="h-4 w-4 text-emerald-100" />
+          </div>
+          <p className="text-xl font-extrabold truncate">{fmtNaira(totalRevenue)}</p>
+        </div>
+        <div className="bg-gradient-to-br from-rose-500 to-rose-700 text-white rounded-lg p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs uppercase tracking-wider text-rose-100">Expenses</span>
+            <TrendingDown className="h-4 w-4 text-rose-100" />
+          </div>
+          <p className="text-xl font-extrabold truncate">{fmtNaira(totalExpenses)}</p>
+        </div>
+        <div className={`bg-gradient-to-br ${netProfit >= 0 ? 'from-teal-500 to-teal-700' : 'from-orange-500 to-orange-700'} text-white rounded-lg p-4 shadow-sm`}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs uppercase tracking-wider text-white/80">Net {netProfit >= 0 ? 'Profit' : 'Loss'}</span>
+            <PieChart className="h-4 w-4 text-white/80" />
+          </div>
+          <p className="text-xl font-extrabold truncate">{fmtNaira(netProfit)}</p>
+          <p className="text-[11px] text-white/80 mt-1">Margin: {netMargin.toFixed(1)}%</p>
+        </div>
+        <div className="bg-gradient-to-br from-indigo-500 to-indigo-700 text-white rounded-lg p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs uppercase tracking-wider text-indigo-100">Inventory Value</span>
+            <Archive className="h-4 w-4 text-indigo-100" />
+          </div>
+          <p className="text-xl font-extrabold truncate">{fmtNaira(inventoryValue)}</p>
+        </div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        <div className="border-b px-4 py-2 flex gap-1 overflow-x-auto">
+          {[
+            { id: 'pnl', label: 'Profit & Loss', icon: TrendingUp },
+            { id: 'balance', label: 'Balance Sheet', icon: Wallet },
+            { id: 'cashflow', label: 'Cash Flow', icon: ArrowDownCircle },
+            { id: 'expenses', label: 'Expenses', icon: Receipt }
+          ].map(t => {
+            const Icon = t.icon;
+            return (
+              <button key={t.id} onClick={() => setActiveFinanceTab(t.id as any)}
+                className={`px-3 py-1.5 rounded text-sm font-medium flex items-center whitespace-nowrap transition-colors ${activeFinanceTab === t.id ? 'bg-emerald-700 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+                <Icon className="h-4 w-4 mr-1.5" /> {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* P&L */}
+        {activeFinanceTab === 'pnl' && (
+          <div className="p-5">
+            <h3 className="font-bold text-gray-900 mb-3">Profit & Loss Statement</h3>
+            <table className="min-w-full text-sm">
+              <tbody>
+                <tr className="border-b border-gray-200"><td colSpan={2} className="py-2 font-bold text-emerald-700 uppercase text-xs">Revenue</td></tr>
+                {Object.entries(revenueByMaterial).length === 0 ? (
+                  <tr><td colSpan={2} className="py-2 text-gray-400 italic pl-4">No sales recorded for this period. Log processed materials with a sale price to populate this.</td></tr>
+                ) : Object.entries(revenueByMaterial).map(([mat, info]) => (
+                  <tr key={mat} className="border-b border-gray-50">
+                    <td className="py-2 pl-4 text-gray-700">{mat} <span className="text-gray-400 text-xs">({info.weight.toLocaleString()} kg)</span></td>
+                    <td className="py-2 text-right font-medium text-gray-900">{fmtNaira(info.revenue)}</td>
+                  </tr>
+                ))}
+                <tr className="border-b-2 border-gray-300 bg-emerald-50">
+                  <td className="py-2 pl-4 font-bold text-gray-900">Total Revenue</td>
+                  <td className="py-2 text-right font-bold text-emerald-700">{fmtNaira(totalRevenue)}</td>
+                </tr>
+
+                <tr><td colSpan={2} className="pt-4"></td></tr>
+                <tr className="border-b border-gray-200"><td colSpan={2} className="py-2 font-bold text-rose-700 uppercase text-xs">Operating Expenses</td></tr>
+                {Object.entries(expensesByCategory).length === 0 ? (
+                  <tr><td colSpan={2} className="py-2 text-gray-400 italic pl-4">No expenses logged for this period.</td></tr>
+                ) : Object.entries(expensesByCategory).map(([cat, amt]) => (
+                  <tr key={cat} className="border-b border-gray-50">
+                    <td className="py-2 pl-4 text-gray-700">{cat}</td>
+                    <td className="py-2 text-right font-medium text-gray-900">{fmtNaira(amt)}</td>
+                  </tr>
+                ))}
+                <tr className="border-b-2 border-gray-300 bg-rose-50">
+                  <td className="py-2 pl-4 font-bold text-gray-900">Total Expenses</td>
+                  <td className="py-2 text-right font-bold text-rose-700">{fmtNaira(totalExpenses)}</td>
+                </tr>
+
+                <tr><td colSpan={2} className="pt-4"></td></tr>
+                <tr className={`border-t-2 border-gray-400 ${netProfit >= 0 ? 'bg-emerald-50' : 'bg-rose-50'}`}>
+                  <td className="py-3 pl-4 font-extrabold text-gray-900 uppercase">Net {netProfit >= 0 ? 'Profit' : 'Loss'}</td>
+                  <td className={`py-3 text-right font-extrabold text-lg ${netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtNaira(netProfit)}</td>
+                </tr>
+                <tr>
+                  <td className="py-1 pl-4 text-xs text-gray-500">Profit margin</td>
+                  <td className="py-1 text-right text-xs text-gray-500">{netMargin.toFixed(2)}%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Balance Sheet */}
+        {activeFinanceTab === 'balance' && (
+          <div className="p-5">
+            <h3 className="font-bold text-gray-900 mb-3">Balance Sheet <span className="text-xs font-normal text-gray-500">(as of today)</span></h3>
+
+            <div className="bg-gray-50 border border-gray-200 rounded p-3 mb-4 flex flex-col sm:flex-row sm:items-center gap-2">
+              <label className="text-xs font-semibold text-gray-600 uppercase">Opening cash balance:</label>
+              <input type="number" step="0.01" value={openingCashBalance} onChange={e => onOpeningCashChange(e.target.value)} className="border rounded px-3 py-1 text-sm w-40" placeholder="0" />
+              <span className="text-[11px] text-gray-500">Capital you started with. Saved locally on this device.</span>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <div>
+                <h4 className="font-bold text-emerald-700 uppercase text-xs mb-2 border-b pb-1">Assets</h4>
+                <table className="min-w-full text-sm">
+                  <tbody>
+                    <tr className="border-b border-gray-50"><td className="py-2 text-gray-700">Cash on hand</td><td className="py-2 text-right font-medium">{fmtNaira(cashOnHand)}</td></tr>
+                    <tr className="border-b border-gray-50"><td className="py-2 text-gray-700">Inventory (stockpile)</td><td className="py-2 text-right font-medium">{fmtNaira(inventoryValue)}</td></tr>
+                    <tr className="border-t-2 border-gray-300 bg-emerald-50"><td className="py-2 font-bold">Total Assets</td><td className="py-2 text-right font-bold text-emerald-700">{fmtNaira(totalAssets)}</td></tr>
+                  </tbody>
+                </table>
+
+                {stockpile.length > 0 && (
+                  <details className="mt-3 text-xs">
+                    <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Inventory breakdown</summary>
+                    <table className="min-w-full mt-2">
+                      <thead className="bg-gray-100">
+                        <tr><th className="text-left px-2 py-1">Material</th><th className="text-right px-2 py-1">Stock (kg)</th><th className="text-right px-2 py-1">@ ₦/kg</th><th className="text-right px-2 py-1">Value</th></tr>
+                      </thead>
+                      <tbody>
+                        {stockpile.filter(s => s.inStock > 0).map(s => {
+                          const userSales = processed.filter(p => p.material === s.material && (p.pricePerKg || 0) > 0);
+                          const avgPrice = userSales.length > 0 ? userSales.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userSales.length : (prices.find(p => p.materialName === s.material)?.price || 0);
+                          return (
+                            <tr key={s.material} className="border-b border-gray-50">
+                              <td className="px-2 py-1">{s.material}</td>
+                              <td className="px-2 py-1 text-right">{s.inStock.toLocaleString()}</td>
+                              <td className="px-2 py-1 text-right">{fmtNaira(avgPrice)}</td>
+                              <td className="px-2 py-1 text-right font-medium">{fmtNaira(s.inStock * avgPrice)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </details>
+                )}
+              </div>
+
+              <div>
+                <h4 className="font-bold text-rose-700 uppercase text-xs mb-2 border-b pb-1">Liabilities & Equity</h4>
+                <table className="min-w-full text-sm">
+                  <tbody>
+                    <tr className="border-b border-gray-50"><td className="py-2 text-gray-700">Pending membership dues</td><td className="py-2 text-right font-medium">{fmtNaira(pendingDues)}</td></tr>
+                    <tr className="border-t border-gray-200 bg-rose-50"><td className="py-2 font-bold">Total Liabilities</td><td className="py-2 text-right font-bold text-rose-700">{fmtNaira(totalLiabilities)}</td></tr>
+                    <tr><td className="py-2"></td></tr>
+                    <tr className="border-b border-gray-50"><td className="py-2 text-gray-700">Owner's Equity</td><td className="py-2 text-right font-medium">{fmtNaira(equity)}</td></tr>
+                    <tr className="border-t-2 border-gray-300 bg-indigo-50"><td className="py-2 font-bold">Liabilities + Equity</td><td className="py-2 text-right font-bold text-indigo-700">{fmtNaira(totalLiabilities + equity)}</td></tr>
+                  </tbody>
+                </table>
+                <p className="text-[11px] text-gray-500 mt-3 italic">Assets must equal Liabilities + Equity. If they don't, check that your opening cash and expense entries are accurate.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cash Flow */}
+        {activeFinanceTab === 'cashflow' && (
+          <div className="p-5">
+            <h3 className="font-bold text-gray-900 mb-3">Cash Flow Statement</h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Period</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Description</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cashFlowRows.length === 0 ? (
+                    <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-400 italic">No cash movements in this period.</td></tr>
+                  ) : cashFlowRows.map(r => (
+                    <tr key={r.id} className="border-b border-gray-50">
+                      <td className="px-3 py-2 text-gray-600">{new Date(r.date).toLocaleDateString()}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{r.period}</td>
+                      <td className="px-3 py-2 text-gray-700 flex items-center">
+                        {r.amount > 0 ? <ArrowDownCircle className="h-3 w-3 mr-1 text-emerald-600" /> : <ArrowUpCircle className="h-3 w-3 mr-1 text-rose-600" />}
+                        {r.label}
+                      </td>
+                      <td className={`px-3 py-2 text-right font-medium ${r.amount >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtNaira(r.amount)}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-gray-300 bg-gray-50">
+                    <td colSpan={3} className="px-3 py-2 font-bold text-gray-900">Net Cash Flow</td>
+                    <td className={`px-3 py-2 text-right font-bold text-lg ${netCashFlow >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtNaira(netCashFlow)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-3 italic">Inflows: sales of processed materials. Outflows: expenses and successful membership payments (only shown when filters are 'All').</p>
+          </div>
+        )}
+
+        {/* Expenses list */}
+        {activeFinanceTab === 'expenses' && (
+          <div className="p-5">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-bold text-gray-900">Expenses</h3>
+              <button onClick={onAddExpense} className="text-sm bg-amber-600 text-white px-3 py-1.5 rounded hover:bg-amber-700 flex items-center">
+                <Plus className="h-4 w-4 mr-1" /> Add Expense
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Period</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Category</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Description</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase">Receipt</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredExpenses.length === 0 ? (
+                    <tr><td colSpan={7} className="px-3 py-6 text-center text-gray-400 italic">No expenses recorded for this period.</td></tr>
+                  ) : filteredExpenses.map(x => (
+                    <tr key={x.id} className="border-b border-gray-50">
+                      <td className="px-3 py-2 text-gray-600">{x.date ? new Date(x.date).toLocaleDateString() : '—'}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{x.month} {x.year}</td>
+                      <td className="px-3 py-2 text-gray-700 font-medium">{x.category}</td>
+                      <td className="px-3 py-2 text-gray-600">{x.description || '—'}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-rose-700">{fmtNaira(x.amount)}</td>
+                      <td className="px-3 py-2 text-center">
+                        {x.receipt ? (
+                          <a href={x.receipt} target="_blank" rel="noopener noreferrer" className="text-amber-700 hover:underline text-xs inline-flex items-center"><Download className="h-3 w-3 mr-1" /> View</a>
+                        ) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button onClick={() => onDeleteExpense(x.id)} className="text-gray-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

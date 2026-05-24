@@ -1,4 +1,4 @@
-import { User, Announcement, Payment, Message, BankDetails, Collection, MaterialPrice, ProcessedMaterial, StockpileEntry, MonthlyStockpile } from '../types';
+import { User, Announcement, Payment, Message, BankDetails, Collection, MaterialPrice, ProcessedMaterial, StockpileEntry, MonthlyStockpile, Expense } from '../types';
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_URL = isLocal 
@@ -300,6 +300,33 @@ export const api = {
         credentials: 'include'
     });
     return await handleResponse(res);
+  },
+
+  getExpenses: async (userId?: string): Promise<Expense[]> => {
+    let url = `${API_URL}/expenses`;
+    if (userId) {
+        url += `?userId=${encodeURIComponent(userId)}`;
+    }
+    const res = await fetch(url, { credentials: 'include' });
+    return await handleResponse(res);
+  },
+
+  createExpense: async (data: Partial<Expense>): Promise<Expense> => {
+    const res = await fetch(`${API_URL}/expenses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  deleteExpense: async (id: string): Promise<void> => {
+    const res = await fetch(`${API_URL}/expenses/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'include'
+    });
+    await handleResponse(res);
   },
 
   getBankDetails: async (): Promise<BankDetails> => {
