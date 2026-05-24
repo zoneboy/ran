@@ -61,7 +61,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       year: new Date().getFullYear().toString(),
       material: '',
       weight: '',
-      pricePerKg: '',
+      totalCost: '',
       supplier: '',
       images: [] as string[]
   });
@@ -258,18 +258,19 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
   const openCollectionModalForCreate = () => {
     setEditingCollectionId(null);
-    setCollectionForm({ month: MONTHS[new Date().getMonth()], year: new Date().getFullYear().toString(), material: '', weight: '', pricePerKg: '', supplier: '', images: [] });
+    setCollectionForm({ month: MONTHS[new Date().getMonth()], year: new Date().getFullYear().toString(), material: '', weight: '', totalCost: '', supplier: '', images: [] });
     setShowCollectionModal(true);
   };
 
   const openCollectionModalForEdit = (col: Collection) => {
     setEditingCollectionId(col.id);
+    const total = (col.pricePerKg || 0) * col.weight;
     setCollectionForm({
       month: col.month,
       year: col.year,
       material: col.material,
       weight: String(col.weight),
-      pricePerKg: col.pricePerKg ? String(col.pricePerKg) : '',
+      totalCost: total > 0 ? String(total) : '',
       supplier: col.supplier || '',
       images: col.images || []
     });
@@ -280,13 +281,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
     e.preventDefault();
     setIsProcessingPayment(true);
     try {
+      const weight = Number(collectionForm.weight);
+      const totalCost = collectionForm.totalCost ? Number(collectionForm.totalCost) : 0;
+      const pricePerKg = weight > 0 && totalCost > 0 ? totalCost / weight : 0;
       const payload = {
         userId: user.id,
         month: collectionForm.month,
         year: collectionForm.year,
         material: collectionForm.material,
-        weight: Number(collectionForm.weight),
-        pricePerKg: collectionForm.pricePerKg ? Number(collectionForm.pricePerKg) : 0,
+        weight,
+        pricePerKg,
         supplier: collectionForm.supplier,
         images: collectionForm.images
       };
@@ -298,7 +302,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       await refreshLogsAndStockpile();
       setShowCollectionModal(false);
       setEditingCollectionId(null);
-      setCollectionForm({ month: MONTHS[new Date().getMonth()], year: new Date().getFullYear().toString(), material: '', weight: '', pricePerKg: '', supplier: '', images: [] });
+      setCollectionForm({ month: MONTHS[new Date().getMonth()], year: new Date().getFullYear().toString(), material: '', weight: '', totalCost: '', supplier: '', images: [] });
       alert(editingCollectionId ? 'Collection updated successfully' : 'Collection logged successfully');
     } catch (e: any) { alert(e.message || 'Failed to save collection'); }
     finally { setIsProcessingPayment(false); }
@@ -923,8 +927,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cost ₦/kg</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Cost</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg ₦/kg</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
                               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -936,10 +940,10 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                                 <td className="px-6 py-4 text-sm text-gray-900">{col.month} {col.year}</td>
                                 <td className="px-6 py-4 text-sm text-gray-600">{col.material}</td>
                                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{col.weight.toLocaleString()}</td>
-                                <td className="px-6 py-4 text-sm text-gray-600">{col.pricePerKg ? `₦${col.pricePerKg.toLocaleString()}` : '—'}</td>
                                 <td className="px-6 py-4 text-sm font-semibold text-amber-700">
                                   {(col.pricePerKg || 0) > 0 ? `₦${((col.pricePerKg || 0) * col.weight).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
                                 </td>
+                                <td className="px-6 py-4 text-sm text-gray-500">{col.pricePerKg ? `₦${col.pricePerKg.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}</td>
                                 <td className="px-6 py-4 text-sm text-gray-600">{col.supplier || '—'}</td>
                                 <td className="px-6 py-4 text-sm text-gray-500">{new Date(col.createdAt).toLocaleDateString()}</td>
                                 <td className="px-6 py-4 text-sm text-right whitespace-nowrap">
@@ -1186,18 +1190,18 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Cost ₦/kg <span className="text-xs text-gray-400 font-normal">(optional)</span></label>
-                  <input type="number" step="0.01" min="0" value={collectionForm.pricePerKg} onChange={e => setCollectionForm({ ...collectionForm, pricePerKg: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" />
-                  <p className="text-[11px] text-gray-500 mt-1">What you paid per kg to acquire this</p>
+                  <label className="block text-sm font-medium text-gray-700">Total Cost (₦) <span className="text-xs text-gray-400 font-normal">(optional)</span></label>
+                  <input type="number" step="0.01" min="0" value={collectionForm.totalCost} onChange={e => setCollectionForm({ ...collectionForm, totalCost: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" />
+                  <p className="text-[11px] text-gray-500 mt-1">Total ₦ paid for this batch (multiple suppliers/rates OK)</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Supplier <span className="text-xs text-gray-400 font-normal">(optional)</span></label>
                   <input type="text" value={collectionForm.supplier} onChange={e => setCollectionForm({ ...collectionForm, supplier: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="e.g. Lastmile collector name" />
                 </div>
               </div>
-              {collectionForm.weight && collectionForm.pricePerKg && (
+              {collectionForm.weight && collectionForm.totalCost && Number(collectionForm.weight) > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded p-2 text-sm text-amber-800">
-                  Total cost for this collection: <strong>₦{(Number(collectionForm.weight) * Number(collectionForm.pricePerKg)).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                  Effective rate: <strong>₦{(Number(collectionForm.totalCost) / Number(collectionForm.weight)).toLocaleString(undefined, { maximumFractionDigits: 2 })}/kg</strong>
                 </div>
               )}
 
