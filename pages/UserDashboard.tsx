@@ -3,7 +3,7 @@ import { User, MembershipStatus, Announcement, Payment, BankDetails, Collection,
 import { api } from '../services/api';
 import { uploadToCloudinary } from '../services/cloudinary';
 import { renderAnnouncementHtml } from '../utils/sanitizeHtml';
-import { CreditCard, Download, User as UserIcon, Bell, AlertTriangle, Users, Camera, X, Check, Loader2, Clock, UploadCloud, MessageCircle, BarChart2, Plus, FileText, Trash2, Leaf, Factory, Archive, AlertCircle, Calculator, TrendingUp, TrendingDown, Wallet, Receipt, PieChart, ArrowDownCircle, ArrowUpCircle, Pencil } from 'lucide-react';
+import { CreditCard, Download, User as UserIcon, Bell, AlertTriangle, Users, Camera, X, Check, Loader2, Clock, UploadCloud, MessageCircle, BarChart2, Plus, FileText, Trash2, Leaf, Factory, Archive, AlertCircle, Calculator, TrendingUp, TrendingDown, Wallet, Receipt, PieChart, ArrowDownCircle, ArrowUpCircle, Pencil, Printer } from 'lucide-react';
 
 interface UserDashboardProps {
   user: User;
@@ -688,7 +688,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       <div className="max-w-7xl mx-auto space-y-8">
 
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center print:hidden">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">My Dashboard</h1>
             <p className="text-gray-600">Welcome back, {displayUser.firstName}</p>
@@ -755,7 +755,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
           /* Active view */
           <>
             {/* Section switcher */}
-            <div className="inline-flex bg-white border border-gray-200 rounded-lg p-1 gap-1 shadow-sm">
+            <div className="inline-flex bg-white border border-gray-200 rounded-lg p-1 gap-1 shadow-sm print:hidden">
               <button
                 onClick={() => setActiveSection('overview')}
                 className={`px-4 py-2 rounded text-sm font-medium transition-colors flex items-center ${activeSection === 'overview' ? 'bg-green-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
@@ -773,6 +773,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
             {activeSection === 'financials' ? (
               <FinancialsSection
+                printUser={displayUser}
                 year={financeYear} setYear={setFinanceYear}
                 month={financeMonth} setMonth={setFinanceMonth}
                 material={financeMaterial} setMaterial={setFinanceMaterial}
@@ -1406,6 +1407,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 };
 
 interface FinancialsSectionProps {
+  printUser: User;
   year: string; setYear: (s: string) => void;
   month: string; setMonth: (s: string) => void;
   material: string; setMaterial: (s: string) => void;
@@ -1446,6 +1448,7 @@ interface FinancialsSectionProps {
 }
 
 const FinancialsSection: React.FC<FinancialsSectionProps> = ({
+  printUser,
   year, setYear, month, setMonth, material, setMaterial,
   availableYears, availableMaterials,
   activeFinanceTab, setActiveFinanceTab,
@@ -1460,8 +1463,166 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
   onAddExpense, onDeleteExpense, fmtNaira
 }) => {
   const openingCashDirty = Number(openingCashBalance) !== savedOpeningCash;
+
+  const periodSuffix = (() => {
+    const parts: string[] = [];
+    if (year !== 'all') parts.push(year);
+    if (month !== 'all') parts.push(month);
+    if (material !== 'all') parts.push(material.replace(/\s+/g, '_'));
+    return parts.length > 0 ? `_${parts.join('_')}` : '';
+  })();
+
+  const escapeCSV = (val: string | number) => {
+    const s = String(val ?? '');
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+
+  const downloadCSV = (filename: string, rows: (string | number)[][]) => {
+    const csv = rows.map(r => r.map(escapeCSV).join(',')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const exportPL = () => {
+    const rows: (string | number)[][] = [
+      ['Profit & Loss Statement'],
+      ['Period', `${month === 'all' ? 'All months' : month} ${year === 'all' ? '(all years)' : year}`],
+      ['Material filter', material === 'all' ? 'All materials' : material],
+      [],
+      ['Section', 'Line', 'Weight (kg)', 'Amount (NGN)'],
+      ...Object.entries(revenueByMaterial).map(([mat, info]) => ['Revenue', mat, info.weight, info.revenue]),
+      ['', 'Total Revenue', '', totalRevenue],
+      [],
+      ...Object.entries(cogsByMaterial).map(([mat, info]) => ['Cost of Raw Materials', mat, info.weight, info.cost]),
+      ['', 'Total Cost of Raw Materials', '', totalCOGS],
+      [],
+      ['', 'Gross Profit', '', grossProfit],
+      [],
+      ...Object.entries(expensesByCategory).map(([cat, amt]) => ['Operating Expenses', cat, '', amt]),
+      ['', 'Total Operating Expenses', '', totalExpenses],
+      [],
+      ['', 'NET PROFIT/LOSS', '', netProfit],
+      ['', 'Net Margin (%)', '', netMargin.toFixed(2)]
+    ];
+    downloadCSV(`ran_p_and_l${periodSuffix}.csv`, rows);
+  };
+
+  const exportBalance = () => {
+    const inventoryRows = stockpile.filter(s => s.inStock > 0).map(s => {
+      const userPurchases = collections.filter(c => c.material === s.material && (c.pricePerKg || 0) > 0);
+      const avgCost = userPurchases.length > 0 ? userPurchases.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userPurchases.length : 0;
+      const userSales = processed.filter(p => p.material === s.material && (p.pricePerKg || 0) > 0);
+      const avgSale = userSales.length > 0 ? userSales.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userSales.length : 0;
+      const market = prices.find(p => p.materialName === s.material)?.price || 0;
+      const valuation = avgCost > 0 ? avgCost : (avgSale > 0 ? avgSale : market);
+      return ['Inventory', s.material, s.inStock, valuation, s.inStock * valuation];
+    });
+    const rows: (string | number)[][] = [
+      ['Balance Sheet'],
+      ['As of', new Date().toISOString().split('T')[0]],
+      [],
+      ['Section', 'Line', 'Quantity', 'Unit Value (NGN)', 'Amount (NGN)'],
+      ['Assets', 'Cash on hand', '', '', cashOnHand],
+      ['Assets', 'Inventory (stockpile)', '', '', inventoryValue],
+      ...inventoryRows,
+      ['', 'Total Assets', '', '', totalAssets],
+      [],
+      ['Liabilities', 'Pending membership dues', '', '', pendingDues],
+      ['', 'Total Liabilities', '', '', totalLiabilities],
+      [],
+      ['Equity', "Owner's Equity", '', '', equity],
+      ['', 'Liabilities + Equity', '', '', totalLiabilities + equity]
+    ];
+    downloadCSV(`ran_balance_sheet${periodSuffix}.csv`, rows);
+  };
+
+  const exportCashFlow = () => {
+    const rows: (string | number)[][] = [
+      ['Cash Flow Statement'],
+      ['Period', `${month === 'all' ? 'All months' : month} ${year === 'all' ? '(all years)' : year}`],
+      [],
+      ['Date', 'Period', 'Type', 'Description', 'Amount (NGN)'],
+      ...cashFlowRows.map(r => [
+        r.date ? new Date(r.date).toLocaleDateString() : '',
+        r.period,
+        r.amount >= 0 ? 'Inflow' : 'Outflow',
+        r.label,
+        r.amount
+      ]),
+      [],
+      ['', '', '', 'Net Cash Flow', netCashFlow]
+    ];
+    downloadCSV(`ran_cash_flow${periodSuffix}.csv`, rows);
+  };
+
+  const exportExpenses = () => {
+    const rows: (string | number)[][] = [
+      ['Expenses'],
+      ['Period', `${month === 'all' ? 'All months' : month} ${year === 'all' ? '(all years)' : year}`],
+      [],
+      ['Date', 'Period', 'Category', 'Description', 'Amount (NGN)', 'Receipt'],
+      ...filteredExpenses.map(x => [
+        x.date || '',
+        `${x.month} ${x.year}`,
+        x.category,
+        x.description || '',
+        x.amount,
+        x.receipt || ''
+      ]),
+      [],
+      ['', '', '', 'Total', totalExpenses]
+    ];
+    downloadCSV(`ran_expenses${periodSuffix}.csv`, rows);
+  };
+
+  const exportCurrent = () => {
+    if (activeFinanceTab === 'pnl') exportPL();
+    else if (activeFinanceTab === 'balance') exportBalance();
+    else if (activeFinanceTab === 'cashflow') exportCashFlow();
+    else exportExpenses();
+  };
+
+  const handlePrint = () => window.print();
+
+  const periodLabel = (() => {
+    if (year === 'all' && month === 'all') return 'All time';
+    if (year !== 'all' && month === 'all') return `Year ${year}`;
+    if (year === 'all' && month !== 'all') return `${month} (all years)`;
+    return `${month} ${year}`;
+  })();
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 financials-root">
+      <style>{`
+        @media print {
+          @page { margin: 14mm; }
+          body { background: white !important; }
+          .financials-root { space-y: 0; }
+          .financials-print-only { display: block !important; }
+          .financials-print-all > div { display: block !important; }
+          .financials-print-all > div { break-inside: avoid; }
+        }
+        .financials-print-only { display: none; }
+      `}</style>
+
+      {/* Print-only header */}
+      <div className="financials-print-only mb-4 pb-3 border-b-2 border-gray-800">
+        <h1 className="text-2xl font-bold text-gray-900">Financial Statements</h1>
+        <p className="text-sm text-gray-700 mt-1">
+          <strong>{printUser.businessName || `${printUser.firstName} ${printUser.lastName}`}</strong>
+          {printUser.businessName && <> &middot; {printUser.firstName} {printUser.lastName}</>}
+        </p>
+        <p className="text-xs text-gray-600">Member ID: {printUser.id} &middot; Period: {periodLabel}{material !== 'all' ? ` &middot; Material: ${material}` : ''}</p>
+        <p className="text-xs text-gray-600">Generated: {new Date().toLocaleString()}</p>
+      </div>
+
       {/* Header + Filters */}
       <div className="bg-white rounded-lg shadow-sm p-5">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
@@ -1471,12 +1632,20 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
             </h2>
             <p className="text-sm text-gray-500">Track your profit, loss, assets and cash flow from your recycling business.</p>
           </div>
-          <button onClick={onAddExpense} className="inline-flex items-center bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded text-sm font-medium">
-            <Plus className="h-4 w-4 mr-1" /> Log Expense
-          </button>
+          <div className="flex gap-2 print:hidden">
+            <button onClick={exportCurrent} className="inline-flex items-center bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-2 rounded text-sm font-medium" title="Export the active tab as CSV">
+              <Download className="h-4 w-4 mr-1" /> Export CSV
+            </button>
+            <button onClick={handlePrint} className="inline-flex items-center bg-gray-700 hover:bg-gray-800 text-white px-3 py-2 rounded text-sm font-medium" title="Open the browser print dialog — choose 'Save as PDF' to get a PDF">
+              <Printer className="h-4 w-4 mr-1" /> Print / PDF
+            </button>
+            <button onClick={onAddExpense} className="inline-flex items-center bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded text-sm font-medium">
+              <Plus className="h-4 w-4 mr-1" /> Log Expense
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-3 items-end border-t border-gray-100 pt-4">
+        <div className="flex flex-wrap gap-3 items-end border-t border-gray-100 pt-4 print:hidden">
           <div>
             <label className="block text-[11px] font-semibold text-gray-500 uppercase mb-1">Year</label>
             <select value={year} onChange={e => setYear(e.target.value)} className="border rounded px-3 py-1.5 text-sm bg-white">
@@ -1541,7 +1710,7 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
 
       {/* Sub-tabs */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="border-b px-4 py-2 flex gap-1 overflow-x-auto">
+        <div className="border-b px-4 py-2 flex gap-1 overflow-x-auto print:hidden">
           {[
             { id: 'pnl', label: 'Profit & Loss', icon: TrendingUp },
             { id: 'balance', label: 'Balance Sheet', icon: Wallet },
@@ -1559,7 +1728,7 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
         </div>
 
         {/* P&L */}
-        {activeFinanceTab === 'pnl' && (
+        <div className={`${activeFinanceTab === 'pnl' ? '' : 'hidden'} print:block`}>
           <div className="p-5">
             <h3 className="font-bold text-gray-900 mb-3">Profit & Loss Statement</h3>
             <table className="min-w-full text-sm">
@@ -1626,10 +1795,10 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
               </tbody>
             </table>
           </div>
-        )}
+        </div>
 
         {/* Balance Sheet */}
-        {activeFinanceTab === 'balance' && (
+        <div className={`${activeFinanceTab === 'balance' ? '' : 'hidden'} print:block print:break-before-page`}>
           <div className="p-5">
             <h3 className="font-bold text-gray-900 mb-3">Balance Sheet <span className="text-xs font-normal text-gray-500">(as of today)</span></h3>
 
@@ -1707,10 +1876,10 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
               </div>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Cash Flow */}
-        {activeFinanceTab === 'cashflow' && (
+        <div className={`${activeFinanceTab === 'cashflow' ? '' : 'hidden'} print:block print:break-before-page`}>
           <div className="p-5">
             <h3 className="font-bold text-gray-900 mb-3">Cash Flow Statement</h3>
             <div className="overflow-x-auto">
@@ -1746,10 +1915,10 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
             </div>
             <p className="text-[11px] text-gray-500 mt-3 italic">Inflows: sales of processed materials. Outflows: raw material purchases (from Collection entries with a cost) and operating expenses. Membership dues are tracked separately and excluded from business cash flow.</p>
           </div>
-        )}
+        </div>
 
         {/* Expenses list */}
-        {activeFinanceTab === 'expenses' && (
+        <div className={`${activeFinanceTab === 'expenses' ? '' : 'hidden'} print:block print:break-before-page`}>
           <div className="p-5">
             <div className="flex justify-between items-center mb-3">
               <h3 className="font-bold text-gray-900">Expenses</h3>
@@ -1794,7 +1963,7 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
               </table>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
