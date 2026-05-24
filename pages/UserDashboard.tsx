@@ -60,6 +60,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       year: new Date().getFullYear().toString(),
       material: '',
       weight: '',
+      pricePerKg: '',
+      supplier: '',
       images: [] as string[]
   });
 
@@ -101,10 +103,10 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   });
   const [isSavingExpense, setIsSavingExpense] = useState(false);
   const [isUploadingExpenseReceipt, setIsUploadingExpenseReceipt] = useState(false);
-  const [openingCashBalance, setOpeningCashBalance] = useState<string>(() => {
-    try { return localStorage.getItem(`ran_opening_cash_${user.id}`) || '0'; }
-    catch { return '0'; }
-  });
+  const [openingCashBalance, setOpeningCashBalance] = useState<string>(
+    user.openingCashBalance != null ? String(user.openingCashBalance) : '0'
+  );
+  const [isSavingOpeningCash, setIsSavingOpeningCash] = useState(false);
 
   // Unread messages
   const [unreadCount, setUnreadCount] = useState(0);
@@ -256,10 +258,19 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
     e.preventDefault();
     setIsProcessingPayment(true);
     try {
-      await api.createCollection({ userId: user.id, ...collectionForm, weight: Number(collectionForm.weight) });
+      await api.createCollection({
+        userId: user.id,
+        month: collectionForm.month,
+        year: collectionForm.year,
+        material: collectionForm.material,
+        weight: Number(collectionForm.weight),
+        pricePerKg: collectionForm.pricePerKg ? Number(collectionForm.pricePerKg) : 0,
+        supplier: collectionForm.supplier,
+        images: collectionForm.images
+      });
       await refreshLogsAndStockpile();
       setShowCollectionModal(false);
-      setCollectionForm({ month: MONTHS[new Date().getMonth()], year: new Date().getFullYear().toString(), material: '', weight: '', images: [] });
+      setCollectionForm({ month: MONTHS[new Date().getMonth()], year: new Date().getFullYear().toString(), material: '', weight: '', pricePerKg: '', supplier: '', images: [] });
       alert("Collection logged successfully");
     } catch (e) { alert("Failed to log collection"); }
     finally { setIsProcessingPayment(false); }
@@ -431,7 +442,22 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
   const handleOpeningCashChange = (val: string) => {
     setOpeningCashBalance(val);
-    try { localStorage.setItem(`ran_opening_cash_${user.id}`, val); } catch {}
+  };
+
+  const handleOpeningCashSave = async () => {
+    const amt = Number(openingCashBalance);
+    if (isNaN(amt) || amt < 0) { alert('Please enter a valid non-negative amount.'); return; }
+    setIsSavingOpeningCash(true);
+    try {
+      await api.updateOpeningCash(amt);
+      const updated = { ...displayUser, openingCashBalance: amt };
+      setDisplayUser(updated);
+      if (onUpdateUser) onUpdateUser(updated);
+    } catch (err: any) {
+      alert(err.message || 'Failed to save opening cash.');
+    } finally {
+      setIsSavingOpeningCash(false);
+    }
   };
 
   // ============ FINANCIAL CALCULATIONS ============
@@ -461,40 +487,50 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
   });
   const totalRevenue = Object.values(revenueByMaterial).reduce((s, r) => s + r.revenue, 0);
 
-  // Expenses by category
+  // Cost of Raw Materials (COGS) per material from collections (cost * weight)
+  const cogsByMaterial: Record<string, { weight: number; cost: number }> = {};
+  filteredCollections.forEach(c => {
+    const cost = (c.pricePerKg || 0) * c.weight;
+    if (!cogsByMaterial[c.material]) cogsByMaterial[c.material] = { weight: 0, cost: 0 };
+    cogsByMaterial[c.material].weight += c.weight;
+    cogsByMaterial[c.material].cost += cost;
+  });
+  const totalCOGS = Object.values(cogsByMaterial).reduce((s, r) => s + r.cost, 0);
+
+  // Operating Expenses by category
   const expensesByCategory: Record<string, number> = {};
   filteredExpenses.forEach(x => {
     expensesByCategory[x.category] = (expensesByCategory[x.category] || 0) + x.amount;
   });
   const totalExpenses = Object.values(expensesByCategory).reduce((s, x) => s + x, 0);
 
-  // Membership dues paid (treated as a separate expense line on P&L)
-  const totalDuesPaid = payments
-    .filter(p => p.status === 'Successful')
-    .reduce((s, p) => s + p.amount, 0);
-
-  const grossProfit = totalRevenue;
+  const grossProfit = totalRevenue - totalCOGS;
   const operatingExpenses = totalExpenses;
   const netProfit = grossProfit - operatingExpenses;
   const netMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
-  // Balance sheet — inventory value uses market prices (admin set) or avg price from sold
+  // Balance sheet — inventory at lower-of-cost-or-market: prefer user's avg purchase cost,
+  // then avg sale price, then admin market price.
   const inventoryValue = stockpile.reduce((sum, s) => {
-    const marketPrice = prices.find(p => p.materialName === s.material)?.price || 0;
-    // If user has sold this material recently, prefer their actual price
+    const userPurchases = collections.filter(c => c.material === s.material && (c.pricePerKg || 0) > 0);
+    const avgCost = userPurchases.length > 0
+      ? userPurchases.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userPurchases.length
+      : 0;
     const userSales = processed.filter(p => p.material === s.material && (p.pricePerKg || 0) > 0);
-    const avgUserPrice = userSales.length > 0
+    const avgSale = userSales.length > 0
       ? userSales.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userSales.length
       : 0;
-    const valuationPrice = avgUserPrice > 0 ? avgUserPrice : marketPrice;
-    return sum + Math.max(0, s.inStock) * valuationPrice;
+    const market = prices.find(p => p.materialName === s.material)?.price || 0;
+    const valuation = avgCost > 0 ? avgCost : (avgSale > 0 ? avgSale : market);
+    return sum + Math.max(0, s.inStock) * valuation;
   }, 0);
 
   const openingCash = Number(openingCashBalance) || 0;
-  // Cash-on-hand estimate: opening + all-time net (revenue - expenses - dues are paid out)
+  // Cash-on-hand estimate: opening + all-time revenue - all-time raw material costs - all-time operating expenses
   const allTimeRevenue = processed.reduce((s, p) => s + ((p.pricePerKg || 0) * p.weight), 0);
+  const allTimeCOGS = collections.reduce((s, c) => s + ((c.pricePerKg || 0) * c.weight), 0);
   const allTimeExpenses = expenses.reduce((s, x) => s + x.amount, 0);
-  const cashOnHand = openingCash + allTimeRevenue - allTimeExpenses - totalDuesPaid;
+  const cashOnHand = openingCash + allTimeRevenue - allTimeCOGS - allTimeExpenses;
 
   const totalAssets = cashOnHand + inventoryValue;
   // Liabilities — pending payments as accounts payable
@@ -512,6 +548,15 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       label: `Sale: ${p.material}${p.buyer ? ` (${p.buyer})` : ''}`,
       amount: (p.pricePerKg || 0) * p.weight
     }));
+  const cashOutflowsCOGS = filteredCollections
+    .filter(c => (c.pricePerKg || 0) > 0)
+    .map(c => ({
+      id: c.id,
+      date: c.createdAt,
+      period: `${c.month} ${c.year}`,
+      label: `Raw materials: ${c.material}${c.supplier ? ` (${c.supplier})` : ''}`,
+      amount: -((c.pricePerKg || 0) * c.weight)
+    }));
   const cashOutflowsExp = filteredExpenses.map(x => ({
     id: x.id,
     date: x.date || x.createdAt,
@@ -519,23 +564,14 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
     label: `${x.category}${x.description ? `: ${x.description}` : ''}`,
     amount: -x.amount
   }));
-  const cashOutflowsDues = (financeYear === 'all' && financeMonth === 'all'
-    ? payments.filter(p => p.status === 'Successful')
-    : []
-  ).map(p => ({
-    id: p.id,
-    date: p.date,
-    period: p.date,
-    label: `Dues: ${p.description}`,
-    amount: -p.amount
-  }));
-  const cashFlowRows = [...cashInflows, ...cashOutflowsExp, ...cashOutflowsDues]
+  const cashFlowRows = [...cashInflows, ...cashOutflowsCOGS, ...cashOutflowsExp]
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const netCashFlow = cashFlowRows.reduce((s, r) => s + r.amount, 0);
 
   // Filter option lists
   const availableYears = Array.from(new Set([
     ...processed.map(p => p.year),
+    ...collections.map(c => c.year),
     ...expenses.map(e => e.year),
     new Date().getFullYear().toString()
   ])).filter(Boolean).sort().reverse();
@@ -654,6 +690,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                 setActiveFinanceTab={setActiveFinanceTab}
                 totalRevenue={totalRevenue}
                 revenueByMaterial={revenueByMaterial}
+                cogsByMaterial={cogsByMaterial}
+                totalCOGS={totalCOGS}
+                grossProfit={grossProfit}
                 expensesByCategory={expensesByCategory}
                 totalExpenses={totalExpenses}
                 netProfit={netProfit}
@@ -666,9 +705,13 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                 equity={equity}
                 openingCashBalance={openingCashBalance}
                 onOpeningCashChange={handleOpeningCashChange}
+                onOpeningCashSave={handleOpeningCashSave}
+                isSavingOpeningCash={isSavingOpeningCash}
+                savedOpeningCash={displayUser.openingCashBalance ?? 0}
                 stockpile={stockpile}
                 prices={prices}
                 processed={processed}
+                collections={collections}
                 filteredExpenses={filteredExpenses}
                 cashFlowRows={cashFlowRows}
                 netCashFlow={netCashFlow}
@@ -800,18 +843,26 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cost ₦/kg</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Cost</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
-                            {isLoadingData ? (<tr><td colSpan={4} className="px-6 py-4"><LogSkeleton /></td></tr>) : collections.length > 0 ? collections.map(col => (
+                            {isLoadingData ? (<tr><td colSpan={7} className="px-6 py-4"><LogSkeleton /></td></tr>) : collections.length > 0 ? collections.map(col => (
                               <tr key={col.id}>
                                 <td className="px-6 py-4 text-sm text-gray-900">{col.month} {col.year}</td>
                                 <td className="px-6 py-4 text-sm text-gray-600">{col.material}</td>
                                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{col.weight.toLocaleString()}</td>
+                                <td className="px-6 py-4 text-sm text-gray-600">{col.pricePerKg ? `₦${col.pricePerKg.toLocaleString()}` : '—'}</td>
+                                <td className="px-6 py-4 text-sm font-semibold text-amber-700">
+                                  {(col.pricePerKg || 0) > 0 ? `₦${((col.pricePerKg || 0) * col.weight).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-600">{col.supplier || '—'}</td>
                                 <td className="px-6 py-4 text-sm text-gray-500">{new Date(col.createdAt).toLocaleDateString()}</td>
                               </tr>
-                            )) : (<tr><td colSpan={4} className="px-6 py-8 text-center text-gray-500">No collection data logged yet.</td></tr>)}
+                            )) : (<tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500">No collection data logged yet.</td></tr>)}
                           </tbody>
                         </table>
                       </div>
@@ -1034,6 +1085,24 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                 </select>
               </div>
               <div><label className="block text-sm font-medium text-gray-700">Weight (KG)</label><input type="number" step="0.01" required value={collectionForm.weight} onChange={e => setCollectionForm({ ...collectionForm, weight: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" /></div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Cost ₦/kg <span className="text-xs text-gray-400 font-normal">(optional)</span></label>
+                  <input type="number" step="0.01" min="0" value={collectionForm.pricePerKg} onChange={e => setCollectionForm({ ...collectionForm, pricePerKg: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" />
+                  <p className="text-[11px] text-gray-500 mt-1">What you paid per kg to acquire this</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Supplier <span className="text-xs text-gray-400 font-normal">(optional)</span></label>
+                  <input type="text" value={collectionForm.supplier} onChange={e => setCollectionForm({ ...collectionForm, supplier: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="e.g. Lastmile collector name" />
+                </div>
+              </div>
+              {collectionForm.weight && collectionForm.pricePerKg && (
+                <div className="bg-amber-50 border border-amber-200 rounded p-2 text-sm text-amber-800">
+                  Total cost for this collection: <strong>₦{(Number(collectionForm.weight) * Number(collectionForm.pricePerKg)).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                </div>
+              )}
+
               <button type="submit" disabled={isProcessingPayment} className="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700 disabled:opacity-50">{isProcessingPayment ? 'Saving...' : 'Save Entry'}</button>
             </form>
           </div>
@@ -1236,6 +1305,9 @@ interface FinancialsSectionProps {
   setActiveFinanceTab: (t: 'pnl' | 'balance' | 'cashflow' | 'expenses') => void;
   totalRevenue: number;
   revenueByMaterial: Record<string, { weight: number; revenue: number }>;
+  cogsByMaterial: Record<string, { weight: number; cost: number }>;
+  totalCOGS: number;
+  grossProfit: number;
   expensesByCategory: Record<string, number>;
   totalExpenses: number;
   netProfit: number;
@@ -1248,9 +1320,13 @@ interface FinancialsSectionProps {
   equity: number;
   openingCashBalance: string;
   onOpeningCashChange: (v: string) => void;
+  onOpeningCashSave: () => void;
+  isSavingOpeningCash: boolean;
+  savedOpeningCash: number;
   stockpile: StockpileEntry[];
   prices: MaterialPrice[];
   processed: ProcessedMaterial[];
+  collections: Collection[];
   filteredExpenses: Expense[];
   cashFlowRows: { id: string; date: string; period: string; label: string; amount: number }[];
   netCashFlow: number;
@@ -1263,14 +1339,17 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
   year, setYear, month, setMonth, material, setMaterial,
   availableYears, availableMaterials,
   activeFinanceTab, setActiveFinanceTab,
-  totalRevenue, revenueByMaterial, expensesByCategory, totalExpenses,
+  totalRevenue, revenueByMaterial,
+  cogsByMaterial, totalCOGS, grossProfit,
+  expensesByCategory, totalExpenses,
   netProfit, netMargin, cashOnHand, inventoryValue,
   totalAssets, totalLiabilities, pendingDues, equity,
-  openingCashBalance, onOpeningCashChange,
-  stockpile, prices, processed, filteredExpenses,
+  openingCashBalance, onOpeningCashChange, onOpeningCashSave, isSavingOpeningCash, savedOpeningCash,
+  stockpile, prices, processed, collections, filteredExpenses,
   cashFlowRows, netCashFlow,
   onAddExpense, onDeleteExpense, fmtNaira
 }) => {
+  const openingCashDirty = Number(openingCashBalance) !== savedOpeningCash;
   return (
     <div className="space-y-6">
       {/* Header + Filters */}
@@ -1390,6 +1469,27 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
                 </tr>
 
                 <tr><td colSpan={2} className="pt-4"></td></tr>
+                <tr className="border-b border-gray-200"><td colSpan={2} className="py-2 font-bold text-amber-700 uppercase text-xs">Cost of Raw Materials</td></tr>
+                {Object.entries(cogsByMaterial).length === 0 ? (
+                  <tr><td colSpan={2} className="py-2 text-gray-400 italic pl-4">No purchase costs recorded. Add a cost ₦/kg on your Collection entries to populate this.</td></tr>
+                ) : Object.entries(cogsByMaterial).map(([mat, info]) => (
+                  <tr key={mat} className="border-b border-gray-50">
+                    <td className="py-2 pl-4 text-gray-700">{mat} <span className="text-gray-400 text-xs">({info.weight.toLocaleString()} kg)</span></td>
+                    <td className="py-2 text-right font-medium text-gray-900">{fmtNaira(info.cost)}</td>
+                  </tr>
+                ))}
+                <tr className="border-b-2 border-gray-300 bg-amber-50">
+                  <td className="py-2 pl-4 font-bold text-gray-900">Total Cost of Raw Materials</td>
+                  <td className="py-2 text-right font-bold text-amber-700">{fmtNaira(totalCOGS)}</td>
+                </tr>
+
+                <tr><td colSpan={2} className="pt-3"></td></tr>
+                <tr className={`border-y-2 border-gray-300 ${grossProfit >= 0 ? 'bg-emerald-50' : 'bg-rose-50'}`}>
+                  <td className="py-2 pl-4 font-bold text-gray-900 uppercase text-xs">Gross Profit</td>
+                  <td className={`py-2 text-right font-bold ${grossProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtNaira(grossProfit)}</td>
+                </tr>
+
+                <tr><td colSpan={2} className="pt-4"></td></tr>
                 <tr className="border-b border-gray-200"><td colSpan={2} className="py-2 font-bold text-rose-700 uppercase text-xs">Operating Expenses</td></tr>
                 {Object.entries(expensesByCategory).length === 0 ? (
                   <tr><td colSpan={2} className="py-2 text-gray-400 italic pl-4">No expenses logged for this period.</td></tr>
@@ -1425,8 +1525,16 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
 
             <div className="bg-gray-50 border border-gray-200 rounded p-3 mb-4 flex flex-col sm:flex-row sm:items-center gap-2">
               <label className="text-xs font-semibold text-gray-600 uppercase">Opening cash balance:</label>
-              <input type="number" step="0.01" value={openingCashBalance} onChange={e => onOpeningCashChange(e.target.value)} className="border rounded px-3 py-1 text-sm w-40" placeholder="0" />
-              <span className="text-[11px] text-gray-500">Capital you started with. Saved locally on this device.</span>
+              <input type="number" step="0.01" min="0" value={openingCashBalance} onChange={e => onOpeningCashChange(e.target.value)} className="border rounded px-3 py-1 text-sm w-40" placeholder="0" />
+              <button
+                type="button"
+                onClick={onOpeningCashSave}
+                disabled={isSavingOpeningCash || !openingCashDirty}
+                className="bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded hover:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isSavingOpeningCash ? 'Saving…' : openingCashDirty ? 'Save' : 'Saved'}
+              </button>
+              <span className="text-[11px] text-gray-500">Capital you started with. Synced to your account.</span>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
@@ -1449,14 +1557,22 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
                       </thead>
                       <tbody>
                         {stockpile.filter(s => s.inStock > 0).map(s => {
+                          const userPurchases = collections.filter(c => c.material === s.material && (c.pricePerKg || 0) > 0);
+                          const avgCost = userPurchases.length > 0
+                            ? userPurchases.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userPurchases.length
+                            : 0;
                           const userSales = processed.filter(p => p.material === s.material && (p.pricePerKg || 0) > 0);
-                          const avgPrice = userSales.length > 0 ? userSales.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userSales.length : (prices.find(p => p.materialName === s.material)?.price || 0);
+                          const avgSale = userSales.length > 0
+                            ? userSales.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userSales.length
+                            : 0;
+                          const market = prices.find(p => p.materialName === s.material)?.price || 0;
+                          const valuation = avgCost > 0 ? avgCost : (avgSale > 0 ? avgSale : market);
                           return (
                             <tr key={s.material} className="border-b border-gray-50">
                               <td className="px-2 py-1">{s.material}</td>
                               <td className="px-2 py-1 text-right">{s.inStock.toLocaleString()}</td>
-                              <td className="px-2 py-1 text-right">{fmtNaira(avgPrice)}</td>
-                              <td className="px-2 py-1 text-right font-medium">{fmtNaira(s.inStock * avgPrice)}</td>
+                              <td className="px-2 py-1 text-right">{fmtNaira(valuation)}</td>
+                              <td className="px-2 py-1 text-right font-medium">{fmtNaira(s.inStock * valuation)}</td>
                             </tr>
                           );
                         })}
@@ -1518,7 +1634,7 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
                 </tbody>
               </table>
             </div>
-            <p className="text-[11px] text-gray-500 mt-3 italic">Inflows: sales of processed materials. Outflows: expenses and successful membership payments (only shown when filters are 'All').</p>
+            <p className="text-[11px] text-gray-500 mt-3 italic">Inflows: sales of processed materials. Outflows: raw material purchases (from Collection entries with a cost) and operating expenses. Membership dues are tracked separately and excluded from business cash flow.</p>
           </div>
         )}
 

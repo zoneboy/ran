@@ -164,6 +164,16 @@ export const api = {
     return data;
   },
 
+  updateOpeningCash: async (amount: number): Promise<{ openingCashBalance: number }> => {
+    const res = await fetch(`${API_URL}/user/opening-cash`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount }),
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
   updateUserId: async (currentId: string, newId: string): Promise<void> => {
      const res = await fetch(`${API_URL}/users/update-id`, {
         method: 'POST',

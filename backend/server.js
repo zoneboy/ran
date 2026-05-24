@@ -294,6 +294,9 @@ const initDb = async () => {
       await client.query('ALTER TABLE material_prices ADD COLUMN IF NOT EXISTS co2_rate NUMERIC DEFAULT 0');
       await client.query('ALTER TABLE processed_materials ADD COLUMN IF NOT EXISTS price_per_kg NUMERIC DEFAULT 0');
       await client.query('ALTER TABLE processed_materials ADD COLUMN IF NOT EXISTS buyer TEXT');
+      await client.query('ALTER TABLE collections ADD COLUMN IF NOT EXISTS price_per_kg NUMERIC DEFAULT 0');
+      await client.query('ALTER TABLE collections ADD COLUMN IF NOT EXISTS supplier TEXT');
+      await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS opening_cash_balance NUMERIC DEFAULT 0');
       
       console.log('Database tables checked/created successfully');
       
@@ -384,7 +387,8 @@ const mapUser = (row) => {
         token_version: row.token_version,
         password: row.password,
         mfa_enabled: row.mfa_enabled,
-        mfa_secret: row.mfa_secret
+        mfa_secret: row.mfa_secret,
+        openingCashBalance: row.opening_cash_balance != null ? Number(row.opening_cash_balance) : 0
     };
 };
 
@@ -834,6 +838,20 @@ router.put('/user/update', authenticateToken, async (req, res) => {
   } catch (error) { res.status(500).json({ message: 'Update failed' }); }
 });
 
+router.put('/user/opening-cash', authenticateToken, async (req, res) => {
+    try {
+        const amount = Number(req.body.amount);
+        if (isNaN(amount) || amount < 0) {
+            return res.status(400).json({ message: 'Invalid amount' });
+        }
+        await query('UPDATE users SET opening_cash_balance = $1 WHERE id = $2', [amount, req.user.id]);
+        res.json({ openingCashBalance: amount });
+    } catch (e) {
+        console.error('PUT /user/opening-cash error:', e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
 router.post('/users/update-id', authenticateToken, requireAdmin, async (req, res) => {
     const { currentId, newId } = req.body;
     let client;
@@ -915,7 +933,7 @@ router.get('/collections', authenticateToken, verifyOwnership, async (req, res) 
         else if (userId) { q += ` WHERE c.user_id = $1`; params.push(userId); }
         q += ` ORDER BY c.created_at DESC`;
         const result = await query(q, params);
-        res.json(result.rows.map(row => ({ id: row.id, userId: row.user_id, userName: `${row.first_name} ${row.last_name}`, businessName: row.business_name, month: row.month, year: row.year, material: row.material, weight: Number(row.weight), images: row.images || [], createdAt: row.created_at })));
+        res.json(result.rows.map(row => ({ id: row.id, userId: row.user_id, userName: `${row.first_name} ${row.last_name}`, businessName: row.business_name, month: row.month, year: row.year, material: row.material, weight: Number(row.weight), pricePerKg: row.price_per_kg != null ? Number(row.price_per_kg) : 0, supplier: row.supplier || '', images: row.images || [], createdAt: row.created_at })));
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -923,7 +941,18 @@ router.post('/collections', authenticateToken, verifyOwnership, async (req, res)
     const data = req.body;
     const id = `col-${Date.now()}`;
     const createdAt = new Date().toISOString();
-    try { await query('INSERT INTO collections (id, user_id, month, year, material, weight, images, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)', [id, data.userId, data.month, data.year, data.material, data.weight, data.images, createdAt]); res.status(201).json({ ...data, id, createdAt }); } catch (e) { res.status(500).json({ message: 'Server error' }); }
+    const pricePerKg = data.pricePerKg != null && data.pricePerKg !== '' ? Number(data.pricePerKg) : 0;
+    const supplier = (data.supplier || '').toString().trim() || null;
+    try {
+        await query(
+            'INSERT INTO collections (id, user_id, month, year, material, weight, images, price_per_kg, supplier, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+            [id, data.userId, data.month, data.year, data.material, data.weight, data.images, pricePerKg, supplier, createdAt]
+        );
+        res.status(201).json({ ...data, id, pricePerKg, supplier: supplier || '', createdAt });
+    } catch (e) {
+        console.error('POST /collections error:', e);
+        res.status(500).json({ message: 'Server error' });
+    }
 });
 
 // --- PROCESSED MATERIALS ROUTES ---

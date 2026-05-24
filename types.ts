@@ -65,6 +65,7 @@ export interface User {
     membershipIdCard?: string;
     membershipCertificate?: string;
   };
+  openingCashBalance?: number;
 }
 
 export interface Announcement {
@@ -122,6 +123,8 @@ export interface Collection {
   year: string;
   material: string;
   weight: number;
+  pricePerKg?: number;
+  supplier?: string;
   images: string[];
   createdAt: string;
 }
