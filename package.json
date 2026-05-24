@@ -31,7 +31,8 @@
     "speakeasy": "^2.0.0",
     "qrcode": "^1.5.3",
     "cloudinary": "^2.2.0",
-    "quill": "^2.0.2"
+    "quill": "^2.0.2",
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.66",

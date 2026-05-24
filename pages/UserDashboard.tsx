@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx-js-style';
 import { User, MembershipStatus, Announcement, Payment, BankDetails, Collection, MaterialPrice, ProcessedMaterial, StockpileEntry, Expense, EXPENSE_CATEGORIES } from '../types';
 import { api } from '../services/api';
 import { uploadToCloudinary } from '../services/cloudinary';
@@ -1472,132 +1473,323 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
     return parts.length > 0 ? `_${parts.join('_')}` : '';
   })();
 
-  const escapeCSV = (val: string | number) => {
-    const s = String(val ?? '');
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-
-  const downloadCSV = (filename: string, rows: (string | number)[][]) => {
-    const csv = rows.map(r => r.map(escapeCSV).join(',')).join('\n');
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const exportPL = () => {
-    const rows: (string | number)[][] = [
-      ['Profit & Loss Statement'],
-      ['Period', `${month === 'all' ? 'All months' : month} ${year === 'all' ? '(all years)' : year}`],
-      ['Material filter', material === 'all' ? 'All materials' : material],
-      [],
-      ['Section', 'Line', 'Weight (kg)', 'Amount (NGN)'],
-      ...Object.entries(revenueByMaterial).map(([mat, info]) => ['Revenue', mat, info.weight, info.revenue]),
-      ['', 'Total Revenue', '', totalRevenue],
-      [],
-      ...Object.entries(cogsByMaterial).map(([mat, info]) => ['Cost of Raw Materials', mat, info.weight, info.cost]),
-      ['', 'Total Cost of Raw Materials', '', totalCOGS],
-      [],
-      ['', 'Gross Profit', '', grossProfit],
-      [],
-      ...Object.entries(expensesByCategory).map(([cat, amt]) => ['Operating Expenses', cat, '', amt]),
-      ['', 'Total Operating Expenses', '', totalExpenses],
-      [],
-      ['', 'NET PROFIT/LOSS', '', netProfit],
-      ['', 'Net Margin (%)', '', netMargin.toFixed(2)]
-    ];
-    downloadCSV(`ran_p_and_l${periodSuffix}.csv`, rows);
-  };
-
-  const exportBalance = () => {
-    const inventoryRows = stockpile.filter(s => s.inStock > 0).map(s => {
-      const userPurchases = collections.filter(c => c.material === s.material && (c.pricePerKg || 0) > 0);
-      const avgCost = userPurchases.length > 0 ? userPurchases.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userPurchases.length : 0;
-      const userSales = processed.filter(p => p.material === s.material && (p.pricePerKg || 0) > 0);
-      const avgSale = userSales.length > 0 ? userSales.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userSales.length : 0;
-      const market = prices.find(p => p.materialName === s.material)?.price || 0;
-      const valuation = avgCost > 0 ? avgCost : (avgSale > 0 ? avgSale : market);
-      return ['Inventory', s.material, s.inStock, valuation, s.inStock * valuation];
-    });
-    const rows: (string | number)[][] = [
-      ['Balance Sheet'],
-      ['As of', new Date().toISOString().split('T')[0]],
-      [],
-      ['Section', 'Line', 'Quantity', 'Unit Value (NGN)', 'Amount (NGN)'],
-      ['Assets', 'Cash on hand', '', '', cashOnHand],
-      ['Assets', 'Inventory (stockpile)', '', '', inventoryValue],
-      ...inventoryRows,
-      ['', 'Total Assets', '', '', totalAssets],
-      [],
-      ['Liabilities', 'Pending membership dues', '', '', pendingDues],
-      ['', 'Total Liabilities', '', '', totalLiabilities],
-      [],
-      ['Equity', "Owner's Equity", '', '', equity],
-      ['', 'Liabilities + Equity', '', '', totalLiabilities + equity]
-    ];
-    downloadCSV(`ran_balance_sheet${periodSuffix}.csv`, rows);
-  };
-
-  const exportCashFlow = () => {
-    const rows: (string | number)[][] = [
-      ['Cash Flow Statement'],
-      ['Period', `${month === 'all' ? 'All months' : month} ${year === 'all' ? '(all years)' : year}`],
-      [],
-      ['Date', 'Period', 'Type', 'Description', 'Amount (NGN)'],
-      ...cashFlowRows.map(r => [
-        r.date ? new Date(r.date).toLocaleDateString() : '',
-        r.period,
-        r.amount >= 0 ? 'Inflow' : 'Outflow',
-        r.label,
-        r.amount
-      ]),
-      [],
-      ['', '', '', 'Net Cash Flow', netCashFlow]
-    ];
-    downloadCSV(`ran_cash_flow${periodSuffix}.csv`, rows);
-  };
-
-  const exportExpenses = () => {
-    const rows: (string | number)[][] = [
-      ['Expenses'],
-      ['Period', `${month === 'all' ? 'All months' : month} ${year === 'all' ? '(all years)' : year}`],
-      [],
-      ['Date', 'Period', 'Category', 'Description', 'Amount (NGN)', 'Receipt'],
-      ...filteredExpenses.map(x => [
-        x.date || '',
-        `${x.month} ${x.year}`,
-        x.category,
-        x.description || '',
-        x.amount,
-        x.receipt || ''
-      ]),
-      [],
-      ['', '', '', 'Total', totalExpenses]
-    ];
-    downloadCSV(`ran_expenses${periodSuffix}.csv`, rows);
-  };
-
-  const exportCurrent = () => {
-    if (activeFinanceTab === 'pnl') exportPL();
-    else if (activeFinanceTab === 'balance') exportBalance();
-    else if (activeFinanceTab === 'cashflow') exportCashFlow();
-    else exportExpenses();
-  };
-
-  const handlePrint = () => window.print();
-
   const periodLabel = (() => {
     if (year === 'all' && month === 'all') return 'All time';
     if (year !== 'all' && month === 'all') return `Year ${year}`;
     if (year === 'all' && month !== 'all') return `${month} (all years)`;
     return `${month} ${year}`;
   })();
+
+  // ============ EXCEL WORKBOOK EXPORT ============
+  // Color palette mirrors the on-screen Tailwind classes.
+  const C = {
+    emerald500: '10B981', emerald600: '059669', emerald700: '047857', emerald50: 'ECFDF5',
+    rose500: 'F43F5E',    rose700: 'BE123C',    rose50: 'FFF1F2',
+    amber500: 'F59E0B',   amber600: 'D97706',   amber50: 'FFFBEB',
+    teal500: '14B8A6',    teal700: '0F766E',
+    indigo500: '6366F1',  indigo700: '4338CA',  indigo50: 'EEF2FF',
+    orange500: 'F97316',  orange700: 'C2410C',
+    gray50: 'F9FAFB',     gray100: 'F3F4F6',    gray300: 'D1D5DB', gray500: '6B7280', gray700: '374151', gray900: '111827',
+    white: 'FFFFFF'
+  };
+  const NAIRA_FMT = '"₦"#,##0.00;[Red]"-₦"#,##0.00';
+  const KG_FMT = '#,##0.00" kg"';
+  const thinBorder = { style: 'thin', color: { rgb: C.gray300 } };
+  const allBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
+
+  type Cell = { v: any; t?: 's' | 'n'; s?: any };
+  const txt = (v: string, s?: any): Cell => ({ v, t: 's', s: s || {} });
+  const num = (v: number, s?: any): Cell => ({ v: Number(v) || 0, t: 'n', s: s || {} });
+
+  const titleCell = (label: string): Cell => txt(label, {
+    font: { bold: true, sz: 18, color: { rgb: C.gray900 } },
+    alignment: { vertical: 'center' }
+  });
+  const subtitleCell = (label: string): Cell => txt(label, {
+    font: { italic: true, sz: 10, color: { rgb: C.gray500 } }
+  });
+  const sectionHeaderCell = (label: string, bg: string): Cell => txt(label, {
+    font: { bold: true, color: { rgb: C.white }, sz: 11 },
+    fill: { fgColor: { rgb: bg } },
+    alignment: { horizontal: 'left', vertical: 'center' },
+    border: allBorders
+  });
+  const tableHeaderCell = (label: string): Cell => txt(label, {
+    font: { bold: true, color: { rgb: C.gray700 }, sz: 10 },
+    fill: { fgColor: { rgb: C.gray100 } },
+    alignment: { horizontal: 'left', vertical: 'center' },
+    border: allBorders
+  });
+  const bodyCell = (v: any, opts: { bold?: boolean; align?: 'left' | 'right' | 'center'; color?: string; bg?: string; money?: boolean; kg?: boolean } = {}): Cell => {
+    const isNumber = typeof v === 'number' && !isNaN(v);
+    const style: any = {
+      font: { color: { rgb: opts.color || C.gray900 }, bold: !!opts.bold, sz: 11 },
+      alignment: { horizontal: opts.align || (isNumber ? 'right' : 'left'), vertical: 'center' },
+      border: allBorders
+    };
+    if (opts.bg) style.fill = { fgColor: { rgb: opts.bg } };
+    if (opts.money) style.numFmt = NAIRA_FMT;
+    if (opts.kg) style.numFmt = KG_FMT;
+    return isNumber ? num(v, style) : txt(String(v ?? ''), style);
+  };
+  const totalRowCell = (v: any, opts: { color?: string; bg?: string; money?: boolean; large?: boolean } = {}): Cell => {
+    const isNumber = typeof v === 'number' && !isNaN(v);
+    const style: any = {
+      font: { bold: true, color: { rgb: opts.color || C.gray900 }, sz: opts.large ? 13 : 11 },
+      fill: { fgColor: { rgb: opts.bg || C.gray100 } },
+      alignment: { horizontal: isNumber ? 'right' : 'left', vertical: 'center' },
+      border: { top: { style: 'medium', color: { rgb: C.gray500 } }, bottom: { style: 'medium', color: { rgb: C.gray500 } }, left: thinBorder, right: thinBorder }
+    };
+    if (opts.money) style.numFmt = NAIRA_FMT;
+    return isNumber ? num(v, style) : txt(String(v ?? ''), style);
+  };
+  const blankRow = (n: number): Cell[] => Array(n).fill(txt(''));
+
+  // Convert a 2D array of Cell objects to a worksheet, applying col widths & merges.
+  const makeSheet = (rows: Cell[][], colWidths: number[], merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = []) => {
+    const aoa = rows.map(r => r.map(c => c.v));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    // Re-apply styled cell objects (aoa_to_sheet strips them).
+    rows.forEach((row, r) => row.forEach((cell, c) => {
+      const ref = XLSX.utils.encode_cell({ r, c });
+      ws[ref] = { v: cell.v, t: cell.t || (typeof cell.v === 'number' ? 'n' : 's'), s: cell.s };
+    }));
+    ws['!cols'] = colWidths.map(wch => ({ wch }));
+    if (merges.length) ws['!merges'] = merges;
+    return ws;
+  };
+
+  const buildSummarySheet = () => {
+    const cardLabel = (s: string, bg: string): Cell => txt(s, {
+      font: { bold: true, color: { rgb: C.white }, sz: 10 },
+      fill: { fgColor: { rgb: bg } },
+      alignment: { horizontal: 'left', vertical: 'center' },
+      border: allBorders
+    });
+    const cardValue = (v: number, bg: string, money = true): Cell => num(v, {
+      font: { bold: true, color: { rgb: C.white }, sz: 16 },
+      fill: { fgColor: { rgb: bg } },
+      alignment: { horizontal: 'right', vertical: 'center' },
+      numFmt: money ? NAIRA_FMT : '#,##0.00"%"',
+      border: allBorders
+    });
+    const netBg = netProfit >= 0 ? C.teal500 : C.orange500;
+
+    const rows: Cell[][] = [
+      [titleCell('Financial Summary'), txt(''), txt(''), txt('')],
+      [subtitleCell(`${printUser.businessName || `${printUser.firstName} ${printUser.lastName}`} · ${periodLabel}${material !== 'all' ? ` · ${material}` : ''}`), txt(''), txt(''), txt('')],
+      [subtitleCell(`Generated ${new Date().toLocaleString()}`), txt(''), txt(''), txt('')],
+      blankRow(4),
+      [
+        cardLabel('REVENUE', C.emerald600),
+        cardLabel('EXPENSES', C.rose700),
+        cardLabel(`NET ${netProfit >= 0 ? 'PROFIT' : 'LOSS'}`, netBg),
+        cardLabel('INVENTORY VALUE', C.indigo700)
+      ],
+      [cardValue(totalRevenue, C.emerald500), cardValue(totalExpenses, C.rose500), cardValue(netProfit, netBg), cardValue(inventoryValue, C.indigo500)],
+      [
+        txt('Profit margin', { font: { sz: 9, color: { rgb: C.gray500 } }, alignment: { horizontal: 'left' } }),
+        txt('', { font: { sz: 9, color: { rgb: C.gray500 } } }),
+        num(netMargin, { font: { sz: 9, color: { rgb: C.gray500 } }, alignment: { horizontal: 'right' }, numFmt: '0.00"%"' }),
+        txt('')
+      ],
+      blankRow(4),
+      [bodyCell('Cost of Raw Materials (COGS)'), txt(''), txt(''), bodyCell(totalCOGS, { money: true, color: C.amber600, bold: true })],
+      [bodyCell('Gross Profit'), txt(''), txt(''), bodyCell(grossProfit, { money: true, color: grossProfit >= 0 ? C.emerald700 : C.rose700, bold: true })],
+      [bodyCell('Cash on Hand'), txt(''), txt(''), bodyCell(cashOnHand, { money: true, bold: true })],
+      [bodyCell('Total Assets'), txt(''), txt(''), bodyCell(totalAssets, { money: true, color: C.indigo700, bold: true })]
+    ];
+    return makeSheet(rows, [28, 28, 28, 28], [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } }
+    ]);
+  };
+
+  const buildPLSheet = () => {
+    const rows: Cell[][] = [
+      [titleCell('Profit & Loss Statement'), txt(''), txt(''), txt('')],
+      [subtitleCell(`${printUser.businessName || `${printUser.firstName} ${printUser.lastName}`} · ${periodLabel}${material !== 'all' ? ` · ${material}` : ''}`), txt(''), txt(''), txt('')],
+      blankRow(4),
+      [tableHeaderCell('Section'), tableHeaderCell('Line item'), tableHeaderCell('Weight'), tableHeaderCell('Amount')],
+      [sectionHeaderCell('Revenue', C.emerald600), sectionHeaderCell('', C.emerald600), sectionHeaderCell('', C.emerald600), sectionHeaderCell('', C.emerald600)]
+    ];
+    if (Object.keys(revenueByMaterial).length === 0) {
+      rows.push([bodyCell(''), bodyCell('No sales recorded for this period.', { color: C.gray500 }), bodyCell(''), bodyCell('')]);
+    } else {
+      Object.entries(revenueByMaterial).forEach(([mat, info]) => {
+        rows.push([bodyCell(''), bodyCell(mat), bodyCell(info.weight, { kg: true }), bodyCell(info.revenue, { money: true })]);
+      });
+    }
+    rows.push([totalRowCell(''), totalRowCell('Total Revenue', { bg: C.emerald50 }), totalRowCell('', { bg: C.emerald50 }), totalRowCell(totalRevenue, { bg: C.emerald50, color: C.emerald700, money: true })]);
+    rows.push(blankRow(4));
+    rows.push([sectionHeaderCell('Cost of Raw Materials', C.amber600), sectionHeaderCell('', C.amber600), sectionHeaderCell('', C.amber600), sectionHeaderCell('', C.amber600)]);
+    if (Object.keys(cogsByMaterial).length === 0) {
+      rows.push([bodyCell(''), bodyCell('No purchase costs recorded.', { color: C.gray500 }), bodyCell(''), bodyCell('')]);
+    } else {
+      Object.entries(cogsByMaterial).forEach(([mat, info]) => {
+        rows.push([bodyCell(''), bodyCell(mat), bodyCell(info.weight, { kg: true }), bodyCell(info.cost, { money: true })]);
+      });
+    }
+    rows.push([totalRowCell(''), totalRowCell('Total Cost of Raw Materials', { bg: C.amber50 }), totalRowCell('', { bg: C.amber50 }), totalRowCell(totalCOGS, { bg: C.amber50, color: C.amber600, money: true })]);
+    rows.push(blankRow(4));
+    rows.push([
+      totalRowCell('', { bg: grossProfit >= 0 ? C.emerald50 : C.rose50 }),
+      totalRowCell('GROSS PROFIT', { bg: grossProfit >= 0 ? C.emerald50 : C.rose50 }),
+      totalRowCell('', { bg: grossProfit >= 0 ? C.emerald50 : C.rose50 }),
+      totalRowCell(grossProfit, { bg: grossProfit >= 0 ? C.emerald50 : C.rose50, color: grossProfit >= 0 ? C.emerald700 : C.rose700, money: true })
+    ]);
+    rows.push(blankRow(4));
+    rows.push([sectionHeaderCell('Operating Expenses', C.rose700), sectionHeaderCell('', C.rose700), sectionHeaderCell('', C.rose700), sectionHeaderCell('', C.rose700)]);
+    if (Object.keys(expensesByCategory).length === 0) {
+      rows.push([bodyCell(''), bodyCell('No expenses logged for this period.', { color: C.gray500 }), bodyCell(''), bodyCell('')]);
+    } else {
+      Object.entries(expensesByCategory).forEach(([cat, amt]) => {
+        rows.push([bodyCell(''), bodyCell(cat), bodyCell(''), bodyCell(amt, { money: true })]);
+      });
+    }
+    rows.push([totalRowCell(''), totalRowCell('Total Operating Expenses', { bg: C.rose50 }), totalRowCell('', { bg: C.rose50 }), totalRowCell(totalExpenses, { bg: C.rose50, color: C.rose700, money: true })]);
+    rows.push(blankRow(4));
+    rows.push([
+      totalRowCell('', { bg: netProfit >= 0 ? C.emerald50 : C.rose50, large: true }),
+      totalRowCell(`NET ${netProfit >= 0 ? 'PROFIT' : 'LOSS'}`, { bg: netProfit >= 0 ? C.emerald50 : C.rose50, large: true }),
+      totalRowCell('', { bg: netProfit >= 0 ? C.emerald50 : C.rose50, large: true }),
+      totalRowCell(netProfit, { bg: netProfit >= 0 ? C.emerald50 : C.rose50, color: netProfit >= 0 ? C.emerald700 : C.rose700, money: true, large: true })
+    ]);
+    rows.push([bodyCell(''), bodyCell('Profit margin', { color: C.gray500 }), bodyCell(''), num(netMargin, { font: { color: { rgb: C.gray500 }, sz: 10 }, alignment: { horizontal: 'right' }, numFmt: '0.00"%"', border: allBorders })]);
+
+    return makeSheet(rows, [22, 36, 14, 18], [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } }
+    ]);
+  };
+
+  const buildBalanceSheet = () => {
+    const inventoryDetail = stockpile.filter(s => s.inStock > 0).map(s => {
+      const userPurchases = collections.filter(c => c.material === s.material && (c.pricePerKg || 0) > 0);
+      const avgCost = userPurchases.length > 0 ? userPurchases.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userPurchases.length : 0;
+      const userSales = processed.filter(p => p.material === s.material && (p.pricePerKg || 0) > 0);
+      const avgSale = userSales.length > 0 ? userSales.reduce((a, b) => a + (b.pricePerKg || 0), 0) / userSales.length : 0;
+      const market = prices.find(p => p.materialName === s.material)?.price || 0;
+      const valuation = avgCost > 0 ? avgCost : (avgSale > 0 ? avgSale : market);
+      return { material: s.material, qty: s.inStock, unit: valuation, total: s.inStock * valuation };
+    });
+
+    const rows: Cell[][] = [
+      [titleCell('Balance Sheet'), txt(''), txt(''), txt('')],
+      [subtitleCell(`As of ${new Date().toLocaleDateString()} · ${printUser.businessName || `${printUser.firstName} ${printUser.lastName}`}`), txt(''), txt(''), txt('')],
+      blankRow(4),
+      [tableHeaderCell('Section'), tableHeaderCell('Line item'), tableHeaderCell('Qty / Unit'), tableHeaderCell('Amount')],
+      [sectionHeaderCell('Assets', C.emerald600), sectionHeaderCell('', C.emerald600), sectionHeaderCell('', C.emerald600), sectionHeaderCell('', C.emerald600)],
+      [bodyCell(''), bodyCell('Cash on hand'), bodyCell(''), bodyCell(cashOnHand, { money: true })],
+      [bodyCell(''), bodyCell('Inventory (stockpile)'), bodyCell(''), bodyCell(inventoryValue, { money: true })]
+    ];
+    inventoryDetail.forEach(d => {
+      rows.push([
+        bodyCell(''),
+        bodyCell(`   ↳ ${d.material}`, { color: C.gray500 }),
+        bodyCell(`${d.qty.toLocaleString()} kg @ ₦${d.unit.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, { color: C.gray500, align: 'right' }),
+        bodyCell(d.total, { money: true, color: C.gray500 })
+      ]);
+    });
+    rows.push([totalRowCell(''), totalRowCell('Total Assets', { bg: C.emerald50 }), totalRowCell('', { bg: C.emerald50 }), totalRowCell(totalAssets, { bg: C.emerald50, color: C.emerald700, money: true })]);
+    rows.push(blankRow(4));
+    rows.push([sectionHeaderCell('Liabilities', C.rose700), sectionHeaderCell('', C.rose700), sectionHeaderCell('', C.rose700), sectionHeaderCell('', C.rose700)]);
+    rows.push([bodyCell(''), bodyCell('Pending membership dues'), bodyCell(''), bodyCell(pendingDues, { money: true })]);
+    rows.push([totalRowCell(''), totalRowCell('Total Liabilities', { bg: C.rose50 }), totalRowCell('', { bg: C.rose50 }), totalRowCell(totalLiabilities, { bg: C.rose50, color: C.rose700, money: true })]);
+    rows.push(blankRow(4));
+    rows.push([sectionHeaderCell('Equity', C.indigo700), sectionHeaderCell('', C.indigo700), sectionHeaderCell('', C.indigo700), sectionHeaderCell('', C.indigo700)]);
+    rows.push([bodyCell(''), bodyCell("Owner's Equity"), bodyCell(''), bodyCell(equity, { money: true })]);
+    rows.push([totalRowCell(''), totalRowCell('Liabilities + Equity', { bg: C.indigo50, large: true }), totalRowCell('', { bg: C.indigo50, large: true }), totalRowCell(totalLiabilities + equity, { bg: C.indigo50, color: C.indigo700, money: true, large: true })]);
+
+    return makeSheet(rows, [16, 36, 28, 18], [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } }
+    ]);
+  };
+
+  const buildCashFlowSheet = () => {
+    const rows: Cell[][] = [
+      [titleCell('Cash Flow Statement'), txt(''), txt(''), txt(''), txt('')],
+      [subtitleCell(`${printUser.businessName || `${printUser.firstName} ${printUser.lastName}`} · ${periodLabel}`), txt(''), txt(''), txt(''), txt('')],
+      blankRow(5),
+      [tableHeaderCell('Date'), tableHeaderCell('Period'), tableHeaderCell('Type'), tableHeaderCell('Description'), tableHeaderCell('Amount')]
+    ];
+    if (cashFlowRows.length === 0) {
+      rows.push([bodyCell(''), bodyCell(''), bodyCell(''), bodyCell('No cash movements in this period.', { color: C.gray500 }), bodyCell('')]);
+    } else {
+      cashFlowRows.forEach(r => {
+        const inflow = r.amount >= 0;
+        rows.push([
+          bodyCell(r.date ? new Date(r.date).toLocaleDateString() : ''),
+          bodyCell(r.period, { color: C.gray500 }),
+          bodyCell(inflow ? 'Inflow' : 'Outflow', { color: inflow ? C.emerald700 : C.rose700, bold: true }),
+          bodyCell(r.label),
+          bodyCell(r.amount, { money: true, color: inflow ? C.emerald700 : C.rose700, bold: true })
+        ]);
+      });
+    }
+    rows.push(blankRow(5));
+    rows.push([
+      totalRowCell('', { bg: C.gray100 }),
+      totalRowCell('', { bg: C.gray100 }),
+      totalRowCell('', { bg: C.gray100 }),
+      totalRowCell('Net Cash Flow', { bg: C.gray100, large: true }),
+      totalRowCell(netCashFlow, { bg: C.gray100, color: netCashFlow >= 0 ? C.emerald700 : C.rose700, money: true, large: true })
+    ]);
+    return makeSheet(rows, [14, 18, 12, 50, 18], [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } }
+    ]);
+  };
+
+  const buildExpensesSheet = () => {
+    const rows: Cell[][] = [
+      [titleCell('Expenses'), txt(''), txt(''), txt(''), txt(''), txt('')],
+      [subtitleCell(`${printUser.businessName || `${printUser.firstName} ${printUser.lastName}`} · ${periodLabel}`), txt(''), txt(''), txt(''), txt(''), txt('')],
+      blankRow(6),
+      [tableHeaderCell('Date'), tableHeaderCell('Period'), tableHeaderCell('Category'), tableHeaderCell('Description'), tableHeaderCell('Amount'), tableHeaderCell('Receipt')]
+    ];
+    if (filteredExpenses.length === 0) {
+      rows.push([bodyCell(''), bodyCell(''), bodyCell(''), bodyCell('No expenses recorded for this period.', { color: C.gray500 }), bodyCell(''), bodyCell('')]);
+    } else {
+      filteredExpenses.forEach(x => {
+        rows.push([
+          bodyCell(x.date ? new Date(x.date).toLocaleDateString() : ''),
+          bodyCell(`${x.month} ${x.year}`, { color: C.gray500 }),
+          bodyCell(x.category, { bold: true }),
+          bodyCell(x.description || ''),
+          bodyCell(x.amount, { money: true, color: C.rose700, bold: true }),
+          bodyCell(x.receipt || '', { color: C.gray500 })
+        ]);
+      });
+    }
+    rows.push(blankRow(6));
+    rows.push([
+      totalRowCell('', { bg: C.gray100 }),
+      totalRowCell('', { bg: C.gray100 }),
+      totalRowCell('', { bg: C.gray100 }),
+      totalRowCell('TOTAL', { bg: C.gray100, large: true }),
+      totalRowCell(totalExpenses, { bg: C.gray100, color: C.rose700, money: true, large: true }),
+      totalRowCell('', { bg: C.gray100 })
+    ]);
+    return makeSheet(rows, [14, 18, 22, 38, 18, 30], [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } }
+    ]);
+  };
+
+  const exportExcel = () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, buildSummarySheet(), 'Summary');
+    XLSX.utils.book_append_sheet(wb, buildPLSheet(), 'Profit & Loss');
+    XLSX.utils.book_append_sheet(wb, buildBalanceSheet(), 'Balance Sheet');
+    XLSX.utils.book_append_sheet(wb, buildCashFlowSheet(), 'Cash Flow');
+    XLSX.utils.book_append_sheet(wb, buildExpensesSheet(), 'Expenses');
+    XLSX.writeFile(wb, `ran_financials${periodSuffix}.xlsx`);
+  };
+
+  const handlePrint = () => window.print();
   return (
     <div className="space-y-6 financials-root">
       <style>{`
@@ -1633,8 +1825,8 @@ const FinancialsSection: React.FC<FinancialsSectionProps> = ({
             <p className="text-sm text-gray-500">Track your profit, loss, assets and cash flow from your recycling business.</p>
           </div>
           <div className="flex gap-2 print:hidden">
-            <button onClick={exportCurrent} className="inline-flex items-center bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-2 rounded text-sm font-medium" title="Export the active tab as CSV">
-              <Download className="h-4 w-4 mr-1" /> Export CSV
+            <button onClick={exportExcel} className="inline-flex items-center bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-2 rounded text-sm font-medium" title="Download a styled Excel workbook (Summary, P&L, Balance Sheet, Cash Flow, Expenses)">
+              <Download className="h-4 w-4 mr-1" /> Export Excel
             </button>
             <button onClick={handlePrint} className="inline-flex items-center bg-gray-700 hover:bg-gray-800 text-white px-3 py-2 rounded text-sm font-medium" title="Open the browser print dialog — choose 'Save as PDF' to get a PDF">
               <Printer className="h-4 w-4 mr-1" /> Print / PDF
