@@ -269,6 +269,24 @@ export const api = {
     return await handleResponse(res);
   },
 
+  updateCollection: async (id: string, data: Partial<Collection>): Promise<Collection> => {
+    const res = await fetch(`${API_URL}/collections/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  deleteCollection: async (id: string): Promise<void> => {
+    const res = await fetch(`${API_URL}/collections/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'include'
+    });
+    await handleResponse(res);
+  },
+
   getProcessedMaterials: async (userId?: string): Promise<ProcessedMaterial[]> => {
     let url = `${API_URL}/processed`;
     if (userId) {
@@ -288,6 +306,24 @@ export const api = {
         credentials: 'include'
     });
     return await handleResponse(res);
+  },
+
+  updateProcessedMaterial: async (id: string, data: Partial<ProcessedMaterial>): Promise<ProcessedMaterial> => {
+    const res = await fetch(`${API_URL}/processed/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+    });
+    return await handleResponse(res);
+  },
+
+  deleteProcessedMaterial: async (id: string): Promise<void> => {
+    const res = await fetch(`${API_URL}/processed/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'include'
+    });
+    await handleResponse(res);
   },
 
   getStockpile: async (userId?: string): Promise<StockpileEntry[]> => {

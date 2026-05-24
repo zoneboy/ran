@@ -3,7 +3,7 @@ import { User, MembershipStatus, Announcement, Payment, BankDetails, Collection,
 import { api } from '../services/api';
 import { uploadToCloudinary } from '../services/cloudinary';
 import { renderAnnouncementHtml } from '../utils/sanitizeHtml';
-import { CreditCard, Download, User as UserIcon, Bell, AlertTriangle, Users, Camera, X, Check, Loader2, Clock, UploadCloud, MessageCircle, BarChart2, Plus, FileText, Trash2, Leaf, Factory, Archive, AlertCircle, Calculator, TrendingUp, TrendingDown, Wallet, Receipt, PieChart, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { CreditCard, Download, User as UserIcon, Bell, AlertTriangle, Users, Camera, X, Check, Loader2, Clock, UploadCloud, MessageCircle, BarChart2, Plus, FileText, Trash2, Leaf, Factory, Archive, AlertCircle, Calculator, TrendingUp, TrendingDown, Wallet, Receipt, PieChart, ArrowDownCircle, ArrowUpCircle, Pencil } from 'lucide-react';
 
 interface UserDashboardProps {
   user: User;
@@ -55,6 +55,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
   // Collections
   const [showCollectionModal, setShowCollectionModal] = useState(false);
+  const [editingCollectionId, setEditingCollectionId] = useState<string | null>(null);
   const [collectionForm, setCollectionForm] = useState({
       month: MONTHS[new Date().getMonth()],
       year: new Date().getFullYear().toString(),
@@ -67,6 +68,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
   // Processed Materials
   const [showProcessedModal, setShowProcessedModal] = useState(false);
+  const [editingProcessedId, setEditingProcessedId] = useState<string | null>(null);
   const [processedForm, setProcessedForm] = useState({
       month: MONTHS[new Date().getMonth()],
       year: new Date().getFullYear().toString(),
@@ -254,11 +256,31 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
     finally { setIsProcessingPayment(false); }
   };
 
+  const openCollectionModalForCreate = () => {
+    setEditingCollectionId(null);
+    setCollectionForm({ month: MONTHS[new Date().getMonth()], year: new Date().getFullYear().toString(), material: '', weight: '', pricePerKg: '', supplier: '', images: [] });
+    setShowCollectionModal(true);
+  };
+
+  const openCollectionModalForEdit = (col: Collection) => {
+    setEditingCollectionId(col.id);
+    setCollectionForm({
+      month: col.month,
+      year: col.year,
+      material: col.material,
+      weight: String(col.weight),
+      pricePerKg: col.pricePerKg ? String(col.pricePerKg) : '',
+      supplier: col.supplier || '',
+      images: col.images || []
+    });
+    setShowCollectionModal(true);
+  };
+
   const handleCollectionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsProcessingPayment(true);
     try {
-      await api.createCollection({
+      const payload = {
         userId: user.id,
         month: collectionForm.month,
         year: collectionForm.year,
@@ -267,13 +289,27 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         pricePerKg: collectionForm.pricePerKg ? Number(collectionForm.pricePerKg) : 0,
         supplier: collectionForm.supplier,
         images: collectionForm.images
-      });
+      };
+      if (editingCollectionId) {
+        await api.updateCollection(editingCollectionId, payload);
+      } else {
+        await api.createCollection(payload);
+      }
       await refreshLogsAndStockpile();
       setShowCollectionModal(false);
+      setEditingCollectionId(null);
       setCollectionForm({ month: MONTHS[new Date().getMonth()], year: new Date().getFullYear().toString(), material: '', weight: '', pricePerKg: '', supplier: '', images: [] });
-      alert("Collection logged successfully");
-    } catch (e) { alert("Failed to log collection"); }
+      alert(editingCollectionId ? 'Collection updated successfully' : 'Collection logged successfully');
+    } catch (e: any) { alert(e.message || 'Failed to save collection'); }
     finally { setIsProcessingPayment(false); }
+  };
+
+  const handleDeleteCollection = async (col: Collection) => {
+    if (!window.confirm(`Delete this ${col.material} collection (${col.weight.toLocaleString()} kg)?`)) return;
+    try {
+      await api.deleteCollection(col.id);
+      await refreshLogsAndStockpile();
+    } catch (e: any) { alert(e.message || 'Failed to delete collection'); }
   };
 
   const handleWeighbridgeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -330,6 +366,34 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
     return true;
   };
 
+  const openProcessedModalForCreate = () => {
+    setEditingProcessedId(null);
+    setProcessedForm({
+      month: MONTHS[new Date().getMonth()],
+      year: new Date().getFullYear().toString(),
+      material: '',
+      weight: '',
+      pricePerKg: '',
+      buyer: '',
+      weighbridgeImages: []
+    });
+    setShowProcessedModal(true);
+  };
+
+  const openProcessedModalForEdit = (p: ProcessedMaterial) => {
+    setEditingProcessedId(p.id);
+    setProcessedForm({
+      month: p.month,
+      year: p.year,
+      material: p.material,
+      weight: String(p.weight),
+      pricePerKg: p.pricePerKg ? String(p.pricePerKg) : '',
+      buyer: p.buyer || '',
+      weighbridgeImages: p.weighbridgeImages || []
+    });
+    setShowProcessedModal(true);
+  };
+
   const handleProcessedSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -344,13 +408,15 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       return;
     }
 
-    // Soft warning
-    const proceed = checkProcessedAgainstStockpile(processedForm.material, weight);
-    if (!proceed) return;
+    // Soft warning (skip on edit to avoid double-prompts when re-saving same row)
+    if (!editingProcessedId) {
+      const proceed = checkProcessedAgainstStockpile(processedForm.material, weight);
+      if (!proceed) return;
+    }
 
     setIsSavingProcessed(true);
     try {
-      await api.createProcessedMaterial({
+      const payload = {
         userId: user.id,
         month: processedForm.month,
         year: processedForm.year,
@@ -359,9 +425,15 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         pricePerKg: processedForm.pricePerKg ? Number(processedForm.pricePerKg) : 0,
         buyer: processedForm.buyer,
         weighbridgeImages: processedForm.weighbridgeImages
-      });
+      };
+      if (editingProcessedId) {
+        await api.updateProcessedMaterial(editingProcessedId, payload);
+      } else {
+        await api.createProcessedMaterial(payload);
+      }
       await refreshLogsAndStockpile();
       setShowProcessedModal(false);
+      setEditingProcessedId(null);
       setProcessedForm({
         month: MONTHS[new Date().getMonth()],
         year: new Date().getFullYear().toString(),
@@ -371,12 +443,20 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         buyer: '',
         weighbridgeImages: []
       });
-      alert('Processed material logged successfully');
+      alert(editingProcessedId ? 'Processed entry updated successfully' : 'Processed material logged successfully');
     } catch (e: any) {
-      alert(e.message || 'Failed to log processed material');
+      alert(e.message || 'Failed to save processed material');
     } finally {
       setIsSavingProcessed(false);
     }
+  };
+
+  const handleDeleteProcessed = async (p: ProcessedMaterial) => {
+    if (!window.confirm(`Delete this ${p.material} processed entry (${p.weight.toLocaleString()} kg)?`)) return;
+    try {
+      await api.deleteProcessedMaterial(p.id);
+      await refreshLogsAndStockpile();
+    } catch (e: any) { alert(e.message || 'Failed to delete processed entry'); }
   };
 
   const handleExpenseReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -832,7 +912,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                     <>
                       <div className="px-6 py-3 border-b flex justify-between items-center bg-gray-50">
                         <p className="text-sm text-gray-600">Log how much you've collected this period</p>
-                        <button onClick={() => setShowCollectionModal(true)} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 flex items-center">
+                        <button onClick={openCollectionModalForCreate} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 flex items-center">
                           <Plus className="h-4 w-4 mr-1" /> Log Collection
                         </button>
                       </div>
@@ -847,10 +927,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Cost</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
+                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
-                            {isLoadingData ? (<tr><td colSpan={7} className="px-6 py-4"><LogSkeleton /></td></tr>) : collections.length > 0 ? collections.map(col => (
+                            {isLoadingData ? (<tr><td colSpan={8} className="px-6 py-4"><LogSkeleton /></td></tr>) : collections.length > 0 ? collections.map(col => (
                               <tr key={col.id}>
                                 <td className="px-6 py-4 text-sm text-gray-900">{col.month} {col.year}</td>
                                 <td className="px-6 py-4 text-sm text-gray-600">{col.material}</td>
@@ -861,8 +942,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                                 </td>
                                 <td className="px-6 py-4 text-sm text-gray-600">{col.supplier || '—'}</td>
                                 <td className="px-6 py-4 text-sm text-gray-500">{new Date(col.createdAt).toLocaleDateString()}</td>
+                                <td className="px-6 py-4 text-sm text-right whitespace-nowrap">
+                                  <button onClick={() => openCollectionModalForEdit(col)} className="text-gray-500 hover:text-green-600 mr-2" title="Edit">
+                                    <Pencil className="h-4 w-4 inline" />
+                                  </button>
+                                  <button onClick={() => handleDeleteCollection(col)} className="text-gray-400 hover:text-red-600" title="Delete">
+                                    <Trash2 className="h-4 w-4 inline" />
+                                  </button>
+                                </td>
                               </tr>
-                            )) : (<tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500">No collection data logged yet.</td></tr>)}
+                            )) : (<tr><td colSpan={8} className="px-6 py-8 text-center text-gray-500">No collection data logged yet.</td></tr>)}
                           </tbody>
                         </table>
                       </div>
@@ -874,7 +963,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                     <>
                       <div className="px-6 py-3 border-b flex justify-between items-center bg-gray-50">
                         <p className="text-sm text-gray-600">Log how much you've processed or sold (with weighbridge proof)</p>
-                        <button onClick={() => setShowProcessedModal(true)} className="text-sm bg-teal-600 text-white px-3 py-1.5 rounded hover:bg-teal-700 flex items-center">
+                        <button onClick={openProcessedModalForCreate} className="text-sm bg-teal-600 text-white px-3 py-1.5 rounded hover:bg-teal-700 flex items-center">
                           <Plus className="h-4 w-4 mr-1" /> Log Processed
                         </button>
                       </div>
@@ -890,10 +979,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Buyer</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weighbridge</th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Logged</th>
+                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
-                            {isLoadingData ? (<tr><td colSpan={8} className="px-6 py-4"><LogSkeleton /></td></tr>) : processed.length > 0 ? processed.map(p => (
+                            {isLoadingData ? (<tr><td colSpan={9} className="px-6 py-4"><LogSkeleton /></td></tr>) : processed.length > 0 ? processed.map(p => (
                               <tr key={p.id}>
                                 <td className="px-6 py-4 text-sm text-gray-900">{p.month} {p.year}</td>
                                 <td className="px-6 py-4 text-sm text-gray-600">{p.material}</td>
@@ -913,8 +1003,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                                   </div>
                                 </td>
                                 <td className="px-6 py-4 text-sm text-gray-500">{new Date(p.createdAt).toLocaleDateString()}</td>
+                                <td className="px-6 py-4 text-sm text-right whitespace-nowrap">
+                                  <button onClick={() => openProcessedModalForEdit(p)} className="text-gray-500 hover:text-teal-600 mr-2" title="Edit">
+                                    <Pencil className="h-4 w-4 inline" />
+                                  </button>
+                                  <button onClick={() => handleDeleteProcessed(p)} className="text-gray-400 hover:text-red-600" title="Delete">
+                                    <Trash2 className="h-4 w-4 inline" />
+                                  </button>
+                                </td>
                               </tr>
-                            )) : (<tr><td colSpan={8} className="px-6 py-8 text-center text-gray-500">No processed material logged yet.</td></tr>)}
+                            )) : (<tr><td colSpan={9} className="px-6 py-8 text-center text-gray-500">No processed material logged yet.</td></tr>)}
                           </tbody>
                         </table>
                       </div>
@@ -1070,7 +1168,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       {showCollectionModal && !isExpired && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-gray-900">Log Collection</h3><button onClick={() => setShowCollectionModal(false)}><X className="h-5 w-5 text-gray-500" /></button></div>
+            <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-gray-900">{editingCollectionId ? 'Edit Collection' : 'Log Collection'}</h3><button onClick={() => { setShowCollectionModal(false); setEditingCollectionId(null); }}><X className="h-5 w-5 text-gray-500" /></button></div>
             <form onSubmit={handleCollectionSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-sm font-medium text-gray-700">Month</label><select className="w-full border rounded px-3 py-2 mt-1" value={collectionForm.month} onChange={e => setCollectionForm({ ...collectionForm, month: e.target.value })}>{MONTHS.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
@@ -1103,7 +1201,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
                 </div>
               )}
 
-              <button type="submit" disabled={isProcessingPayment} className="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700 disabled:opacity-50">{isProcessingPayment ? 'Saving...' : 'Save Entry'}</button>
+              <button type="submit" disabled={isProcessingPayment} className="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700 disabled:opacity-50">{isProcessingPayment ? 'Saving...' : editingCollectionId ? 'Update Entry' : 'Save Entry'}</button>
             </form>
           </div>
         </div>
@@ -1115,9 +1213,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-900 flex items-center">
-                <Factory className="h-5 w-5 mr-2 text-teal-600" /> Log Processed Material
+                <Factory className="h-5 w-5 mr-2 text-teal-600" /> {editingProcessedId ? 'Edit Processed Entry' : 'Log Processed Material'}
               </h3>
-              <button onClick={() => setShowProcessedModal(false)}><X className="h-5 w-5 text-gray-500" /></button>
+              <button onClick={() => { setShowProcessedModal(false); setEditingProcessedId(null); }}><X className="h-5 w-5 text-gray-500" /></button>
             </div>
 
             <form onSubmit={handleProcessedSubmit} className="space-y-4">
@@ -1209,7 +1307,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
               </div>
 
               <button type="submit" disabled={isSavingProcessed || processedForm.weighbridgeImages.length === 0} className="w-full bg-teal-600 text-white py-2 rounded font-bold hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                {isSavingProcessed ? 'Saving...' : 'Save Processed Entry'}
+                {isSavingProcessed ? 'Saving...' : editingProcessedId ? 'Update Processed Entry' : 'Save Processed Entry'}
               </button>
             </form>
           </div>

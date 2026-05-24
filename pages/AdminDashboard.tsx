@@ -514,6 +514,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     refreshData();
   }, []);
 
+  const handleDeleteCollection = async (col: Collection) => {
+    if (!window.confirm(`Delete this collection?\n\nMember: ${col.businessName || col.userId}\nMaterial: ${col.material}\nWeight: ${col.weight.toLocaleString()} kg\n\nThis cannot be undone.`)) return;
+    try {
+      await api.deleteCollection(col.id);
+      const [colData, stockData] = await Promise.all([api.getCollections(), api.getStockpile()]);
+      setCollections(colData);
+      setStockpile(stockData);
+    } catch (e: any) {
+      alert(e.message || 'Failed to delete collection');
+    }
+  };
+
+  const handleDeleteProcessed = async (p: ProcessedMaterial) => {
+    if (!window.confirm(`Delete this processed entry?\n\nMember: ${p.businessName || p.userId}\nMaterial: ${p.material}\nWeight: ${p.weight.toLocaleString()} kg\n\nThis cannot be undone.`)) return;
+    try {
+      await api.deleteProcessedMaterial(p.id);
+      const [procData, stockData] = await Promise.all([api.getProcessedMaterials(), api.getStockpile()]);
+      setProcessed(procData);
+      setStockpile(stockData);
+    } catch (e: any) {
+      alert(e.message || 'Failed to delete processed entry');
+    }
+  };
+
   useEffect(() => {
     setMemberPage(1);
   }, [filter, statusFilter, categoryFilter, businessTypeFilter]);
@@ -1684,6 +1708,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -1695,8 +1720,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                     <td className="px-6 py-4 text-sm text-gray-600">{col.month} {col.year}</td>
                     <td className="px-6 py-4 text-sm text-gray-600">{col.material}</td>
                     <td className="px-6 py-4 text-sm font-bold text-gray-900">{col.weight.toLocaleString()}</td>
+                    <td className="px-6 py-4 text-sm text-right whitespace-nowrap">
+                      <button onClick={() => handleDeleteCollection(col)} className="text-gray-400 hover:text-red-600" title="Delete">
+                        <Trash2 className="h-4 w-4 inline" />
+                      </button>
+                    </td>
                   </tr>
-                )) : (<tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">No collection records found.</td></tr>)}
+                )) : (<tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500">No collection records found.</td></tr>)}
               </tbody>
             </table>
           </div>
@@ -1735,6 +1765,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight (KG)</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weighbridge</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -1753,8 +1784,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         ))}
                       </div>
                     </td>
+                    <td className="px-6 py-4 text-sm text-right whitespace-nowrap">
+                      <button onClick={() => handleDeleteProcessed(p)} className="text-gray-400 hover:text-red-600" title="Delete">
+                        <Trash2 className="h-4 w-4 inline" />
+                      </button>
+                    </td>
                   </tr>
-                )) : (<tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500">No processed material records found.</td></tr>)}
+                )) : (<tr><td colSpan={8} className="px-6 py-8 text-center text-gray-500">No processed material records found.</td></tr>)}
               </tbody>
             </table>
           </div>
