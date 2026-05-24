@@ -943,6 +943,9 @@ router.post('/collections', authenticateToken, verifyOwnership, async (req, res)
     const createdAt = new Date().toISOString();
     const pricePerKg = data.pricePerKg != null && data.pricePerKg !== '' ? Number(data.pricePerKg) : 0;
     const supplier = (data.supplier || '').toString().trim() || null;
+    if (isNaN(pricePerKg) || pricePerKg <= 0) {
+        return res.status(400).json({ message: 'Total cost is required.' });
+    }
     try {
         await query(
             'INSERT INTO collections (id, user_id, month, year, material, weight, images, price_per_kg, supplier, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
@@ -969,6 +972,9 @@ router.put('/collections/:id', authenticateToken, async (req, res) => {
         }
         const pricePerKg = data.pricePerKg != null && data.pricePerKg !== '' ? Number(data.pricePerKg) : 0;
         const supplier = (data.supplier || '').toString().trim() || null;
+        if (isNaN(pricePerKg) || pricePerKg <= 0) {
+            return res.status(400).json({ message: 'Total cost is required.' });
+        }
         await query(
             'UPDATE collections SET month = $1, year = $2, material = $3, weight = $4, price_per_kg = $5, supplier = $6 WHERE id = $7',
             [data.month, data.year, data.material, weight, pricePerKg, supplier, req.params.id]
@@ -1045,6 +1051,9 @@ router.post('/processed', authenticateToken, verifyOwnership, async (req, res) =
 
         const pricePerKg = data.pricePerKg != null && data.pricePerKg !== '' ? Number(data.pricePerKg) : 0;
         const buyer = (data.buyer || '').toString().trim() || null;
+        if (isNaN(pricePerKg) || pricePerKg <= 0) {
+            return res.status(400).json({ message: 'Sale price per kg is required.' });
+        }
 
         await query(
             'INSERT INTO processed_materials (id, user_id, month, year, material, weight, weighbridge_images, price_per_kg, buyer, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
@@ -1074,6 +1083,9 @@ router.put('/processed/:id', authenticateToken, async (req, res) => {
         }
         const pricePerKg = data.pricePerKg != null && data.pricePerKg !== '' ? Number(data.pricePerKg) : 0;
         const buyer = (data.buyer || '').toString().trim() || null;
+        if (isNaN(pricePerKg) || pricePerKg <= 0) {
+            return res.status(400).json({ message: 'Sale price per kg is required.' });
+        }
         await query(
             'UPDATE processed_materials SET month = $1, year = $2, material = $3, weight = $4, weighbridge_images = $5, price_per_kg = $6, buyer = $7 WHERE id = $8',
             [data.month, data.year, data.material, weight, data.weighbridgeImages, pricePerKg, buyer, req.params.id]

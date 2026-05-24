@@ -279,12 +279,14 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
   const handleCollectionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const weight = Number(collectionForm.weight);
+    const totalCost = Number(collectionForm.totalCost);
+    if (!totalCost || totalCost <= 0) { alert('Total cost is required.'); return; }
+    if (!weight || weight <= 0) { alert('Weight must be greater than zero.'); return; }
+    const pricePerKg = totalCost / weight;
     setIsProcessingPayment(true);
     try {
-      const weight = Number(collectionForm.weight);
-      const totalCost = collectionForm.totalCost ? Number(collectionForm.totalCost) : 0;
-      const pricePerKg = weight > 0 && totalCost > 0 ? totalCost / weight : 0;
-      const payload = {
+      const payload: Partial<Collection> = {
         userId: user.id,
         month: collectionForm.month,
         year: collectionForm.year,
@@ -412,6 +414,12 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
       return;
     }
 
+    const salePrice = Number(processedForm.pricePerKg);
+    if (!salePrice || salePrice <= 0) {
+      alert('Sale price per kg is required.');
+      return;
+    }
+
     // Soft warning (skip on edit to avoid double-prompts when re-saving same row)
     if (!editingProcessedId) {
       const proceed = checkProcessedAgainstStockpile(processedForm.material, weight);
@@ -426,7 +434,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
         year: processedForm.year,
         material: processedForm.material,
         weight,
-        pricePerKg: processedForm.pricePerKg ? Number(processedForm.pricePerKg) : 0,
+        pricePerKg: salePrice,
         buyer: processedForm.buyer,
         weighbridgeImages: processedForm.weighbridgeImages
       };
@@ -1190,8 +1198,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Total Cost (₦) <span className="text-xs text-gray-400 font-normal">(optional)</span></label>
-                  <input type="number" step="0.01" min="0" value={collectionForm.totalCost} onChange={e => setCollectionForm({ ...collectionForm, totalCost: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" />
+                  <label className="block text-sm font-medium text-gray-700">Total Cost (₦) <span className="text-red-500">*</span></label>
+                  <input type="number" step="0.01" min="0.01" required value={collectionForm.totalCost} onChange={e => setCollectionForm({ ...collectionForm, totalCost: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" />
                   <p className="text-[11px] text-gray-500 mt-1">Total ₦ paid for this batch (multiple suppliers/rates OK)</p>
                 </div>
                 <div>
@@ -1254,9 +1262,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, navigate, onUpdateU
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Sale Price (₦/kg)</label>
-                  <input type="number" step="0.01" min="0" value={processedForm.pricePerKg} onChange={e => setProcessedForm({ ...processedForm, pricePerKg: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" />
-                  <p className="text-[11px] text-gray-500 mt-1">Leave 0 if not yet sold</p>
+                  <label className="block text-sm font-medium text-gray-700">Sale Price (₦/kg) <span className="text-red-500">*</span></label>
+                  <input type="number" step="0.01" min="0.01" required value={processedForm.pricePerKg} onChange={e => setProcessedForm({ ...processedForm, pricePerKg: e.target.value })} className="w-full border rounded px-3 py-2 mt-1" placeholder="0.00" />
+                  <p className="text-[11px] text-gray-500 mt-1">Used for revenue, P&L and cash flow</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Buyer (optional)</label>
