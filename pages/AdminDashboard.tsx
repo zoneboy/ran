@@ -434,6 +434,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     category: '',
     businessType: '',
     machinery: '',
+    status: '',
     format: 'Excel'
   });
 
@@ -1264,7 +1265,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       const matchCat = exportConfig.category ? (u.category || '').toLowerCase() === exportConfig.category.toLowerCase() : true;
       const matchMach = exportConfig.machinery ? (u.machineryDeployed || []).includes(exportConfig.machinery) : true;
       const matchBizType = exportConfig.businessType ? u.businessCategory === exportConfig.businessType : true;
-      return matchState && matchRegion && matchCat && matchMach && matchBizType;
+      const matchStatus = exportConfig.status ? u.status === exportConfig.status : true;
+      return matchState && matchRegion && matchCat && matchMach && matchBizType && matchStatus;
     });
 
     if (exportConfig.format === 'Excel') {
@@ -1952,6 +1954,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             <div className="space-y-4">
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Region</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.region} onChange={(e) => setExportConfig({ ...exportConfig, region: e.target.value })}><option value="">All Regions</option>{uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by State</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.state} onChange={(e) => setExportConfig({ ...exportConfig, state: e.target.value })}><option value="">All States</option>{uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Status</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.status} onChange={(e) => setExportConfig({ ...exportConfig, status: e.target.value })}><option value="">All Statuses</option>{Object.values(MembershipStatus).map(s => <option key={s} value={s}>{s}</option>)}</select></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Membership Type</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.category} onChange={(e) => setExportConfig({ ...exportConfig, category: e.target.value })}><option value="">All Categories</option>{Object.values(MembershipCategory).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Business Type</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.businessType} onChange={(e) => setExportConfig({ ...exportConfig, businessType: e.target.value })}><option value="">All Business Types</option>{Object.values(BusinessCategory).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Filter by Machinery Deployed</label><select className="w-full border rounded-md px-3 py-2" value={exportConfig.machinery} onChange={(e) => setExportConfig({ ...exportConfig, machinery: e.target.value })}><option value="">All Machinery</option>{uniqueMachinery.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
