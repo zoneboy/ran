@@ -1047,10 +1047,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  const filteredUsers = users.filter(u => {
+  // All filters EXCEPT status, so we can show accurate per-status counts on
+  // the quick-filter tabs (each count reflects the current search/category/
+  // business-type selection).
+  const baseFilteredUsers = users.filter(u => {
     if (u.role === UserRole.ADMIN) return false;
 
-    if (statusFilter && u.status !== statusFilter) return false;
     if (categoryFilter && (u.category || '').toLowerCase() !== categoryFilter.toLowerCase()) return false;
     if (businessTypeFilter && (u.businessCategory || '') !== businessTypeFilter) return false;
 
@@ -1079,6 +1081,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       safeId.includes(searchTerm)
     );
   });
+
+  const statusCounts = baseFilteredUsers.reduce((acc, u) => {
+    acc[u.status] = (acc[u.status] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const statusTabs = [
+    { label: 'All', value: '', count: baseFilteredUsers.length, active: 'bg-gray-800 text-white border-gray-800', idle: 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50' },
+    { label: 'Active', value: MembershipStatus.ACTIVE, count: statusCounts[MembershipStatus.ACTIVE] || 0, active: 'bg-green-600 text-white border-green-600', idle: 'bg-white text-green-700 border-green-300 hover:bg-green-50' },
+    { label: 'Pending', value: MembershipStatus.PENDING, count: statusCounts[MembershipStatus.PENDING] || 0, active: 'bg-yellow-500 text-white border-yellow-500', idle: 'bg-white text-yellow-700 border-yellow-300 hover:bg-yellow-50' },
+    { label: 'Expired', value: MembershipStatus.EXPIRED, count: statusCounts[MembershipStatus.EXPIRED] || 0, active: 'bg-red-600 text-white border-red-600', idle: 'bg-white text-red-700 border-red-300 hover:bg-red-50' },
+    { label: 'Suspended', value: MembershipStatus.SUSPENDED, count: statusCounts[MembershipStatus.SUSPENDED] || 0, active: 'bg-gray-600 text-white border-gray-600', idle: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' },
+  ];
+
+  const filteredUsers = statusFilter
+    ? baseFilteredUsers.filter(u => u.status === statusFilter)
+    : baseFilteredUsers;
 
   const paginatedUsers = filteredUsers.slice(
     (memberPage - 1) * MEMBERS_PER_PAGE,
@@ -1600,6 +1619,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 <option value="">All Business Types</option>
                 {Object.values(BusinessCategory).map(c => <option key={c} value={c}>{c}</option>)}
               </select>
+            </div>
+            {/* Quick status filters with live counts */}
+            <div className="w-full flex flex-wrap items-center gap-2">
+              {statusTabs.map(tab => (
+                <button
+                  key={tab.label}
+                  onClick={() => setStatusFilter(tab.value)}
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-colors ${statusFilter === tab.value ? tab.active : tab.idle}`}
+                >
+                  {tab.label}
+                  <span className={`text-xs font-semibold rounded-full px-1.5 py-0.5 ${statusFilter === tab.value ? 'bg-white/25' : 'bg-gray-100 text-gray-700'}`}>{tab.count}</span>
+                </button>
+              ))}
             </div>
           </div>
 
