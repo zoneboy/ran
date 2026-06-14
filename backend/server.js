@@ -441,13 +441,31 @@ const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Africa/Lagos';
 const getTodayStr = () =>
     new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE }).format(new Date());
 
+// Stored expiry_date values are NOT a single format: newer rows use ISO
+// `YYYY-MM-DD` (registration/renewal) but older/imported rows use US
+// `M/D/YYYY` (e.g. "3/31/2025"). Normalize any of these to `YYYY-MM-DD` so a
+// plain string compare equals a chronological one. Returns null if unparseable.
+const normalizeDateStr = (raw) => {
+    if (!raw) return null;
+    const s = String(raw).trim();
+    const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+    const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (us) return `${us[3]}-${us[1].padStart(2, '0')}-${us[2].padStart(2, '0')}`;
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE }).format(d);
+    }
+    return null;
+};
+
 // A membership is expired once the day is strictly past its expiry date, i.e.
-// members stay active through the whole of their expiry date. expiry_date is
-// stored as YYYY-MM-DD, so a left-trimmed string compare equals a date compare
-// and tolerates any stray time/zone suffix in legacy rows.
+// members stay active through the whole of their expiry date. Shared by the
+// login check and the admin/scheduled sweep so they can never disagree.
 const isExpiredOn = (expiryDateStr, todayStr) => {
-    if (!expiryDateStr) return false;
-    return expiryDateStr.slice(0, 10) < todayStr;
+    const norm = normalizeDateStr(expiryDateStr);
+    if (!norm) return false;
+    return norm < todayStr;
 };
 
 const checkExpiry = async (user) => {
@@ -459,17 +477,26 @@ const checkExpiry = async (user) => {
     return user;
 };
 
+// Recompute in JS rather than SQL: expiry_date is TEXT in mixed date formats,
+// so a SQL string/date comparison is unreliable (it's what let US-format rows
+// like "3/31/2025" slip through as Active). This mirrors checkExpiry exactly,
+// so an admin sees the same result the member would get by logging in.
 const syncExpiredMembers = async () => {
-    await query(
-        `UPDATE users
-         SET status = 'Expired'
-         WHERE role <> 'ADMIN'
-           AND status = 'Active'
-           AND expiry_date IS NOT NULL
-           AND expiry_date <> ''
-           AND LEFT(expiry_date, 10) < $1`,
-        [getTodayStr()]
+    const { rows } = await query(
+        `SELECT id, expiry_date FROM users
+         WHERE role <> 'ADMIN' AND status = 'Active'
+           AND expiry_date IS NOT NULL AND expiry_date <> ''`
     );
+    const todayStr = getTodayStr();
+    const expiredIds = rows
+        .filter(r => isExpiredOn(r.expiry_date, todayStr))
+        .map(r => r.id);
+    if (expiredIds.length > 0) {
+        await query(
+            `UPDATE users SET status = 'Expired' WHERE id = ANY($1::text[])`,
+            [expiredIds]
+        );
+    }
 };
 
 const NIGERIAN_STATES_SERVER = [
