@@ -499,6 +499,26 @@ const syncExpiredMembers = async () => {
     }
 };
 
+// Rewrite any non-ISO expiry_date (e.g. US "3/31/2025") to canonical
+// YYYY-MM-DD so the column is internally consistent for sorting, exports and
+// comparisons. Idempotent: only touches rows whose stored value differs from
+// its normalized form. Returns the number of rows updated.
+const normalizeAllExpiryDates = async () => {
+    const { rows } = await query(
+        `SELECT id, expiry_date FROM users
+         WHERE expiry_date IS NOT NULL AND expiry_date <> ''`
+    );
+    let updated = 0;
+    for (const r of rows) {
+        const norm = normalizeDateStr(r.expiry_date);
+        if (norm && norm !== r.expiry_date) {
+            await query('UPDATE users SET expiry_date = $1 WHERE id = $2', [norm, r.id]);
+            updated++;
+        }
+    }
+    return updated;
+};
+
 const NIGERIAN_STATES_SERVER = [
     "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
     "Cross River","Delta","Ebonyi","Edo","Ekiti","Enugu","FCT - Abuja","Gombe",
@@ -862,7 +882,7 @@ router.put('/user/update', authenticateToken, async (req, res) => {
   try {
     const fields = [ 'first_name', 'last_name', 'phone', 'business_name', 'business_address', 'business_state', 'business_city', 'business_commencement', 'business_category', 'states_of_operation', 'material_types', 'machinery_deployed', 'monthly_volume', 'employees', 'areas_of_interest', 'related_association', 'related_association_name', 'dob', 'profile_image', 'documents' ];
     if (req.user.role === 'ADMIN') { fields.push('category', 'status', 'expiry_date'); }
-    const mappedData = { first_name: data.firstName, last_name: data.lastName, phone: data.phone, category: data.category, status: data.status, business_name: data.businessName, business_address: data.businessAddress, business_state: data.businessState, business_city: data.businessCity, business_commencement: data.businessCommencement, business_category: data.businessCategory, states_of_operation: data.statesOfOperation, material_types: data.materialTypes, machinery_deployed: data.machineryDeployed, monthly_volume: data.monthlyVolume, employees: data.employees, areas_of_interest: data.areasOfInterest, related_association: data.relatedAssociation, related_association_name: data.related_associationName, dob: data.dob, profile_image: data.profileImage, documents: JSON.stringify(data.documents), expiry_date: data.expiryDate };
+    const mappedData = { first_name: data.firstName, last_name: data.lastName, phone: data.phone, category: data.category, status: data.status, business_name: data.businessName, business_address: data.businessAddress, business_state: data.businessState, business_city: data.businessCity, business_commencement: data.businessCommencement, business_category: data.businessCategory, states_of_operation: data.statesOfOperation, material_types: data.materialTypes, machinery_deployed: data.machineryDeployed, monthly_volume: data.monthlyVolume, employees: data.employees, areas_of_interest: data.areasOfInterest, related_association: data.relatedAssociation, related_association_name: data.related_associationName, dob: data.dob, profile_image: data.profileImage, documents: JSON.stringify(data.documents), expiry_date: data.expiryDate ? (normalizeDateStr(data.expiryDate) || data.expiryDate) : data.expiryDate };
     let setClause = []; let values = []; let idx = 1;
     for (const field of fields) { if (mappedData[field] !== undefined) { setClause.push(`${field} = $${idx}`); values.push(mappedData[field]); idx++; } }
     if (setClause.length === 0) return res.json(data);
@@ -1691,6 +1711,11 @@ app.use('/.netlify/functions/api', router);
 app.use('/api', router);
 
 module.exports = app;
+// Expose maintenance helpers for the scheduled function and the one-off
+// migration script (module.exports === app, so these ride along on it).
+app.syncExpiredMembers = syncExpiredMembers;
+app.normalizeAllExpiryDates = normalizeAllExpiryDates;
+app.normalizeDateStr = normalizeDateStr;
 
 if (require.main === module) {
     const PORT = process.env.PORT || 5000;

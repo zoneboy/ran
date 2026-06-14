@@ -3,6 +3,11 @@
   to = "/index.html"
   status = 200
 
+# Daily membership-expiry sweep. Netlify cron runs in UTC; 23:05 UTC = 00:05
+# WAT, just after midnight in the association's timezone.
+[functions."expiry-sweep"]
+  schedule = "5 23 * * *"
+
 [[headers]]
   for = "/*"
   [headers.values]
