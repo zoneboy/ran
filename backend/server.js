@@ -429,36 +429,46 @@ const sanitizeUserForPublic = (user) => {
     };
 };
 
+// Timezone the membership "day" is measured in. The host server may run in
+// UTC (Netlify/most VPS) or local time; pinning the zone keeps expiry math
+// identical everywhere instead of silently depending on the host's clock.
+const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Africa/Lagos';
+
+// "Today" as YYYY-MM-DD in APP_TIMEZONE (en-CA formats as ISO date).
+// NOTE: do NOT use new Date().toISOString() here — that converts to UTC and,
+// on a UTC+1 host, rolls midnight back to the previous day, which made the
+// admin sweep lag a day behind the login-time check.
+const getTodayStr = () =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE }).format(new Date());
+
+// A membership is expired once the day is strictly past its expiry date, i.e.
+// members stay active through the whole of their expiry date. expiry_date is
+// stored as YYYY-MM-DD, so a left-trimmed string compare equals a date compare
+// and tolerates any stray time/zone suffix in legacy rows.
+const isExpiredOn = (expiryDateStr, todayStr) => {
+    if (!expiryDateStr) return false;
+    return expiryDateStr.slice(0, 10) < todayStr;
+};
+
 const checkExpiry = async (user) => {
     if (user.role === 'ADMIN') return user;
-    if (user.expiryDate && user.status === 'Active') {
-        const expiryDate = new Date(user.expiryDate);
-        const today = new Date();
-        expiryDate.setHours(0, 0, 0, 0);
-        today.setHours(0, 0, 0, 0);
-        const diffTime = today.getTime() - expiryDate.getTime();
-        const daysPastExpiry = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-        if (daysPastExpiry >= 1) {
-            await query('UPDATE users SET status = $1 WHERE id = $2', ['Expired', user.id]);
-            user.status = 'Expired';
-        }
+    if (user.status === 'Active' && isExpiredOn(user.expiryDate, getTodayStr())) {
+        await query('UPDATE users SET status = $1 WHERE id = $2', ['Expired', user.id]);
+        user.status = 'Expired';
     }
     return user;
 };
 
 const syncExpiredMembers = async () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().split('T')[0];
-
     await query(
-        `UPDATE users 
-         SET status = 'Expired' 
-         WHERE role != 'ADMIN' 
-           AND status = 'Active' 
-           AND expiry_date IS NOT NULL 
-           AND expiry_date < $1`,
-        [todayStr]
+        `UPDATE users
+         SET status = 'Expired'
+         WHERE role <> 'ADMIN'
+           AND status = 'Active'
+           AND expiry_date IS NOT NULL
+           AND expiry_date <> ''
+           AND LEFT(expiry_date, 10) < $1`,
+        [getTodayStr()]
     );
 };
 
@@ -1658,4 +1668,12 @@ module.exports = app;
 if (require.main === module) {
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+    // Proactively expire memberships so the admin view, dashboard stats and the
+    // public "Active" member list reflect reality even when no admin opens the
+    // members page and the member never logs in. Runs on boot, then hourly.
+    const runExpirySweep = () => syncExpiredMembers().catch(err =>
+        console.error('Scheduled expiry sweep failed:', err));
+    runExpirySweep();
+    setInterval(runExpirySweep, 60 * 60 * 1000).unref();
 }
